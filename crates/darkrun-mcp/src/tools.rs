@@ -1223,6 +1223,9 @@ impl ServerHandler for DarkrunServer {
     /// Bridge the shipped skills as MCP prompts, for harnesses that consume the
     /// prompts capability but don't load `SKILL.md` natively (everyone but
     /// Claude Code). Claude Code uses its native skills, so it gets none here.
+    // ListPromptsResult is #[non_exhaustive], so we can't use struct-init
+    // syntax — default + field assignment is the canonical construction.
+    #[allow(clippy::field_reassign_with_default)]
     async fn list_prompts(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParams>,

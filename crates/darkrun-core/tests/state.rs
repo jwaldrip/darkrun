@@ -382,6 +382,7 @@ fn state_json_roundtrip() {
         factory: "software".into(),
         active_station: "frame".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &state).expect("write state");
 

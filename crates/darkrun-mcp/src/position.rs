@@ -452,19 +452,64 @@ fn station_phase(state: &RunState, station: &str) -> StationPhase {
         .unwrap_or(StationPhase::Spec)
 }
 
-/// Find the first station in the plan that is not yet `Completed`.
-fn current_station<'a>(factory: &'a FactoryDef, state: &RunState) -> Option<&'a str> {
-    factory
+/// The ordered station names this run walks: its explicit right-sized `plan`,
+/// or the full factory plan when none is recorded (full-size / legacy runs).
+fn run_plan(factory: &FactoryDef, state: &RunState) -> Vec<String> {
+    if state.plan.is_empty() {
+        factory.stations.iter().map(|s| s.name.clone()).collect()
+    } else {
+        state.plan.clone()
+    }
+}
+
+/// Find the first station in the run's plan that is not yet `Completed`.
+fn current_station(factory: &FactoryDef, state: &RunState) -> Option<String> {
+    run_plan(factory, state).into_iter().find(|name| {
+        state
+            .stations
+            .get(name)
+            .map(|st| !matches!(st.status, Status::Completed))
+            .unwrap_or(true)
+    })
+}
+
+/// The station after `station` in the run's plan, if any.
+fn next_in_plan(factory: &FactoryDef, state: &RunState, station: &str) -> Option<String> {
+    let plan = run_plan(factory, state);
+    let idx = plan.iter().position(|s| s == station)?;
+    plan.get(idx + 1).cloned()
+}
+
+/// Resolve a run-sizing `mode` into `(station_plan, auto_gates)` — the
+/// right-sizing pass at run start.
+///
+/// The plan is the factory's stations filtered to those the mode keeps, in
+/// factory order. `full`/`standard`/`continuous`/unknown → the full plan (empty
+/// sentinel) with the factory's own gates. A mode whose kept stations don't
+/// exist in the factory falls back to the full plan, so right-sizing can never
+/// strand a run with no stations. Right-sized modes run with `auto` gates.
+fn resolve_template(mode: &str, factory: &FactoryDef) -> (Vec<String>, bool) {
+    let keep: &[&str] = match mode.trim().to_ascii_lowercase().as_str() {
+        // Small work: build + prove only — skip framing/design and hardening.
+        "quick" => &["build", "prove"],
+        // A localized fix: keep the spec for the regression, build, prove.
+        "bugfix" => &["specify", "build", "prove"],
+        // Structural change: keep the design pressure-test, build, prove.
+        "refactor" => &["shape", "build", "prove"],
+        // Full traversal with the factory's own gates.
+        _ => return (Vec::new(), false),
+    };
+    let plan: Vec<String> = factory
         .stations
         .iter()
-        .find(|s| {
-            state
-                .stations
-                .get(&s.name)
-                .map(|st| !matches!(st.status, Status::Completed))
-                .unwrap_or(true)
-        })
-        .map(|s| s.name.as_str())
+        .map(|s| s.name.clone())
+        .filter(|name| keep.contains(&name.as_str()))
+        .collect();
+    if plan.is_empty() {
+        (Vec::new(), false)
+    } else {
+        (plan, true)
+    }
 }
 
 /// Track B — feedback. Returns a `FixFeedback` action for the first open
@@ -534,7 +579,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     let units = store.read_units(slug)?;
 
     let station = match current_station(&factory, &state) {
-        Some(s) => s.to_string(),
+        Some(s) => s,
         None => {
             // Every station locked. If the run declares a final `seal:` gate
             // and hasn't been confirmed delivered, hold at PendingSeal
@@ -716,10 +761,17 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             station: station.clone(),
         },
         StationPhase::Checkpoint => {
+            // A right-sized run with `auto_gates` downgrades every gate to
+            // `auto`; otherwise the station's factory-defined kind applies.
+            let kind = if state.auto_gates {
+                CheckpointKind::Auto
+            } else {
+                def.checkpoint
+            };
             // An `external` gate hands off to an external review surface (a
             // PR/MR) rather than a local prompt — a distinct action so the
             // agent gets focused "open/annotate the review" instructions.
-            if matches!(def.checkpoint, CheckpointKind::External) {
+            if matches!(kind, CheckpointKind::External) {
                 RunAction::ExternalReviewRequested {
                     run: slug.to_string(),
                     station: station.clone(),
@@ -729,7 +781,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
                 RunAction::Checkpoint {
                     run: slug.to_string(),
                     station: station.clone(),
-                    kind: def.checkpoint,
+                    kind,
                 }
             }
         }
@@ -1082,8 +1134,9 @@ fn complete_station(
             cp.outcome = Some(CheckpointOutcome::Advanced);
         }
     }
-    if let Some(next) = factory.next_station(station) {
-        let next_name = next.name.clone();
+    // Advance to the next station in the run's plan (not the factory's full
+    // order) — a right-sized run skips the stations its plan omits.
+    if let Some(next_name) = next_in_plan(factory, state, station) {
         let st = ensure_station(state, factory, &next_name)?;
         st.status = Status::Pending;
         st.phase = StationPhase::Spec;
@@ -1092,11 +1145,13 @@ fn complete_station(
     Ok(())
 }
 
-/// Start a fresh run: write `run.md`, seed `state.json` at the factory's first
-/// station in the `Spec` phase, and return the run slug.
+/// Start a fresh run: write `run.md`, right-size the station plan from `mode`,
+/// seed `state.json` at the plan's first station in the `Spec` phase, and return
+/// the run slug.
 ///
-/// The auto right-sizing pass is a future enhancement; this slice always seeds
-/// the full station plan.
+/// `mode` selects a [`resolve_template`]: `full`/unknown walks every factory
+/// station with its own gates; `quick`/`bugfix`/`refactor` collapse to a station
+/// subset with `auto` gates.
 pub fn run_start(
     store: &StateStore,
     slug: &str,
@@ -1106,9 +1161,16 @@ pub fn run_start(
 ) -> Result<Run> {
     let factory =
         resolve_factory(factory_name).ok_or_else(|| McpError::UnknownFactory(factory_name.into()))?;
-    let first = factory
+    let factory_first = factory
         .first_station()
         .ok_or_else(|| McpError::UnknownFactory(factory_name.into()))?;
+
+    // Right-size: the plan is the mode's station subset (empty = full factory).
+    let (plan, auto_gates) = resolve_template(mode, &factory);
+    let first_name = plan
+        .first()
+        .cloned()
+        .unwrap_or_else(|| factory_first.name.clone());
 
     let now = Utc::now().to_rfc3339();
     let resolved_title = title.clone().unwrap_or_else(|| slug.to_string());
@@ -1116,7 +1178,7 @@ pub fn run_start(
         title: title.clone(),
         factory: factory_name.to_string(),
         mode: mode.to_string(),
-        active_station: first.name.clone(),
+        active_station: first_name.clone(),
         status: Status::Active,
         started_at: Some(now.clone()),
         ..Default::default()
@@ -1130,13 +1192,15 @@ pub fn run_start(
     };
     store.write_run(&run)?;
 
-    // Seed state at the first station, Spec phase.
+    // Seed state at the plan's first station, Spec phase.
     let mut state = RunState {
         factory: factory_name.to_string(),
-        active_station: first.name.clone(),
+        active_station: first_name.clone(),
+        plan,
+        auto_gates,
         ..Default::default()
     };
-    ensure_station(&mut state, &factory, &first.name)?;
+    ensure_station(&mut state, &factory, &first_name)?;
     store.write_state(slug, &state)?;
 
     Ok(run)
@@ -1158,8 +1222,7 @@ pub fn checkpoint_decide(
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let mut state = store.read_state(slug)?.unwrap_or_default();
     let station = current_station(&factory, &state)
-        .ok_or_else(|| McpError::NoActiveStation(slug.to_string()))?
-        .to_string();
+        .ok_or_else(|| McpError::NoActiveStation(slug.to_string()))?;
 
     let now = Utc::now().to_rfc3339();
     if approved {
@@ -1206,6 +1269,86 @@ mod tests {
         let state = store.read_state("my-run").expect("state").expect("some");
         assert_eq!(state.active_station, "frame");
         assert_eq!(state.stations["frame"].phase, StationPhase::Spec);
+    }
+
+    #[test]
+    fn full_mode_leaves_plan_empty_and_gates_intact() {
+        let (_d, store) = store();
+        run_start(&store, "f", "software", None, "continuous").expect("start");
+        let state = store.read_state("f").unwrap().unwrap();
+        assert!(state.plan.is_empty(), "full mode walks the whole factory");
+        assert!(!state.auto_gates);
+        assert_eq!(state.active_station, "frame");
+    }
+
+    #[test]
+    fn quick_mode_right_sizes_plan_and_auto_gates() {
+        let (_d, store) = store();
+        run_start(&store, "q", "software", Some("Small fix".into()), "quick").expect("start");
+        let state = store.read_state("q").unwrap().unwrap();
+        assert_eq!(state.plan, vec!["build".to_string(), "prove".to_string()]);
+        assert!(state.auto_gates);
+        // The run starts at the plan's first station, not the factory's.
+        assert_eq!(state.active_station, "build");
+        assert_eq!(state.stations["build"].phase, StationPhase::Spec);
+    }
+
+    #[test]
+    fn quick_run_walks_only_planned_stations_to_sealed() {
+        let (_d, store) = store();
+        run_start(&store, "q", "software", None, "quick").expect("start");
+
+        // Drive to sealed. auto_gates downgrades every checkpoint to auto, so no
+        // operator decision is needed; we just decompose+complete each station.
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            assert!(guard < 100, "quick run failed to converge");
+            let t = run_tick(&store, "q").expect("tick");
+            match &t.action {
+                RunAction::Sealed { .. } => break,
+                RunAction::Spec { station, .. } => {
+                    let unit = Unit {
+                        slug: format!("{station}-u"),
+                        frontmatter: darkrun_core::domain::UnitFrontmatter {
+                            status: Status::Pending,
+                            station: Some(station.clone()),
+                            ..Default::default()
+                        },
+                        title: "u".into(),
+                        body: String::new(),
+                    };
+                    store.write_unit("q", &unit).expect("write unit");
+                }
+                RunAction::Manufacture { station, units, .. } => {
+                    let _ = station;
+                    for u in units {
+                        let mut done = store.read_unit("q", u).unwrap();
+                        done.frontmatter.status = Status::Completed;
+                        store.write_unit("q", &done).unwrap();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let state = store.read_state("q").unwrap().unwrap();
+        // Planned stations ran; the omitted ones never did.
+        assert!(state.stations.contains_key("build"));
+        assert!(state.stations.contains_key("prove"));
+        assert!(state.stations.get("frame").is_none(), "frame is not in the quick plan");
+        assert!(state.stations.get("specify").is_none());
+        assert!(state.stations.get("shape").is_none());
+        assert!(state.stations.get("harden").is_none());
+    }
+
+    #[test]
+    fn unknown_mode_falls_back_to_full_plan() {
+        let (_d, store) = store();
+        run_start(&store, "u", "software", None, "nonsense-mode").expect("start");
+        let state = store.read_state("u").unwrap().unwrap();
+        assert!(state.plan.is_empty());
+        assert_eq!(state.active_station, "frame");
     }
 
     #[test]

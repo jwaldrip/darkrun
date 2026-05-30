@@ -1297,6 +1297,7 @@ fn state_roundtrip_factory_and_active_station() {
         factory: "software".into(),
         active_station: "build".into(),
         stations: BTreeMap::new(),
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let loaded = store.read_state("r").expect("read").expect("some");
@@ -1314,6 +1315,7 @@ fn state_roundtrip_stations_map() {
         factory: "f".into(),
         active_station: "frame".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let loaded = store.read_state("r").expect("read").expect("some");
@@ -1343,6 +1345,7 @@ fn state_roundtrip_all_phases() {
         factory: "f".into(),
         active_station: "s0".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let loaded = store.read_state("r").expect("read").expect("some");
@@ -1365,6 +1368,7 @@ fn state_roundtrip_checkpoint() {
         factory: "f".into(),
         active_station: "frame".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let cp = store.read_state("r").expect("read").expect("some").stations["frame"]
@@ -1400,6 +1404,7 @@ fn state_roundtrip_all_checkpoint_kinds() {
             factory: "f".into(),
             active_station: "s".into(),
             stations,
+            ..Default::default()
         };
         let slug = format!("r{i}");
         store.write_state(&slug, &s).expect("w");
@@ -1432,6 +1437,7 @@ fn state_roundtrip_all_checkpoint_outcomes() {
             factory: "f".into(),
             active_station: "s".into(),
             stations,
+            ..Default::default()
         };
         let slug = format!("o{i}");
         store.write_state(&slug, &s).expect("w");
@@ -1455,6 +1461,7 @@ fn state_roundtrip_station_timestamps() {
         factory: "f".into(),
         active_station: "frame".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let loaded = store.read_state("r").expect("read").expect("some");
@@ -1512,6 +1519,7 @@ fn state_stations_preserved_sorted_keys() {
         factory: "f".into(),
         active_station: "alpha".into(),
         stations,
+        ..Default::default()
     };
     store.write_state("r", &s).expect("w");
     let keys: Vec<String> = store
@@ -1795,6 +1803,7 @@ fn full_run_lifecycle_persisted() {
         factory: "software".into(),
         active_station: "build".into(),
         stations: BTreeMap::new(),
+        ..Default::default()
     }).expect("w");
     store.write_feedback_raw("r", "fb", "---\nid: fb\n---\nfix this\n").expect("w");
 
@@ -1910,7 +1919,7 @@ fn determinism_state_json_stable() {
     let mut stations = BTreeMap::new();
     stations.insert("z".into(), station("z", Status::Active, StationPhase::Spec));
     stations.insert("a".into(), station("a", Status::Active, StationPhase::Spec));
-    let s = RunState { factory: "f".into(), active_station: "a".into(), stations };
+    let s = RunState { factory: "f".into(), active_station: "a".into(), stations, ..Default::default() };
     store.write_state("r", &s).expect("w");
     let first = fs::read_to_string(store.run_dir("r").join("state.json")).expect("read");
     store.write_state("r", &s).expect("w");

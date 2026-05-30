@@ -42,6 +42,17 @@ pub struct RunState {
     /// The station the run currently sits on.
     #[serde(default)]
     pub active_station: String,
+    /// The ordered station plan this run actually walks — a subset of the
+    /// factory's stations, chosen by right-sizing at run start. Empty means "the
+    /// full factory plan" (the manager falls back to every factory station), so
+    /// existing runs and full-size runs need no plan recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan: Vec<String>,
+    /// When `true`, every checkpoint in this run is treated as `auto` — the
+    /// right-sized fast path for small work, where the operator opted out of
+    /// per-station gates.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_gates: bool,
     /// Per-station derived state, keyed by station name.
     #[serde(default)]
     pub stations: BTreeMap<String, Station>,

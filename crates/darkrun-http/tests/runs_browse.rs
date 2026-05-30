@@ -104,6 +104,7 @@ fn seed_state(store: &StateStore, slug: &str, factory: &str, active: &str, stati
         factory: factory.to_string(),
         active_station: active.to_string(),
         stations: map,
+        ..Default::default()
     };
     store.write_state(slug, &state).expect("write state");
 }

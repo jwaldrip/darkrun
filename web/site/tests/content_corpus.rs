@@ -19,7 +19,10 @@ fn every_corpus_is_non_empty() {
 #[test]
 fn docs_carry_the_expected_slugs_in_order() {
     let slugs: Vec<&str> = DOCS.iter().map(|d| d.slug).collect();
-    assert_eq!(slugs, vec!["getting-started", "stations", "review"]);
+    assert_eq!(
+        slugs,
+        vec!["getting-started", "stations", "review", "other-harnesses"]
+    );
 }
 
 #[test]

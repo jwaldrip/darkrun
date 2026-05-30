@@ -67,16 +67,17 @@ impl Harness {
     /// unknown name — callers fall back to [`Harness::ClaudeCode`].
     pub fn parse(raw: &str) -> Option<Harness> {
         let norm = raw.trim().to_ascii_lowercase().replace([' ', '_'], "-");
-        Harness::ALL.into_iter().find(|h| h.key() == norm).or_else(|| {
-            // A few common aliases.
-            match norm.as_str() {
-                "claude" | "claudecode" | "cc" => Some(Harness::ClaudeCode),
-                "gemini" | "geminicli" => Some(Harness::GeminiCli),
-                "open-code" => Some(Harness::Opencode),
-                "codex-cli" | "codexcli" | "openai-codex" => Some(Harness::Codex),
-                _ => None,
-            }
-        })
+        if let Some(h) = Harness::ALL.into_iter().find(|h| h.key() == norm) {
+            return Some(h);
+        }
+        // A few common aliases.
+        match norm.as_str() {
+            "claude" | "claudecode" | "cc" => Some(Harness::ClaudeCode),
+            "gemini" | "geminicli" => Some(Harness::GeminiCli),
+            "open-code" => Some(Harness::Opencode),
+            "codex-cli" | "codexcli" | "openai-codex" => Some(Harness::Codex),
+            _ => None,
+        }
     }
 
     /// True for the reference harness (every capability on).
