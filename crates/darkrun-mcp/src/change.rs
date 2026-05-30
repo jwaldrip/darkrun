@@ -137,7 +137,7 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::Review { .. } => "review",
         RunAction::Manufacture { .. } => "manufacture",
         RunAction::Audit { .. } => "audit",
-        RunAction::Tests { .. } => "tests",
+        RunAction::Reflect { .. } => "reflect",
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::ResolveDrift { .. } => "resolve_drift",
@@ -168,7 +168,7 @@ mod tests {
         for station in ["frame", "specify", "shape", "build", "prove"] {
             walk_station(store, slug, station);
         }
-        // harden: Spec -> Review -> Manufacture(empty -> Audit) -> Tests -> Checkpoint
+        // harden: Spec -> Review -> Manufacture(empty -> Audit) -> Reflect -> Checkpoint
         walk_station_to_checkpoint(store, slug, "harden");
     }
 

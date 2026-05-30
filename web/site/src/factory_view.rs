@@ -12,10 +12,28 @@
 //! ([`darkrun_ui::prelude::CheckpointKind`]). [`ui_checkpoint`] is the single
 //! boundary that maps between them.
 
+use darkrun_api::session::RunPhase;
 use darkrun_core::domain::CheckpointKind as CoreCheckpoint;
-use darkrun_ui::prelude::{CheckpointKind as UiCheckpoint, FlowStation, RightSizeTier, RoleKind};
+use darkrun_ui::prelude::{
+    CheckpointKind as UiCheckpoint, FlowStation, Phase as UiPhase, RightSizeTier, RoleKind,
+};
 
 use darkrun_content::{Factory, Role, Station};
+
+/// Map the API session phase onto the UI component's [`UiPhase`].
+///
+/// The two enums mirror each other (no `Tests`; `Reflect` is the 5th phase,
+/// before `Checkpoint`). This is the single boundary that bridges them.
+pub fn ui_phase(phase: RunPhase) -> UiPhase {
+    match phase {
+        RunPhase::Spec => UiPhase::Spec,
+        RunPhase::Review => UiPhase::Review,
+        RunPhase::Manufacture => UiPhase::Manufacture,
+        RunPhase::Audit => UiPhase::Audit,
+        RunPhase::Reflect => UiPhase::Reflect,
+        RunPhase::Checkpoint => UiPhase::Checkpoint,
+    }
+}
 
 /// Map the content-layer checkpoint kind onto the UI component's enum.
 pub fn ui_checkpoint(kind: CoreCheckpoint) -> UiCheckpoint {
@@ -228,6 +246,32 @@ mod tests {
     }
 
     #[test]
+    fn ui_phase_maps_every_run_phase() {
+        assert_eq!(ui_phase(RunPhase::Spec), UiPhase::Spec);
+        assert_eq!(ui_phase(RunPhase::Review), UiPhase::Review);
+        assert_eq!(ui_phase(RunPhase::Manufacture), UiPhase::Manufacture);
+        assert_eq!(ui_phase(RunPhase::Audit), UiPhase::Audit);
+        assert_eq!(ui_phase(RunPhase::Reflect), UiPhase::Reflect);
+        assert_eq!(ui_phase(RunPhase::Checkpoint), UiPhase::Checkpoint);
+    }
+
+    #[test]
+    fn ui_phase_preserves_canonical_order() {
+        // The API and UI phase orders must stay in lockstep (no Tests; Reflect
+        // is the 5th, before Checkpoint).
+        let api = [
+            RunPhase::Spec,
+            RunPhase::Review,
+            RunPhase::Manufacture,
+            RunPhase::Audit,
+            RunPhase::Reflect,
+            RunPhase::Checkpoint,
+        ];
+        let mapped: Vec<UiPhase> = api.iter().map(|p| ui_phase(*p)).collect();
+        assert_eq!(mapped, UiPhase::ALL.to_vec());
+    }
+
+    #[test]
     fn ui_checkpoint_maps_every_kind() {
         assert_eq!(ui_checkpoint(CoreCheckpoint::Auto), UiCheckpoint::Auto);
         assert_eq!(ui_checkpoint(CoreCheckpoint::Ask), UiCheckpoint::Ask);
@@ -269,7 +313,7 @@ mod tests {
         let f = software();
         let frame = f.station("frame").unwrap();
         let framer = &frame.workers[0];
-        let view = role_view(framer, |s| crate::content::render_markdown(s));
+        let view = role_view(framer, crate::content::render_markdown);
         assert_eq!(view.kind, RoleKind::Worker);
         assert_eq!(view.agent_type, "worker");
         assert!(view.body_html.contains('<'), "body should be rendered HTML");

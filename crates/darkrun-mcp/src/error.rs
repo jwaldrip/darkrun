@@ -37,6 +37,11 @@ pub enum McpError {
     /// A unit was referenced by a slug that does not exist.
     #[error("unit not found: {0}")]
     UnitNotFound(String),
+
+    /// Rendering an engine-driven prompt template failed (unknown template,
+    /// override read error, or a template syntax/render fault).
+    #[error("prompt render failed: {0}")]
+    Prompt(String),
 }
 
 /// Crate result alias.

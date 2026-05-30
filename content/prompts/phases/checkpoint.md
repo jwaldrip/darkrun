@@ -1,0 +1,38 @@
+{% include "_shared/announcement.md" %}
+
+# Checkpoint — `{{ station }}`
+
+Station **{{ station }}** has passed spec, review, manufacture, audit, and reflect. The gate is now open. Its kind is **`{{ kind }}`** — that determines who decides whether the station locks.
+
+{% include "_shared/contracts.md" %}
+
+Checkpoint walks two beats, in order: **brief → user**.
+
+## 1. brief — produce the closing-brief summary
+
+Write the tight closing brief for whoever holds the decision. It is the durable record of *why this station is allowed to lock*, so make it stand on its own:
+
+- What this station eliminated: **{{ kills }}**.
+- The locked artifact{% if locked_artifact %} (`{{ locked_artifact }}`){% endif %} and where the evidence lives — specs, audit verdict, the green check run.
+- Any concerns reviewers raised and how they were resolved.
+- The retrospective learnings reflect surfaced, if they bear on the lock.
+
+## 2. user — the gate decision (`{{ kind }}`)
+
+The gate kind decides *who* clears it. Surface the brief above, then act per the kind:
+
+{% if kind == "auto" %}
+**auto** — no human in the loop. The evidence already justifies the lock. Confirm the criteria are met, lock the station, and call `run_next` to advance.
+{% elif kind == "ask" %}
+**ask** — a human must approve. Present the summary above and **stop**. Do not advance the run until the operator approves. On approval, lock and call `run_next`; on rejection, route their feedback as a fix track.
+{% elif kind == "external" %}
+**external** — an external system or process must clear this gate (CI, a deploy, a sign-off elsewhere). Surface what's required, trigger or point at it, and hold until it reports back. Lock only on a real external pass.
+{% elif kind == "await" %}
+**await** — outstanding asynchronous work must settle before locking. Identify what's in flight, wait for it, and re-check the criteria once it lands.
+{% else %}
+Unknown checkpoint kind `{{ kind }}` — treat as **ask**: surface the gate to a human and hold.
+{% endif %}
+
+## Done when
+
+The gate is cleared per its kind and the station is locked, or the run is held for a decision. Either way, call `run_next` to record the outcome.

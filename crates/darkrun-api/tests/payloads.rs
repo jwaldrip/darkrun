@@ -277,7 +277,7 @@ fn run_phase_serializes_snake_case() {
         (RunPhase::Review, "review"),
         (RunPhase::Manufacture, "manufacture"),
         (RunPhase::Audit, "audit"),
-        (RunPhase::Tests, "tests"),
+        (RunPhase::Reflect, "reflect"),
         (RunPhase::Checkpoint, "checkpoint"),
     ];
     for (phase, wire) in cases {
@@ -292,7 +292,7 @@ fn run_phase_deserializes_each_variant() {
         ("review", RunPhase::Review),
         ("manufacture", RunPhase::Manufacture),
         ("audit", RunPhase::Audit),
-        ("tests", RunPhase::Tests),
+        ("reflect", RunPhase::Reflect),
         ("checkpoint", RunPhase::Checkpoint),
     ];
     for (wire, phase) in cases {
@@ -308,7 +308,7 @@ fn run_phase_roundtrips_each() {
         RunPhase::Review,
         RunPhase::Manufacture,
         RunPhase::Audit,
-        RunPhase::Tests,
+        RunPhase::Reflect,
         RunPhase::Checkpoint,
     ] {
         assert_stable(&phase);
@@ -336,7 +336,7 @@ fn run_phase_ordering_taxonomy_is_distinct() {
         RunPhase::Review,
         RunPhase::Manufacture,
         RunPhase::Audit,
-        RunPhase::Tests,
+        RunPhase::Reflect,
         RunPhase::Checkpoint,
     ] {
         let wire = serde_json::to_value(phase).unwrap();
@@ -352,7 +352,7 @@ fn run_phase_in_current_state_each_phase() {
         RunPhase::Review,
         RunPhase::Manufacture,
         RunPhase::Audit,
-        RunPhase::Tests,
+        RunPhase::Reflect,
         RunPhase::Checkpoint,
     ] {
         let st = RunCurrentState {
@@ -1624,8 +1624,8 @@ fn review_payload_station_milestones_map() {
                 status: MilestoneStatus::Done,
             },
             ProgressMilestone {
-                key: "tests".into(),
-                label: "Tests".into(),
+                key: "reflect".into(),
+                label: "Reflect".into(),
                 status: MilestoneStatus::Pending,
             },
         ],

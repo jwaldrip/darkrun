@@ -1,14 +1,16 @@
 //! [`PhaseMachine`] — an SVG ring of the within-station phase loop.
 //!
-//! The six phases (spec → review → manufacture → audit → tests → checkpoint) sit
-//! evenly around a ring, each in its own hue and labeled with the universal-slot
-//! beat it performs. The Manufacture node carries the inner Make → Challenge →
-//! Resolve pass. An optional `active` phase emphasizes one node; hover surfaces
-//! the beat text. Geometry comes from the pure [`crate::flow::phase_ring_points`].
+//! The six phases (spec → review → manufacture → audit → reflect → checkpoint)
+//! sit evenly around a ring, each in its own hue and labeled with the
+//! universal-slot beat it performs. Every phase expands into named sub-steps
+//! ([`crate::flow::phase_beats`]); the active phase's sub-step strip follows the
+//! active node, and the center caption names the active phase and its beats. An
+//! optional `active` phase emphasizes one node; hover surfaces the beat text.
+//! Geometry comes from the pure [`crate::flow::phase_ring_points`].
 
 use dioxus::prelude::*;
 
-use crate::flow::{phase_beat, phase_label, phase_ring_points, PassBeat};
+use crate::flow::{phase_beats, phase_label, phase_ring_points, PassBeat};
 use crate::kinds::Phase;
 use crate::tokens;
 
@@ -101,18 +103,35 @@ pub fn PhaseMachine(
                 stroke_dasharray: "4 5",
             }
 
-            // Center caption: names the machine.
-            text {
-                x: "{cx}", y: "{cy - 6.0}",
-                fill: tokens::TEXT_MUTED, font_size: "11",
-                text_anchor: "middle", letter_spacing: "0.08em",
-                "PHASE MACHINE"
-            }
-            text {
-                x: "{cx}", y: "{cy + 12.0}",
-                fill: tokens::TEXT_FAINT, font_size: "9",
-                text_anchor: "middle",
-                "explore → … → lock"
+            // Center caption: names the machine, and — when a phase is active —
+            // that phase plus the beats it walks (so the caption follows the
+            // active node for all six phases, not just Manufacture).
+            {
+                let (title, subtitle) = match active {
+                    Some(phase) => {
+                        let beats = phase_beats(phase)
+                            .iter()
+                            .map(|b| b.label())
+                            .collect::<Vec<_>>()
+                            .join(" → ");
+                        (phase_label(phase).to_uppercase(), beats)
+                    }
+                    None => ("PHASE MACHINE".to_string(), "spec → … → checkpoint".to_string()),
+                };
+                rsx! {
+                    text {
+                        x: "{cx}", y: "{cy - 6.0}",
+                        fill: tokens::TEXT_MUTED, font_size: "11",
+                        text_anchor: "middle", letter_spacing: "0.08em",
+                        "{title}"
+                    }
+                    text {
+                        x: "{cx}", y: "{cy + 12.0}",
+                        fill: tokens::TEXT_FAINT, font_size: "9",
+                        text_anchor: "middle",
+                        "{subtitle}"
+                    }
+                }
             }
 
             // Phase nodes.
@@ -132,12 +151,18 @@ pub fn PhaseMachine(
                     let ly = y + dy / len * (node_r + 10.0);
                     let anchor = if dx.abs() < 1.0 { "middle" } else if dx > 0.0 { "start" } else { "end" };
                     let is_manufacture = phase == Phase::Manufacture;
+                    // Tooltip: the phase's named sub-step beats, in order.
+                    let beat_title = phase_beats(phase)
+                        .iter()
+                        .map(|b| b.label())
+                        .collect::<Vec<_>>()
+                        .join(" → ");
                     rsx! {
                         g {
                             class: "dr-phase-node",
                             "data-phase": phase.name(),
                             "data-active": "{is_active}",
-                            title { "{phase_beat(phase)}" }
+                            title { "{beat_title}" }
                             circle {
                                 cx: "{x}", cy: "{y}", r: "{node_r}",
                                 fill: "{fill}", stroke: "{hue.base}", stroke_width: "{stroke_w}",
@@ -160,24 +185,51 @@ pub fn PhaseMachine(
                 }
             }
 
-            // The Make/Challenge/Resolve pass, shown as a small inner strip near
-            // the Manufacture node (top-right region of the ring).
+            // The active phase's sub-step strip. It follows the active node:
+            // the named beats of whatever phase is active are listed beside it,
+            // with the live beat highlighted. With no active phase it falls back
+            // to the Manufacture node's Make/Challenge/Resolve pass so the ring
+            // still reads as a worker loop at rest.
             {
-                let manu = points.iter().find(|(p, _, _)| *p == Phase::Manufacture);
-                if let Some((_, mx, my)) = manu {
-                    let strip_x = *mx + node_r + 6.0;
+                // Which phase's beats to show, and where its node sits.
+                let strip_phase = active.unwrap_or(Phase::Manufacture);
+                let node = points.iter().find(|(p, _, _)| *p == strip_phase);
+                if let Some((_, nx, ny)) = node {
+                    let beats = phase_beats(strip_phase);
+                    let n = beats.len() as f64;
+                    let hue = strip_phase.hue();
+                    // Lean the strip to whichever side the node is on so it never
+                    // crosses the center caption; anchor the text to match. Nodes
+                    // dead-center-top/bottom default to the right.
+                    let on_right = *nx >= cx - 1.0;
+                    let strip_x =
+                        if on_right { *nx + node_r + 6.0 } else { *nx - node_r - 6.0 };
+                    let anchor = if on_right { "start" } else { "end" };
+                    // Vertically center the strip on the node.
+                    let strip_top = *ny - (n - 1.0) * 6.5;
                     rsx! {
-                        g { class: "dr-pass-strip",
-                            for (i, beat) in PassBeat::ALL.iter().enumerate() {
+                        g {
+                            class: "dr-beat-strip",
+                            "data-phase": strip_phase.name(),
+                            for (i, beat) in beats.iter().enumerate() {
                                 {
-                                    let by = my - node_r + i as f64 * 13.0;
-                                    let on = active_beat == Some(*beat);
-                                    let color = if on { tokens::ACCENT } else { tokens::TEXT_FAINT };
+                                    let by = strip_top + i as f64 * 13.0;
+                                    // The live beat: for Manufacture honor the
+                                    // typed `active_beat`; otherwise highlight all
+                                    // beats of the active phase in its hue.
+                                    let on = match active_beat {
+                                        Some(ab) if strip_phase == Phase::Manufacture => {
+                                            *beat == ab.as_beat()
+                                        }
+                                        _ => active == Some(strip_phase),
+                                    };
+                                    let color = if on { hue.base } else { tokens::TEXT_FAINT };
                                     let weight = if on { "700" } else { "500" };
                                     rsx! {
                                         text {
                                             x: "{strip_x}", y: "{by}",
                                             fill: "{color}", font_size: "9", font_weight: "{weight}",
+                                            text_anchor: "{anchor}",
                                             "data-beat": beat.label(),
                                             "{tokens::GLYPH_DONE} {beat.label()}"
                                         }

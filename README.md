@@ -1,10 +1,13 @@
 # darkrun
 
-An end-to-end Rust software factory, built around an assembly-line metaphor.
+A dark factory harness for your business — an agentic assembly line for any
+structured work, built around an assembly-line metaphor and shipped as a single
+Rust binary. The software factory is the first factory we ship, not the whole
+product.
 
 ## The factory metaphor
 
-darkrun models software delivery as a **Factory** built from ordered **Stations**.
+darkrun models structured work as a **Factory** built from ordered **Stations**.
 A top-level execution is a **Run**. Inside every Station the engine walks a
 universal slot:
 

@@ -19,7 +19,7 @@ pub fn phase(p: RunPhase) -> Phase {
         RunPhase::Review => Phase::Review,
         RunPhase::Manufacture => Phase::Manufacture,
         RunPhase::Audit => Phase::Audit,
-        RunPhase::Tests => Phase::Tests,
+        RunPhase::Reflect => Phase::Reflect,
         RunPhase::Checkpoint => Phase::Checkpoint,
     }
 }

@@ -424,7 +424,7 @@ fn run_next_advances_to_audit_when_units_complete() {
 }
 
 #[test]
-fn run_next_walks_audit_tests_checkpoint_in_order() {
+fn run_next_walks_audit_reflect_checkpoint_in_order() {
     let (_d, server) = started("r");
     next(&server, "r");
     next(&server, "r");
@@ -442,7 +442,7 @@ fn run_next_walks_audit_tests_checkpoint_in_order() {
         }))
         .unwrap();
     assert_eq!(body(&next(&server, "r"))["action"]["action"], "audit");
-    assert_eq!(body(&next(&server, "r"))["action"]["action"], "tests");
+    assert_eq!(body(&next(&server, "r"))["action"]["action"], "reflect");
     let cp = body(&next(&server, "r"));
     assert_eq!(cp["action"]["action"], "checkpoint");
     assert_eq!(cp["action"]["kind"], "ask");
@@ -3132,7 +3132,7 @@ fn audit_action_shape_has_reviewers() {
 }
 
 #[test]
-fn tests_action_shape_has_run_and_station_only() {
+fn reflect_action_shape_has_run_and_station_only() {
     let (_d, server) = started("r");
     next(&server, "r");
     next(&server, "r");
@@ -3149,9 +3149,9 @@ fn tests_action_shape_has_run_and_station_only() {
             outputs: None,
         }))
         .unwrap();
-    next(&server, "r"); // audit
+    next(&server, "r"); // audit (folds in the old tests phase)
     let v = body(&next(&server, "r"));
-    assert_eq!(v["action"]["action"], "tests");
+    assert_eq!(v["action"]["action"], "reflect");
     assert_eq!(v["action"]["run"], "r");
     assert_eq!(v["action"]["station"], "frame");
 }

@@ -76,7 +76,7 @@ fn walk_to_checkpoint(store: &StateStore, run: &str, station: &str) -> RunAction
             | RunAction::Review { station: s, .. }
             | RunAction::Manufacture { station: s, .. }
             | RunAction::Audit { station: s, .. }
-            | RunAction::Tests { station: s, .. }
+            | RunAction::Reflect { station: s, .. }
                 if s == station => {}
             other => panic!("unexpected action walking {station}: {other:?}"),
         }
@@ -1367,6 +1367,13 @@ fn tickresult_serializes_run_position_action() {
     assert_eq!(j["run"], serde_json::json!("r"));
     assert!(j["position"].is_object());
     assert!(j["action"].is_object());
+    // The engine-driven, override-resolved instructions ride alongside the
+    // structured action so `darkrun_run_next` hands the agent both halves.
+    assert!(j["prompt"].is_string(), "TickResult must serialize a rendered prompt");
+    assert!(
+        !j["prompt"].as_str().unwrap().trim().is_empty(),
+        "rendered prompt must be non-empty"
+    );
 }
 
 #[test]

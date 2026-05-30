@@ -16,18 +16,18 @@ stations are organized by **class-of-risk-eliminated**, ordered by
 **cost-of-late-discovery**: the earlier a station sits, the cheaper the defect it
 catches and the more expensive that same defect becomes if it slips past.
 
-Every station runs the same universal slot:
+Every station walks the same six-phase machine:
 
 ```
-Explore -> Decompose -> Pass-loop(Make -> Challenge -> Resolve) -> Review -> Checkpoint -> Lock
+Spec -> Review -> Manufacture(Make -> Challenge -> Resolve) -> Audit -> Reflect -> Checkpoint
 ```
 
-- **Explore** — the station's Explorers gather only the context this station needs.
-- **Decompose** — split the work into Units with testable completion criteria and a dependency DAG.
-- **Pass-loop** — each Unit runs Passes; one Pass is the three-beat worker sequence Make -> Challenge -> Resolve.
-- **Review** — Reviewers verify output against criteria, independent of the Workers that produced it.
-- **Checkpoint** — a gate (auto / ask / external / await) advances the station or routes rework back as drift.
-- **Lock** — the station's durable artifact is persisted; downstream stations may not reopen it.
+- **Spec** — the station's Explorers gather only the context this station needs, then the work is decomposed into Units with testable completion criteria and a dependency DAG.
+- **Review** — Reviewers adversarially review the spec *before* manufacture: a bad spec that reaches the floor is the most expensive failure in the line.
+- **Manufacture** — each Unit runs the three-beat worker sequence Make -> Challenge -> Resolve (build -> red-team -> repair). The challenge beat is deliberate adversarial-hardening, not ceremony.
+- **Audit** — Reviewers verify the manufactured output against the locked spec **and** run the station's full quality checks (tests, types, lints, builds). There is no separate tests phase: audit gives both judgment (reviewers) and evidence (the checks). A failing check blocks the checkpoint — no "pre-existing" excuses.
+- **Reflect** — an autonomous retrospective on what this station's pass taught the run. It blocks nothing; its learnings feed the run-level reflections so the next run is sharper.
+- **Checkpoint** — a gate (auto / ask / external / await) locks the station's durable artifact (downstream stations may not reopen it) or routes rework back as drift.
 
 ## The six stations
 

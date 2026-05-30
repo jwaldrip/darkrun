@@ -15,10 +15,10 @@ pub enum Phase {
     Review,
     /// Manufacture the output.
     Manufacture,
-    /// Audit against the spec.
+    /// Audit against the spec (folds in the old quality-gate / tests work).
     Audit,
-    /// Quality gates / tests.
-    Tests,
+    /// Reflect — the autonomous retrospective feeding the run-level reflections.
+    Reflect,
     /// The checkpoint gate.
     Checkpoint,
 }
@@ -30,7 +30,7 @@ impl Phase {
         Phase::Review,
         Phase::Manufacture,
         Phase::Audit,
-        Phase::Tests,
+        Phase::Reflect,
         Phase::Checkpoint,
     ];
 
@@ -41,7 +41,7 @@ impl Phase {
             Phase::Review => "review",
             Phase::Manufacture => "manufacture",
             Phase::Audit => "audit",
-            Phase::Tests => "tests",
+            Phase::Reflect => "reflect",
             Phase::Checkpoint => "checkpoint",
         }
     }
@@ -53,7 +53,7 @@ impl Phase {
             Phase::Review => tokens::PHASE_REVIEW,
             Phase::Manufacture => tokens::PHASE_MANUFACTURE,
             Phase::Audit => tokens::PHASE_AUDIT,
-            Phase::Tests => tokens::PHASE_TESTS,
+            Phase::Reflect => tokens::PHASE_REFLECT,
             Phase::Checkpoint => tokens::PHASE_CHECKPOINT,
         }
     }

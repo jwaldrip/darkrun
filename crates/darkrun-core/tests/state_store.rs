@@ -1331,7 +1331,7 @@ fn state_roundtrip_all_phases() {
         StationPhase::Review,
         StationPhase::Manufacture,
         StationPhase::Audit,
-        StationPhase::Tests,
+        StationPhase::Reflect,
         StationPhase::Checkpoint,
     ]
     .iter()

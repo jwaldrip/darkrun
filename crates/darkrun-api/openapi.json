@@ -1557,16 +1557,16 @@
             "type": "string"
           },
           {
-            "description": "Audit the output against the spec.",
+            "description": "Audit the output against the spec AND run the quality checks / tests (the old `Tests` phase folded in here).",
             "enum": [
               "audit"
             ],
             "type": "string"
           },
           {
-            "description": "Quality checks / tests.",
+            "description": "Reflect: autonomous retrospective feeding the run-level reflections.",
             "enum": [
-              "tests"
+              "reflect"
             ],
             "type": "string"
           },

@@ -44,11 +44,25 @@ const C_SPEC: &str = "38;5;245"; // grey
 const C_REVIEW: &str = "38;5;75"; // blue
 const C_MANUFACTURE: &str = "38;5;81"; // cyan (the accent)
 const C_AUDIT: &str = "38;5;214"; // amber
-const C_TESTS: &str = "38;5;71"; // green
+const C_REFLECT: &str = "38;5;141"; // violet
 const C_CHECKPOINT: &str = "38;5;170"; // magenta
 
 fn paint(code: &str, s: &str) -> String {
     format!("\x1b[{code}m{s}{RESET}")
+}
+
+/// Map a [`StationPhase`] to its `(label, SGR color code)` for the status line.
+/// The hues double as the design system's semantic accents — each phase gets a
+/// distinct color so the active station's phase is legible at a glance.
+fn phase_chrome(phase: StationPhase) -> (&'static str, &'static str) {
+    match phase {
+        StationPhase::Spec => ("spec", C_SPEC),
+        StationPhase::Review => ("review", C_REVIEW),
+        StationPhase::Manufacture => ("manufacture", C_MANUFACTURE),
+        StationPhase::Audit => ("audit", C_AUDIT),
+        StationPhase::Reflect => ("reflect", C_REFLECT),
+        StationPhase::Checkpoint => ("checkpoint", C_CHECKPOINT),
+    }
 }
 
 /// Wrap `text` in an OSC 8 terminal hyperlink to `url`, so the chip is
@@ -128,14 +142,7 @@ pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
     let (phase_label, phase_code, gated) =
         match state.as_ref().and_then(|s| s.stations.get(&active_station)) {
             Some(st) => {
-                let (label, code) = match st.phase {
-                    StationPhase::Spec => ("spec", C_SPEC),
-                    StationPhase::Review => ("review", C_REVIEW),
-                    StationPhase::Manufacture => ("manufacture", C_MANUFACTURE),
-                    StationPhase::Audit => ("audit", C_AUDIT),
-                    StationPhase::Tests => ("tests", C_TESTS),
-                    StationPhase::Checkpoint => ("checkpoint", C_CHECKPOINT),
-                };
+                let (label, code) = phase_chrome(st.phase);
                 let gated = matches!(st.phase, StationPhase::Checkpoint)
                     && st
                         .checkpoint
@@ -322,7 +329,67 @@ pub fn uninstall(global: bool, repo: &Path) -> Result<(), Dyn> {
 
 #[cfg(test)]
 mod tests {
-    use super::{osc8, paint, parse_git_url, web_base};
+    use super::{osc8, paint, parse_git_url, phase_chrome, web_base};
+    use darkrun_core::domain::StationPhase;
+
+    // ── phase chrome (label + hue) ───────────────────────────────────────
+
+    #[test]
+    fn phase_chrome_labels_match_the_new_taxonomy() {
+        assert_eq!(phase_chrome(StationPhase::Spec).0, "spec");
+        assert_eq!(phase_chrome(StationPhase::Review).0, "review");
+        assert_eq!(phase_chrome(StationPhase::Manufacture).0, "manufacture");
+        assert_eq!(phase_chrome(StationPhase::Audit).0, "audit");
+        assert_eq!(phase_chrome(StationPhase::Reflect).0, "reflect");
+        assert_eq!(phase_chrome(StationPhase::Checkpoint).0, "checkpoint");
+    }
+
+    #[test]
+    fn reflect_has_a_hue_distinct_from_every_other_phase() {
+        let reflect = phase_chrome(StationPhase::Reflect).1;
+        for other in [
+            StationPhase::Spec,
+            StationPhase::Review,
+            StationPhase::Manufacture,
+            StationPhase::Audit,
+            StationPhase::Checkpoint,
+        ] {
+            assert_ne!(
+                reflect,
+                phase_chrome(other).1,
+                "reflect hue must differ from {:?}",
+                other
+            );
+        }
+    }
+
+    #[test]
+    fn every_phase_hue_is_unique() {
+        let phases = [
+            StationPhase::Spec,
+            StationPhase::Review,
+            StationPhase::Manufacture,
+            StationPhase::Audit,
+            StationPhase::Reflect,
+            StationPhase::Checkpoint,
+        ];
+        for (i, a) in phases.iter().enumerate() {
+            for b in &phases[i + 1..] {
+                assert_ne!(
+                    phase_chrome(*a).1,
+                    phase_chrome(*b).1,
+                    "hue collision between {:?} and {:?}",
+                    a,
+                    b
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reflect_hue_is_the_expected_violet() {
+        assert_eq!(phase_chrome(StationPhase::Reflect).1, "38;5;141");
+    }
 
     #[test]
     fn parse_git_url_https_github() {

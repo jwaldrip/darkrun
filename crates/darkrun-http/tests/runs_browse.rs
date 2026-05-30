@@ -2,10 +2,10 @@
 //!
 //! Drives the public `build_router` surface via `tower::ServiceExt::oneshot`
 //! (no socket bind) to exercise the runs browse REST routes end to end:
-//!   - `GET /api/runs`        (empty / populated / sorted / archived-omitted /
-//!                             summary fields / progress / CORS / method edges)
-//!   - `GET /api/runs/:slug`  (present / 404 / stations / units-on-active /
-//!                             phase / serde round-trip)
+//! - `GET /api/runs` (empty / populated / sorted / archived-omitted / summary
+//!   fields / progress / CORS / method edges)
+//! - `GET /api/runs/:slug` (present / 404 / stations / units-on-active / phase /
+//!   serde round-trip)
 //!
 //! Runs are seeded directly through [`darkrun_core::StateStore`] so the tests
 //! own the on-disk shape and never depend on the engine crate.

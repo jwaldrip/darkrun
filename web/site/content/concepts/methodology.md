@@ -18,7 +18,9 @@ when a station's risk is retired.
 The **manager** is the loop that runs the line. It advances each station through
 its phases, dispatches workers, collects reviewer findings, and stops at the
 checkpoints. It is deterministic about sequence and honest about state: a station
-cannot lock its artifact until its audit and tests pass.
+cannot lock its artifact until its audit passes — and the audit folds in the
+quality checks, so passing means the reviewers signed off *and* the tests, types,
+and lints are green.
 
 ## Humans at the gates
 

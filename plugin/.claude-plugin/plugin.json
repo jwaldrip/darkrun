@@ -1,7 +1,7 @@
 {
   "name": "darkrun",
   "version": "0.1.0",
-  "description": "darkrun — factory-based lifecycle orchestration for Claude Code. A native Rust engine drives Runs through factory Stations with Workers, Explorers, Reviewers, and Checkpoints.",
+  "description": "darkrun — a dark factory harness for Claude Code. An agentic assembly line for any structured work: a native Rust engine drives Runs lights-out through factory Stations with Workers, Explorers, Reviewers, and Checkpoints.",
   "author": {
     "name": "jwaldrip",
     "url": "https://darkrun.ai"

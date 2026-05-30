@@ -1,8 +1,9 @@
 # Getting started
 
-darkrun turns an agent into a **software factory**: an ordered line of stations
-that take an idea from raw intent to hardened, shipped work. You drive the line;
-the manager keeps every station honest.
+darkrun is a **dark factory harness**: it runs your agents lights-out as an
+ordered line of stations that take work from raw intent to a shipped, hardened
+outcome. You drive the line; the manager keeps every station honest. The
+**software factory** below is the first factory it ships.
 
 ## Install
 
@@ -31,8 +32,9 @@ A **Run** moves through six stations, in cost-of-late-discovery order:
 | Harden   | the release — the externally-signed checkpoint |
 
 Each station runs the same internal phase machine: **spec → review →
-manufacture → audit → tests → checkpoint**. You only stop where a station's
-**Checkpoint** asks you to.
+manufacture → audit → reflect → checkpoint**. Audit folds in the quality checks
+(no separate tests phase); reflect is a quick retrospective before the gate. You
+only stop where a station's **Checkpoint** asks you to.
 
 ## Drive it
 

@@ -27,11 +27,11 @@ pub fn Landing() -> Element {
     rsx! {
         section { style: "{hero}",
             Wordmark { variant: WordmarkVariant::Outlined, size: 64.0 }
-            h1 { style: "{tagline}", "An assembly line for software." }
+            h1 { style: "{tagline}", "An agentic assembly line for your business." }
             p { style: "{sub}",
-                "darkrun runs your agent as a factory: an ordered line of stations that take "
-                "work from raw intent to hardened, shipped code. You drive the line. The "
-                "manager keeps every station honest."
+                "darkrun is a dark factory harness: it runs your agents lights-out as an ordered "
+                "line of stations that take work from raw intent to a shipped, hardened outcome. "
+                "You drive the line. The manager keeps every station honest."
             }
             div { style: "{cta}",
                 Link { to: Route::Docs {},

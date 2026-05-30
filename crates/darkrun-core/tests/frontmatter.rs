@@ -1081,7 +1081,7 @@ fn roundtrip_station_each_phase() {
         StationPhase::Review,
         StationPhase::Manufacture,
         StationPhase::Audit,
-        StationPhase::Tests,
+        StationPhase::Reflect,
         StationPhase::Checkpoint,
     ] {
         let st = Station {
@@ -1177,7 +1177,7 @@ fn roundtrip_station_idempotent() {
     let st = Station {
         station: "build".into(),
         status: Status::Completed,
-        phase: StationPhase::Tests,
+        phase: StationPhase::Reflect,
         checkpoint: Some(Checkpoint {
             kind: CheckpointKind::External,
             entered_at: Some("2026-05-30T00:00:00Z".into()),

@@ -290,15 +290,15 @@ fn reopen_after_unit_completion_resumes_at_audit() {
 }
 
 #[test]
-fn reopen_after_audit_phase_is_tests() {
+fn reopen_after_audit_phase_is_reflect() {
     let d = Durable::start("r1");
     d.tick_fresh();
     d.tick_fresh();
     d.decompose("frame", &[("u1", &[])]);
     d.tick_fresh();
     d.complete_unit("u1");
-    d.tick_fresh(); // audit -> tests
-    assert_eq!(d.phase("frame"), StationPhase::Tests);
+    d.tick_fresh(); // audit -> reflect
+    assert_eq!(d.phase("frame"), StationPhase::Reflect);
 }
 
 #[test]

@@ -88,11 +88,11 @@ macro_rules! station_phase_suite {
             }
 
             #[test]
-            fn tests_then_checkpoint() {
+            fn reflect_then_checkpoint() {
                 let h = Harness::start(concat!($station, "-tc"));
                 advance_to(&h, $station);
                 let actions = h.walk_station_to_checkpoint($station, &["w1"]);
-                assert!(is_tests(&actions[actions.len() - 2], $station));
+                assert!(is_reflect(&actions[actions.len() - 2], $station));
                 assert!(is_checkpoint(actions.last().unwrap(), $station));
             }
 

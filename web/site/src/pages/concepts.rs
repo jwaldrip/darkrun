@@ -17,7 +17,7 @@ use crate::ui::{PhaseLegend, Prose, SectionHead};
 /// The six phase slugs, in canonical order — the source for `/methodology/:phase`
 /// routes and the sitemap.
 pub const PHASE_SLUGS: [&str; 6] =
-    ["spec", "review", "manufacture", "audit", "tests", "checkpoint"];
+    ["spec", "review", "manufacture", "audit", "reflect", "checkpoint"];
 
 /// Render a concept page by slug, or a small fallback if it is missing.
 fn concept(slug: &str) -> Element {
@@ -283,11 +283,12 @@ pub fn phase_explainer(phase: Phase) -> &'static str {
              it for its weakest seam, then fix what the attack surfaced. This is where output is \
              actually made.",
         Phase::Audit => "Audit verifies the produced output against the spec — independent of the \
-             workers that made it. A reviewer that did not write the code checks that it matches \
-             what was specified, catching the defects the maker is blind to.",
-        Phase::Tests => "Prove runs the quality gates: the tests, the checks, the evidence that the \
-             work holds. A station cannot lock its artifact until its gates pass, so this is the \
-             station's proof obligation.",
+             workers that made it — AND runs the quality gates: the tests, the checks, the evidence \
+             that the work holds. A reviewer that did not write the code checks that it matches what \
+             was specified and that the gates pass, catching the defects the maker is blind to.",
+        Phase::Reflect => "Reflect is the autonomous retrospective. Before the gate, the station \
+             looks back at how the work actually went and feeds that into the run-level reflections, \
+             so the line learns from each station instead of repeating the same mistakes.",
         Phase::Checkpoint => "Checkpoint fires the station's gate — auto, ask, external, or await — \
              and then locks the durable artifact. Passing the gate advances the line; failing it \
              routes the rework back as drift. Once locked, downstream stations may not reopen it.",

@@ -25,5 +25,6 @@ nix = { version = "0.29", features = ["signal", "process"] }
 darkrun-core = { path = "crates/darkrun-core" }
 darkrun-api = { path = "crates/darkrun-api" }
 darkrun-content = { path = "crates/darkrun-content" }
+darkrun-prompts = { path = "crates/darkrun-prompts" }
 darkrun-ui = { path = "crates/darkrun-ui" }
 darkrun-vcs = { path = "crates/darkrun-vcs" }

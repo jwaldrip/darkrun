@@ -21,4 +21,6 @@ Quick reference for darkrun's vocabulary.
   restarting the station.
 - **the manager** — the loop that runs the line: advancing stations, dispatching
   workers, and stopping at checkpoints.
-- **Phase** — one of spec, review, manufacture, audit, tests, checkpoint.
+- **Phase** — one of spec, review, manufacture, audit, reflect, checkpoint. The
+  audit phase folds in the quality checks (no separate tests phase); reflect is a
+  per-station retrospective that feeds the run-level reflections.

@@ -240,10 +240,11 @@ fn manufacture_beat_mentions_the_pass_loop() {
 
 #[test]
 fn pass_beat_is_three_ordered_steps() {
-    assert_eq!(PassBeat::ALL.len(), 3);
-    assert_eq!(PassBeat::ALL[0], PassBeat::Make);
-    assert_eq!(PassBeat::ALL[1], PassBeat::Challenge);
-    assert_eq!(PassBeat::ALL[2], PassBeat::Resolve);
+    assert_eq!(PassBeat::ALL.len(), 4);
+    assert_eq!(PassBeat::ALL[0], PassBeat::Plan);
+    assert_eq!(PassBeat::ALL[1], PassBeat::Make);
+    assert_eq!(PassBeat::ALL[2], PassBeat::Challenge);
+    assert_eq!(PassBeat::ALL[3], PassBeat::Resolve);
     for b in PassBeat::ALL {
         assert!(!b.label().is_empty());
         assert!(!b.beat().is_empty());
@@ -261,8 +262,36 @@ fn pass_beat_labels_are_distinct() {
 // ===========================================================================
 
 #[test]
-fn ticks_per_station_is_eight() {
-    assert_eq!(TICKS_PER_STATION, 8);
+fn ticks_per_station_is_fourteen() {
+    assert_eq!(TICKS_PER_STATION, 15);
+    // and equals the sum of every phase's named beats
+    let sum: usize = Phase::ALL.iter().map(|p| phase_beats(*p).len()).sum();
+    assert_eq!(sum, TICKS_PER_STATION);
+}
+
+#[test]
+fn phase_beats_follow_the_named_sub_step_table() {
+    assert_eq!(phase_beats(Phase::Spec), vec![Beat::Elaborate, Beat::Explore]);
+    assert_eq!(
+        phase_beats(Phase::Review),
+        vec![Beat::Spec, Beat::Adversarial, Beat::Brief, Beat::User]
+    );
+    assert_eq!(
+        phase_beats(Phase::Manufacture),
+        vec![Beat::Plan, Beat::Make, Beat::Challenge, Beat::Resolve]
+    );
+    assert_eq!(phase_beats(Phase::Audit), vec![Beat::Spec, Beat::Adversarial]);
+    assert_eq!(phase_beats(Phase::Reflect), vec![Beat::Agentic]);
+    assert_eq!(phase_beats(Phase::Checkpoint), vec![Beat::Brief, Beat::User]);
+}
+
+#[test]
+fn each_phase_expands_into_its_beat_count() {
+    let steps = walkthrough_steps(&["build".to_string()]);
+    for phase in Phase::ALL {
+        let count = steps.iter().filter(|w| w.phase == phase).count();
+        assert_eq!(count, phase_beats(phase).len(), "tick count for {phase:?}");
+    }
 }
 
 #[test]
@@ -287,23 +316,30 @@ fn each_station_block_is_contiguous() {
 }
 
 #[test]
-fn manufacture_expands_into_three_ordered_beats() {
+fn manufacture_expands_into_four_ordered_pass_beats() {
     let steps = walkthrough_steps(&["build".to_string()]);
     let beats: Vec<PassBeat> = steps
         .iter()
         .filter(|w| w.phase == Phase::Manufacture)
-        .filter_map(|w| w.beat)
+        .filter_map(|w| w.pass_beat())
         .collect();
-    assert_eq!(beats, vec![PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve]);
+    assert_eq!(beats, vec![PassBeat::Plan, PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve]);
+    // and the generalized beats match
+    let gen: Vec<Beat> = steps
+        .iter()
+        .filter(|w| w.phase == Phase::Manufacture)
+        .map(|w| w.beat)
+        .collect();
+    assert_eq!(gen, vec![Beat::Plan, Beat::Make, Beat::Challenge, Beat::Resolve]);
 }
 
 #[test]
-fn non_manufacture_ticks_have_no_beat() {
+fn non_manufacture_ticks_have_no_typed_pass_beat() {
     let steps = walkthrough_steps(&["build".to_string()]);
     assert!(steps
         .iter()
         .filter(|w| w.phase != Phase::Manufacture)
-        .all(|w| w.beat.is_none()));
+        .all(|w| w.pass_beat().is_none()));
 }
 
 #[test]
@@ -319,20 +355,21 @@ fn phase_order_within_station_is_canonical() {
 }
 
 #[test]
-fn narration_names_station_and_phase() {
+fn narration_names_station_phase_and_beat() {
     let steps = walkthrough_steps(&["harden".to_string()]);
     let audit = steps.iter().find(|w| w.phase == Phase::Audit).unwrap();
     let n = audit.narration();
     assert!(n.contains("harden"));
     assert!(n.contains("audit"));
-    assert!(n.contains(phase_beat(Phase::Audit)));
+    assert!(n.contains(audit.beat.label()));
+    assert!(n.contains(audit.beat.desc()));
 }
 
 #[test]
 fn narration_for_manufacture_names_the_active_beat() {
     let steps = walkthrough_steps(&["build".to_string()]);
     for b in PassBeat::ALL {
-        let step = steps.iter().find(|w| w.beat == Some(b)).unwrap();
+        let step = steps.iter().find(|w| w.pass_beat() == Some(b)).unwrap();
         let n = step.narration();
         assert!(n.contains("build"));
         assert!(n.contains("manufacture"));

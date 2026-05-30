@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "darkrun",
-      "description": "darkrun — factory-based lifecycle orchestration for Claude Code. A native Rust engine drives Runs through factory Stations (Frame → Specify → Shape → Build → Prove → Harden) with Workers, Explorers, Reviewers, and Checkpoints.",
+      "description": "darkrun — a dark factory harness for Claude Code. An agentic assembly line for any structured work: a native Rust engine drives Runs lights-out through factory Stations with Workers, Explorers, Reviewers, and Checkpoints. The shipped software factory runs Frame → Specify → Shape → Build → Prove → Harden.",
       "source": {
         "source": "npm",
         "package": "darkrun"

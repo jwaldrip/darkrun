@@ -14,7 +14,7 @@ pub const SITE_URL: &str = "https://darkrun.ai";
 pub const SITE_NAME: &str = "darkrun";
 
 /// One-line site description for feed metadata.
-pub const SITE_DESCRIPTION: &str = "An assembly line for software.";
+pub const SITE_DESCRIPTION: &str = "An agentic assembly line for your business.";
 
 /// Build `sitemap.xml` covering every concrete route on the site.
 pub fn sitemap() -> String {

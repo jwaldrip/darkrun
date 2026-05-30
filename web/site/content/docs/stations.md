@@ -10,8 +10,11 @@ Frame and for Harden; only the workers and the locked artifact change.
 2. **review** — that intent is checked before any work begins. Don't build the
    wrong thing fast.
 3. **manufacture** — the workers run their passes: Make → Challenge → Resolve.
-4. **audit** — the reviewers verify the output independently.
-5. **tests** — evidence is produced and run.
+4. **audit** — the reviewers verify the output against the locked spec **and**
+   the full quality checks run (tests, types, lints, builds). Judgment plus
+   evidence — there is no separate tests phase. A failing check blocks the gate.
+5. **reflect** — an autonomous retrospective on what the station's pass taught
+   the run. It blocks nothing; its learnings feed the run-level reflections.
 6. **checkpoint** — the gate. Auto advances on its own; Ask waits for you;
    External waits for a signal outside the loop; Await holds for a long task.
 

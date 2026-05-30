@@ -18,11 +18,18 @@
 //!
 //! ## Station phase machine
 //!
-//! `Spec -> Review -> Manufacture -> Audit -> Tests -> Checkpoint`. Each
+//! `Spec -> Review -> Manufacture -> Audit -> Reflect -> Checkpoint`. Each
 //! station advances one phase per resolved tick; `Manufacture` loops one Unit
-//! wave per tick until every Unit is locked; the `Checkpoint` phase fires the
-//! gate (`auto`/`ask`/`external`/`await`) and either advances to the next
-//! station or holds for an operator decision.
+//! wave per tick until every Unit is locked; `Audit` both verifies the output
+//! against the spec AND runs the quality checks / tests (the old `Tests` phase
+//! is folded into `Audit`); `Reflect` is an autonomous retrospective that
+//! captures learnings before the gate; the `Checkpoint` phase fires the gate
+//! (`auto`/`ask`/`external`/`await`) and either advances to the next station
+//! or holds for an operator decision.
+//!
+//! The manager stays **phase-granular** — one [`RunAction`] per phase. The
+//! per-phase named sub-steps (beats) live in the *rendered prompt*, not in
+//! separate manager ticks.
 
 use chrono::Utc;
 use darkrun_core::domain::{
@@ -75,14 +82,16 @@ pub enum RunAction {
         /// The wave-ready unit slugs to dispatch in parallel.
         units: Vec<String>,
     },
-    /// Audit the manufactured output against the spec.
+    /// Audit the manufactured output against the spec AND run the station's
+    /// quality checks / tests (the old `Tests` action folded in here).
     Audit {
         run: String,
         station: String,
         reviewers: Vec<String>,
     },
-    /// Run the station's quality checks / tests over the output.
-    Tests { run: String, station: String },
+    /// Reflect: an autonomous retrospective that captures learnings for the
+    /// run-level reflections, before the Checkpoint gate.
+    Reflect { run: String, station: String },
     /// The station's Checkpoint gate is open; the agent should surface it.
     Checkpoint {
         run: String,
@@ -124,7 +133,69 @@ pub struct TickResult {
     /// The derived position.
     pub position: Position,
     /// The action the agent should perform (a `noop` action when null position).
+    ///
+    /// This is the **structured** half — stable, machine-readable, the same
+    /// shape the manager has always returned.
     pub action: RunAction,
+    /// The **rendered** half: the engine-driven, override-resolved instructions
+    /// for `action`, produced by [`darkrun_prompts::render`] against the
+    /// project's prompt cascade. The agent reads this; machines read `action`.
+    ///
+    /// `None` only when the action tag has no template key (which, for the
+    /// current vocabulary, never happens — every emitted action maps).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+/// The live context handed to a prompt template for the current action.
+///
+/// This is the union of everything a phase/track template can reference: the
+/// run + the action's own fields + the *resolved station* (its kills, the
+/// workers/reviewers roster, the artifact it locks, its checkpoint kind) + the
+/// station's units. Every field is optional and skipped when empty, so each
+/// template's `{% if %}` guards light up exactly the vars that apply to it —
+/// a `tests` template sees `station`/`units`, a `checkpoint` template also sees
+/// `kind`/`kills`/`locked_artifact`, and so on.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct PromptContext {
+    /// The run slug.
+    pub run: String,
+    /// The active station name (absent for run-level actions like `sealed`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    /// The station phase tag, when the action sits on the phase machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    /// What the active station eliminates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kills: Option<String>,
+    /// The checkpoint gate kind (`auto`/`ask`/`external`/`await`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CheckpointKind>,
+    /// The durable artifact the station locks on completion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_artifact: Option<String>,
+    /// The worker beat to dispatch this manufacture tick.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
+    /// The open feedback id, for the fix track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feedback_id: Option<String>,
+    /// The drifted artifact path, for the drift track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// A free-form message (mid-wave noop).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// The station's Workers, in Pass-loop order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub workers: Vec<String>,
+    /// The station's Reviewers.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reviewers: Vec<String>,
+    /// The wave-ready / on-record unit slugs for this action.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub units: Vec<String>,
 }
 
 /// Whether a unit is "past" — no further cursor work needed at its position.
@@ -323,7 +394,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             station: station.clone(),
             reviewers: def.reviewers.clone(),
         },
-        StationPhase::Tests => RunAction::Tests {
+        StationPhase::Reflect => RunAction::Reflect {
             run: slug.to_string(),
             station: station.clone(),
         },
@@ -340,20 +411,146 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     })
 }
 
+/// The repo root the prompt cascade resolves overrides against.
+///
+/// The [`StateStore`] is rooted at `<repo_root>/.darkrun`, so the repo root is
+/// that directory's parent. Project overrides live at
+/// `<repo_root>/.darkrun/prompts/<rel>.md`.
+fn cascade_repo_root(store: &StateStore) -> std::path::PathBuf {
+    store
+        .root()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| store.root().to_path_buf())
+}
+
+/// Serde tag for a [`RunAction`] (its `action` field), used to pick a template.
+fn action_tag(action: &RunAction) -> &'static str {
+    match action {
+        RunAction::Spec { .. } => "spec",
+        RunAction::Review { .. } => "review",
+        RunAction::Manufacture { .. } => "manufacture",
+        RunAction::Audit { .. } => "audit",
+        RunAction::Reflect { .. } => "reflect",
+        RunAction::Checkpoint { .. } => "checkpoint",
+        RunAction::FixFeedback { .. } => "fix_feedback",
+        RunAction::ResolveDrift { .. } => "resolve_drift",
+        RunAction::Sealed { .. } => "sealed",
+        RunAction::Noop { .. } => "noop",
+    }
+}
+
+/// Build the live [`PromptContext`] for `action`, enriching the action's own
+/// fields with the resolved station (kills, roster, locked artifact, checkpoint
+/// kind) and the station's on-record units.
+///
+/// Pure read of on-disk state: reads the run's factory + units to resolve the
+/// station def. When the station can't be resolved (run-level actions, unknown
+/// factory) the context degrades gracefully to just the action's own fields.
+fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> Result<PromptContext> {
+    // Pull the station name straight off the action (run-level actions have none).
+    let station = match action {
+        RunAction::Spec { station, .. }
+        | RunAction::Review { station, .. }
+        | RunAction::Manufacture { station, .. }
+        | RunAction::Audit { station, .. }
+        | RunAction::Reflect { station, .. }
+        | RunAction::Checkpoint { station, .. }
+        | RunAction::FixFeedback { station, .. }
+        | RunAction::ResolveDrift { station, .. } => Some(station.clone()),
+        RunAction::Sealed { .. } | RunAction::Noop { .. } => None,
+    };
+
+    let mut ctx = PromptContext {
+        run: slug.to_string(),
+        station: station.clone(),
+        phase: Some(action_tag(action).to_string()),
+        ..Default::default()
+    };
+
+    // Resolve the station def for the roster / kills / artifact / checkpoint.
+    if let Some(station) = station.as_deref() {
+        let run = store.read_run(slug)?;
+        if let Some(factory) = resolve_factory(&run.frontmatter.factory) {
+            if let Some(def) = factory.station(station) {
+                ctx.kills = Some(def.kills.clone());
+                ctx.locked_artifact = Some(def.artifact.clone());
+                ctx.kind = Some(def.checkpoint);
+                ctx.workers = def.workers.clone();
+                ctx.reviewers = def.reviewers.clone();
+            }
+        }
+        // The station's on-record units, in slug order.
+        let units = store.read_units(slug)?;
+        let mut slugs: Vec<String> = station_units(&units, station)
+            .iter()
+            .map(|u| u.slug.clone())
+            .collect();
+        slugs.sort();
+        ctx.units = slugs;
+    }
+
+    // Overlay the action-specific fields (these win over station-derived ones).
+    match action {
+        RunAction::Manufacture { worker, units, .. } => {
+            ctx.worker = Some(worker.clone());
+            // The action's wave-ready units are the ones the agent dispatches.
+            ctx.units = units.clone();
+        }
+        RunAction::Checkpoint { kind, .. } => {
+            ctx.kind = Some(*kind);
+        }
+        RunAction::FixFeedback { feedback_id, .. } => {
+            ctx.feedback_id = Some(feedback_id.clone());
+        }
+        RunAction::ResolveDrift { path, .. } => {
+            ctx.path = Some(path.clone());
+        }
+        RunAction::Noop { message, .. } => {
+            ctx.message = Some(message.clone());
+        }
+        _ => {}
+    }
+
+    Ok(ctx)
+}
+
+/// Render the engine-driven instructions for `action` through the prompt
+/// cascade, returning the final markdown the agent should follow.
+///
+/// Maps the action's serde tag to its template key, builds the live
+/// [`PromptContext`], and calls [`darkrun_prompts::render`] — so a project
+/// override at `<repo_root>/.darkrun/prompts/<key>.md` transparently replaces
+/// the embedded default. Returns `Ok(None)` when the action has no template key.
+pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Result<Option<String>> {
+    let tag = action_tag(action);
+    let key = match darkrun_prompts::template_key_for_action(tag) {
+        Some(k) => k,
+        None => return Ok(None),
+    };
+    let ctx = build_prompt_context(store, slug, action)?;
+    let repo_root = cascade_repo_root(store);
+    let rendered = darkrun_prompts::render(key, &repo_root, &ctx)
+        .map_err(|e| McpError::Prompt(e.to_string()))?;
+    Ok(Some(rendered))
+}
+
 /// Drive one workflow tick: derive the position, then ADVANCE the station's
 /// phase write-cache so the next tick moves forward.
 ///
 /// This is the side-effecting wrapper around the pure [`derive_position`]. The
 /// cursor walk is pure, but the tick stamps the derived phase forward into
 /// `state.json` so the cursor visibly advances `Spec -> Review -> Manufacture
-/// -> Audit -> Tests -> Checkpoint` across calls.
+/// -> Audit -> Reflect -> Checkpoint` across calls.
 ///
 /// Phase advancement rules:
 /// - `Spec` -> `Review` (the agent runs Explorers + decomposes during Spec).
 /// - `Review` -> `Manufacture`.
 /// - `Manufacture` stays in `Manufacture` while units remain wave-ready (one
 ///   wave per tick); when every unit is locked the `Audit` action moves it on.
-/// - `Audit` -> `Tests` -> `Checkpoint`.
+/// - `Audit` -> `Reflect` (audit verifies AND runs the tests — there is no
+///   separate tests phase).
+/// - `Reflect` -> `Checkpoint`.
 /// - `Checkpoint` with an `auto` gate -> advance to the next station's `Spec`;
 ///   non-auto gates hold until [`checkpoint_decide`].
 pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
@@ -369,6 +566,10 @@ pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
         },
     };
 
+    // Render the engine-driven instructions for this action BEFORE advancing
+    // state, so the prompt reflects the action exactly as derived.
+    let prompt = render_prompt(store, slug, &action)?;
+
     // Advance the phase write-cache based on the derived action.
     advance_state(store, slug, &action)?;
 
@@ -376,6 +577,7 @@ pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
         run: slug.to_string(),
         position,
         action,
+        prompt,
     })
 }
 
@@ -414,11 +616,13 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             state.active_station = station.clone();
         }
         RunAction::Audit { station, .. } => {
+            // Audit absorbs what tests did — it verifies the output AND runs
+            // the quality checks, then advances straight to Reflect.
             let st = ensure_station(&mut state, &factory, station)?;
-            st.phase = StationPhase::Tests;
+            st.phase = StationPhase::Reflect;
             state.active_station = station.clone();
         }
-        RunAction::Tests { station, .. } => {
+        RunAction::Reflect { station, .. } => {
             let st = ensure_station(&mut state, &factory, station)?;
             st.phase = StationPhase::Checkpoint;
             state.active_station = station.clone();
@@ -666,7 +870,8 @@ mod tests {
             t3.action
         );
 
-        // Complete the unit; next tick audits, then tests, then checkpoint.
+        // Complete the unit; next tick audits (folds tests in), then reflects,
+        // then checkpoint.
         let mut done = store.read_unit("r", "u1").unwrap();
         done.frontmatter.status = Status::Completed;
         store.write_unit("r", &done).unwrap();
@@ -677,15 +882,16 @@ mod tests {
             "expected Audit, got {:?}",
             t4.action
         );
+        // Audit absorbs the old Tests phase → advances straight to Reflect.
         assert_eq!(
             store.read_state("r").unwrap().unwrap().stations["frame"].phase,
-            StationPhase::Tests
+            StationPhase::Reflect
         );
 
         let t5 = run_tick(&store, "r").expect("t5");
         assert!(
-            matches!(t5.action, RunAction::Tests { ref station, .. } if station == "frame"),
-            "expected Tests, got {:?}",
+            matches!(t5.action, RunAction::Reflect { ref station, .. } if station == "frame"),
+            "expected Reflect, got {:?}",
             t5.action
         );
         assert_eq!(
@@ -715,6 +921,62 @@ mod tests {
         let s = store.read_state("r").unwrap().unwrap();
         assert_eq!(s.stations["frame"].status, Status::Completed);
         assert_eq!(s.active_station, "specify");
+    }
+
+    /// Audit absorbs the old Tests phase: a tick on `Audit` advances the
+    /// station write-cache straight to `Reflect` (not to a separate Tests
+    /// phase, which no longer exists), and `Reflect` then advances to
+    /// `Checkpoint`.
+    #[test]
+    fn audit_absorbs_tests_and_reflect_precedes_checkpoint() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+
+        // Force the frame station onto its Audit phase.
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.stations.get_mut("frame").unwrap().phase = StationPhase::Audit;
+        state.stations.get_mut("frame").unwrap().status = Status::InProgress;
+        store.write_state("r", &state).unwrap();
+
+        // Tick on Audit → action is Audit, phase stamps forward to Reflect.
+        let t_audit = run_tick(&store, "r").expect("audit tick");
+        assert!(
+            matches!(t_audit.action, RunAction::Audit { ref station, .. } if station == "frame"),
+            "expected Audit, got {:?}",
+            t_audit.action
+        );
+        assert_eq!(
+            store.read_state("r").unwrap().unwrap().stations["frame"].phase,
+            StationPhase::Reflect,
+            "Audit must advance to Reflect (tests folded into audit, no Tests phase)"
+        );
+
+        // Tick on Reflect → action is Reflect, phase stamps forward to Checkpoint.
+        let t_reflect = run_tick(&store, "r").expect("reflect tick");
+        assert!(
+            matches!(t_reflect.action, RunAction::Reflect { ref station, ref run } if station == "frame" && run == "r"),
+            "expected Reflect carrying run+station, got {:?}",
+            t_reflect.action
+        );
+        assert_eq!(
+            store.read_state("r").unwrap().unwrap().stations["frame"].phase,
+            StationPhase::Checkpoint,
+            "Reflect must advance to Checkpoint"
+        );
+    }
+
+    /// The `RunAction` taxonomy has no `Tests` variant and serializes `Reflect`
+    /// with the `reflect` tag — the wire contract downstream agents match.
+    #[test]
+    fn reflect_action_serializes_with_reflect_tag() {
+        let action = RunAction::Reflect {
+            run: "r".into(),
+            station: "frame".into(),
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["action"], "reflect");
+        assert_eq!(json["run"], "r");
+        assert_eq!(json["station"], "frame");
     }
 
     #[test]

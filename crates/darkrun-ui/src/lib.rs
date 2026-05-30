@@ -74,9 +74,10 @@ pub mod prelude {
     pub use crate::components::walkthrough::RunWalkthrough;
     pub use crate::components::wordmark::{Wordmark, WordmarkVariant};
     pub use crate::flow::{
-        layout_flow, phase_beat, phase_label, phase_ring_points, station_hue,
-        walkthrough_steps, checkpoint_hue, FlowConnector, FlowLayout, FlowOptions,
-        FlowStation, PassBeat, PlacedStation, WalkStep, TICKS_PER_STATION,
+        layout_flow, phase_beat, phase_beats, phase_label, phase_ring_points,
+        station_hue, walkthrough_steps, checkpoint_hue, Beat, FlowConnector,
+        FlowLayout, FlowOptions, FlowStation, PassBeat, PlacedStation, WalkStep,
+        TICKS_PER_STATION,
     };
     pub use crate::graph::layout::{
         GraphEdge, GraphLayout, GraphNode, LayeredLayout, LayoutOptions,

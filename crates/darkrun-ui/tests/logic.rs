@@ -245,7 +245,7 @@ fn phases_array_is_canonical_order() {
     let names: Vec<&str> = tokens::PHASES.iter().map(|(n, _)| *n).collect();
     assert_eq!(
         names,
-        ["spec", "review", "manufacture", "audit", "tests", "checkpoint"]
+        ["spec", "review", "manufacture", "audit", "reflect", "checkpoint"]
     );
 }
 
@@ -260,8 +260,21 @@ fn manufacture_phase_shares_the_brand_accent() {
 }
 
 #[test]
-fn tests_phase_matches_status_ok_green() {
-    assert_eq!(tokens::PHASE_TESTS.base, tokens::STATUS_OK);
+fn reflect_phase_is_a_distinct_teal() {
+    // Reflect owns its own teal — distinct from every other phase hue and from
+    // the status palette (it is not the success-green nor the brand cyan).
+    assert_eq!(Phase::Reflect.hue(), tokens::PHASE_REFLECT);
+    assert_ne!(tokens::PHASE_REFLECT.base, tokens::STATUS_OK);
+    assert_ne!(tokens::PHASE_REFLECT.base, tokens::ACCENT);
+    for other in [
+        tokens::PHASE_SPEC,
+        tokens::PHASE_REVIEW,
+        tokens::PHASE_MANUFACTURE,
+        tokens::PHASE_AUDIT,
+        tokens::PHASE_CHECKPOINT,
+    ] {
+        assert_ne!(tokens::PHASE_REFLECT.base, other.base);
+    }
 }
 
 #[test]
@@ -476,7 +489,7 @@ fn phase_all_is_six_in_order() {
     assert_eq!(Phase::ALL[1], Phase::Review);
     assert_eq!(Phase::ALL[2], Phase::Manufacture);
     assert_eq!(Phase::ALL[3], Phase::Audit);
-    assert_eq!(Phase::ALL[4], Phase::Tests);
+    assert_eq!(Phase::ALL[4], Phase::Reflect);
     assert_eq!(Phase::ALL[5], Phase::Checkpoint);
 }
 
@@ -486,7 +499,7 @@ fn phase_names_are_lowercase_canonical() {
     assert_eq!(Phase::Review.name(), "review");
     assert_eq!(Phase::Manufacture.name(), "manufacture");
     assert_eq!(Phase::Audit.name(), "audit");
-    assert_eq!(Phase::Tests.name(), "tests");
+    assert_eq!(Phase::Reflect.name(), "reflect");
     assert_eq!(Phase::Checkpoint.name(), "checkpoint");
 }
 
@@ -528,7 +541,7 @@ fn phase_hue_matches_token_constant_for_each() {
     assert_eq!(Phase::Review.hue(), tokens::PHASE_REVIEW);
     assert_eq!(Phase::Manufacture.hue(), tokens::PHASE_MANUFACTURE);
     assert_eq!(Phase::Audit.hue(), tokens::PHASE_AUDIT);
-    assert_eq!(Phase::Tests.hue(), tokens::PHASE_TESTS);
+    assert_eq!(Phase::Reflect.hue(), tokens::PHASE_REFLECT);
     assert_eq!(Phase::Checkpoint.hue(), tokens::PHASE_CHECKPOINT);
 }
 
@@ -554,7 +567,7 @@ fn phase_is_copy_and_eq() {
     let p = Phase::Audit;
     let q = p; // Copy
     assert_eq!(p, q);
-    assert_ne!(Phase::Audit, Phase::Tests);
+    assert_ne!(Phase::Audit, Phase::Reflect);
 }
 
 // ===========================================================================
@@ -669,8 +682,8 @@ fn tone_info_and_accent_share_a_color_but_not_identity() {
 }
 
 #[test]
-fn tone_ok_color_matches_tests_phase() {
-    assert_eq!(Tone::Ok.color(), Phase::Tests.hue().base);
+fn tone_ok_color_is_status_ok_green() {
+    assert_eq!(Tone::Ok.color(), tokens::STATUS_OK);
 }
 
 #[test]
@@ -806,7 +819,7 @@ fn strip_for_dots_carry_their_own_phase_hue() {
 
 #[test]
 fn strip_for_is_deterministic() {
-    assert_eq!(strip_for(Some(Phase::Tests)), strip_for(Some(Phase::Tests)));
+    assert_eq!(strip_for(Some(Phase::Reflect)), strip_for(Some(Phase::Reflect)));
     assert_eq!(strip_for(None), strip_for(None));
 }
 
@@ -820,8 +833,8 @@ fn strip_for_review_done_spec_active_review() {
 
 #[test]
 fn phase_dot_new_round_trips_fields() {
-    let dot = PhaseDot::new(Phase::Tests, Step::Done);
-    assert_eq!(dot.phase, Phase::Tests);
+    let dot = PhaseDot::new(Phase::Reflect, Step::Done);
+    assert_eq!(dot.phase, Phase::Reflect);
     assert_eq!(dot.step, Step::Done);
 }
 

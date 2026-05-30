@@ -269,7 +269,7 @@ fn frame_audit_after_units_complete() {
 }
 
 #[test]
-fn frame_audit_advances_phase_to_tests() {
+fn frame_audit_advances_phase_to_reflect() {
     let h = Harness::start("f");
     h.tick();
     h.tick();
@@ -277,11 +277,11 @@ fn frame_audit_advances_phase_to_tests() {
     h.tick();
     h.complete_unit("u1");
     h.tick(); // audit
-    assert_eq!(h.phase("frame"), StationPhase::Tests);
+    assert_eq!(h.phase("frame"), StationPhase::Reflect);
 }
 
 #[test]
-fn frame_tests_action_after_audit() {
+fn frame_reflect_action_after_audit() {
     let h = Harness::start("f");
     h.tick();
     h.tick();
@@ -289,11 +289,11 @@ fn frame_tests_action_after_audit() {
     h.tick();
     h.complete_unit("u1");
     h.tick(); // audit
-    assert!(is_tests(&h.tick().action, "frame"));
+    assert!(is_reflect(&h.tick().action, "frame"));
 }
 
 #[test]
-fn frame_tests_advances_phase_to_checkpoint() {
+fn frame_reflect_advances_phase_to_checkpoint() {
     let h = Harness::start("f");
     h.tick();
     h.tick();
@@ -301,7 +301,7 @@ fn frame_tests_advances_phase_to_checkpoint() {
     h.tick();
     h.complete_unit("u1");
     h.tick(); // audit
-    h.tick(); // tests
+    h.tick(); // reflect
     assert_eq!(h.phase("frame"), StationPhase::Checkpoint);
 }
 
@@ -490,14 +490,14 @@ fn full_run_action_log_has_six_audits() {
 }
 
 #[test]
-fn full_run_action_log_has_six_tests() {
+fn full_run_action_log_has_six_reflects() {
     let h = Harness::start("full");
     let log = h.run_to_seal();
-    let tests = log
+    let reflects = log
         .iter()
-        .filter(|a| matches!(a, RunAction::Tests { .. }))
+        .filter(|a| matches!(a, RunAction::Reflect { .. }))
         .count();
-    assert_eq!(tests, 6);
+    assert_eq!(reflects, 6);
 }
 
 #[test]
@@ -1624,9 +1624,9 @@ fn full_run_phase_progression_monotone() {
     h.decompose("frame", &[("u1", &[])]);
     h.tick();
     h.complete_unit("u1");
-    h.tick(); // audit -> tests
+    h.tick(); // audit -> reflect
     seen.push(h.phase("frame"));
-    h.tick(); // tests -> checkpoint
+    h.tick(); // reflect -> checkpoint
     seen.push(h.phase("frame"));
     assert_eq!(
         seen,
@@ -1634,7 +1634,7 @@ fn full_run_phase_progression_monotone() {
             StationPhase::Spec,
             StationPhase::Review,
             StationPhase::Manufacture,
-            StationPhase::Tests,
+            StationPhase::Reflect,
             StationPhase::Checkpoint,
         ]
     );

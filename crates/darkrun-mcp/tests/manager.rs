@@ -50,7 +50,7 @@ fn walk_to_checkpoint(store: &StateStore, run: &str, station: &str) -> RunAction
             | RunAction::Review { station: s, .. }
             | RunAction::Manufacture { station: s, .. }
             | RunAction::Audit { station: s, .. }
-            | RunAction::Tests { station: s, .. }
+            | RunAction::Reflect { station: s, .. }
                 if s == station => {}
             other => panic!("unexpected action while walking {station}: {other:?}"),
         }
@@ -139,9 +139,9 @@ fn every_phase_appears_in_order_for_a_station() {
         let mut done = store.read_unit("r", "u1").unwrap();
         done.frontmatter.status = Status::Completed;
         store.write_unit("r", &done).unwrap();
-        let t = run_tick(&store, "r").unwrap(); // audit
+        let t = run_tick(&store, "r").unwrap(); // audit (folds in the old tests phase)
         seen.push(action_name(&t.action));
-        let t = run_tick(&store, "r").unwrap(); // tests
+        let t = run_tick(&store, "r").unwrap(); // reflect
         seen.push(action_name(&t.action));
         let t = run_tick(&store, "r").unwrap(); // checkpoint
         seen.push(action_name(&t.action));
@@ -150,7 +150,7 @@ fn every_phase_appears_in_order_for_a_station() {
 
     assert_eq!(
         phases,
-        vec!["spec", "review", "manufacture", "audit", "tests", "checkpoint"]
+        vec!["spec", "review", "manufacture", "audit", "reflect", "checkpoint"]
     );
 }
 
@@ -160,7 +160,7 @@ fn action_name(a: &RunAction) -> &'static str {
         RunAction::Review { .. } => "review",
         RunAction::Manufacture { .. } => "manufacture",
         RunAction::Audit { .. } => "audit",
-        RunAction::Tests { .. } => "tests",
+        RunAction::Reflect { .. } => "reflect",
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::ResolveDrift { .. } => "resolve_drift",

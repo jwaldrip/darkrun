@@ -5,12 +5,11 @@
 //! listing but reading straight off [`darkrun_core::StateStore`] so the HTTP
 //! crate stays free of an engine dependency:
 //!
-//!   - `GET /api/runs`        — every non-archived run as a [`RunSummary`],
-//!                              sorted by slug, wrapped in a [`RunListPayload`].
-//!   - `GET /api/runs/:slug`  — a single run's [`RunDetailPayload`]: identity,
-//!                              live position, every station it walks, and the
-//!                              units sitting on the active station. `404` when
-//!                              the run is unknown.
+//! - `GET /api/runs` — every non-archived run as a [`RunSummary`], sorted by
+//!   slug, wrapped in a [`RunListPayload`].
+//! - `GET /api/runs/:slug` — a single run's [`RunDetailPayload`]: identity,
+//!   live position, every station it walks, and the units sitting on the active
+//!   station. `404` when the run is unknown.
 //!
 //! The display strings (`status`, `phase`) come from the domain enums' serde
 //! representation, so they stay in lockstep with the wire contract without a

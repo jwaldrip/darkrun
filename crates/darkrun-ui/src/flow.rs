@@ -193,16 +193,16 @@ pub fn layout_flow(
 
 /// The universal-slot beat each within-station phase performs. This is the
 /// load-bearing mapping between the six phases and the methodology vocabulary:
-/// Explore -> Decompose -> Pass-loop(Make/Challenge/Resolve) -> Review ->
-/// Checkpoint -> Lock.
+/// Spec -> Review -> Manufacture(Make/Challenge/Resolve) -> Audit -> Reflect ->
+/// Checkpoint.
 pub fn phase_beat(phase: Phase) -> &'static str {
     match phase {
-        Phase::Spec => "explore — gather context, decompose into units",
-        Phase::Review => "review the spec — challenge scope before any output",
-        Phase::Manufacture => "manufacture — the Make / Challenge / Resolve pass loop",
-        Phase::Audit => "audit the output against the spec",
-        Phase::Tests => "prove — run the quality gates",
-        Phase::Checkpoint => "checkpoint — fire the gate, then lock the artifact",
+        Phase::Spec => "spec — elaborate the work, then explore + decompose into units",
+        Phase::Review => "review the spec — adversarial pass, brief, then a user decision",
+        Phase::Manufacture => "manufacture — the Plan / Make / Challenge / Resolve pass loop",
+        Phase::Audit => "audit against the spec — verify + run the quality checks, adversarial pass",
+        Phase::Reflect => "reflect — an autonomous retrospective feeding the run-level reflections",
+        Phase::Checkpoint => "checkpoint — read the closing brief, then the user gate fires",
     }
 }
 
@@ -214,14 +214,107 @@ pub fn phase_label(phase: Phase) -> &'static str {
         Phase::Review => "Review",
         Phase::Manufacture => "Manufacture",
         Phase::Audit => "Audit",
-        Phase::Tests => "Tests",
+        Phase::Reflect => "Reflect",
         Phase::Checkpoint => "Checkpoint",
     }
 }
 
-/// The three beats of a Manufacture Pass, in order.
+/// A named sub-step (a "beat") within a phase.
+///
+/// Every phase walks an ordered list of these — the way Manufacture has always
+/// expanded into Make → Challenge → Resolve, now generalized so the
+/// `PhaseMachine`/`RunWalkthrough` can expand *any* phase into its sub-steps.
+/// The vocabulary is shared across phases (e.g. both Review and Audit run an
+/// `Adversarial` beat; both Review and Checkpoint end on a `User` beat).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Beat {
+    /// Elaborate the locked work before exploring (spec).
+    Elaborate,
+    /// Run Explorers + decompose into units (spec).
+    Explore,
+    /// Verify against the locked spec (review, audit).
+    Spec,
+    /// An adversarial reviewer pass (review, audit).
+    Adversarial,
+    /// Produce / read the closing-brief summary artifact (review, checkpoint).
+    Brief,
+    /// A genuine user input / decision step (review, checkpoint).
+    User,
+    /// Plan: decide the approach for the unit before building (manufacture).
+    Plan,
+    /// Make: produce the candidate output (manufacture).
+    Make,
+    /// Challenge: attack it, find the weakness (manufacture).
+    Challenge,
+    /// Resolve: fix what the challenge surfaced (manufacture).
+    Resolve,
+    /// Autonomous reflection (reflect).
+    Agentic,
+}
+
+impl Beat {
+    /// The lowercase label for this beat.
+    pub fn label(self) -> &'static str {
+        match self {
+            Beat::Elaborate => "elaborate",
+            Beat::Explore => "explore",
+            Beat::Spec => "spec",
+            Beat::Adversarial => "adversarial",
+            Beat::Brief => "brief",
+            Beat::User => "user",
+            Beat::Plan => "plan",
+            Beat::Make => "make",
+            Beat::Challenge => "challenge",
+            Beat::Resolve => "resolve",
+            Beat::Agentic => "agentic",
+        }
+    }
+
+    /// One-line description of what the beat does.
+    pub fn desc(self) -> &'static str {
+        match self {
+            Beat::Elaborate => "elaborate the locked work before exploring",
+            Beat::Explore => "run Explorers + decompose into units",
+            Beat::Spec => "verify against the locked spec",
+            Beat::Adversarial => "an adversarial reviewer pass",
+            Beat::Brief => "produce/read the closing-brief summary artifact",
+            Beat::User => "a genuine user input / decision step",
+            Beat::Plan => "decide the approach from spec + design; name the riskiest assumption",
+            Beat::Make => "produce the candidate output",
+            Beat::Challenge => "attack it — find the weakest seam",
+            Beat::Resolve => "fix what the challenge surfaced",
+            Beat::Agentic => "an autonomous retrospective",
+        }
+    }
+}
+
+/// The ordered named sub-steps (beats) a phase walks.
+///
+/// This is the generalized sub-step model: today only Manufacture had beats
+/// (the Make/Challenge/Resolve pass); now every phase expands into its own
+/// named beats, which the `PhaseMachine` strip and the `RunWalkthrough` step
+/// sequencing both ride.
+pub fn phase_beats(phase: Phase) -> Vec<Beat> {
+    match phase {
+        Phase::Spec => vec![Beat::Elaborate, Beat::Explore],
+        Phase::Review => vec![Beat::Spec, Beat::Adversarial, Beat::Brief, Beat::User],
+        Phase::Manufacture => vec![Beat::Plan, Beat::Make, Beat::Challenge, Beat::Resolve],
+        Phase::Audit => vec![Beat::Spec, Beat::Adversarial],
+        Phase::Reflect => vec![Beat::Agentic],
+        Phase::Checkpoint => vec![Beat::Brief, Beat::User],
+    }
+}
+
+/// The four beats of a Manufacture Pass, in order.
+///
+/// Retained as the typed Plan → Make → Challenge → Resolve worker pass: Plan
+/// (decide the approach from spec + design) then the adversarial-hardening loop
+/// (Make → Challenge → Resolve). It is the Manufacture slice of the broader
+/// [`Beat`] vocabulary; [`PassBeat::as_beat`] bridges to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PassBeat {
+    /// Plan: decide the approach for the unit before building.
+    Plan,
     /// Make: produce the candidate output.
     Make,
     /// Challenge: attack it, find the weakness.
@@ -231,24 +324,27 @@ pub enum PassBeat {
 }
 
 impl PassBeat {
-    /// All three beats in order.
-    pub const ALL: [PassBeat; 3] = [PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve];
+    /// All four beats in order.
+    pub const ALL: [PassBeat; 4] =
+        [PassBeat::Plan, PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve];
 
     /// The lowercase label.
     pub fn label(self) -> &'static str {
-        match self {
-            PassBeat::Make => "make",
-            PassBeat::Challenge => "challenge",
-            PassBeat::Resolve => "resolve",
-        }
+        self.as_beat().label()
     }
 
     /// One-line description of what the beat does.
     pub fn beat(self) -> &'static str {
+        self.as_beat().desc()
+    }
+
+    /// The matching entry in the generalized [`Beat`] vocabulary.
+    pub fn as_beat(self) -> Beat {
         match self {
-            PassBeat::Make => "produce the candidate output",
-            PassBeat::Challenge => "attack it — find the weakest seam",
-            PassBeat::Resolve => "fix what the challenge surfaced",
+            PassBeat::Plan => Beat::Plan,
+            PassBeat::Make => Beat::Make,
+            PassBeat::Challenge => Beat::Challenge,
+            PassBeat::Resolve => Beat::Resolve,
         }
     }
 }
@@ -275,8 +371,12 @@ pub fn phase_ring_points(cx: f64, cy: f64, r: f64) -> Vec<(Phase, f64, f64)> {
 // Run walkthrough step sequencing
 // ===========================================================================
 
-/// One tick of a run walkthrough: a station, the phase within it, and — when the
-/// phase is Manufacture — which Pass beat is active.
+/// One tick of a run walkthrough: a station, the phase within it, and which
+/// named sub-step ([`Beat`]) of that phase is active.
+///
+/// Every phase now expands into its beats, so `beat` is always populated. When
+/// the phase is Manufacture, [`WalkStep::pass_beat`] additionally exposes the
+/// typed Make/Challenge/Resolve value the PhaseMachine strip rides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalkStep {
     /// Index of the station in the pipeline.
@@ -285,54 +385,51 @@ pub struct WalkStep {
     pub station_slug: String,
     /// The phase active at this tick.
     pub phase: Phase,
-    /// The Pass beat, present only while `phase == Manufacture`.
-    pub beat: Option<PassBeat>,
+    /// The named sub-step of `phase` active at this tick.
+    pub beat: Beat,
 }
 
 impl WalkStep {
+    /// The typed Manufacture pass beat, present only while `phase ==
+    /// Manufacture`. Lets the Make/Challenge/Resolve strip stay strongly typed.
+    pub fn pass_beat(&self) -> Option<PassBeat> {
+        match (self.phase, self.beat) {
+            (Phase::Manufacture, Beat::Plan) => Some(PassBeat::Plan),
+            (Phase::Manufacture, Beat::Make) => Some(PassBeat::Make),
+            (Phase::Manufacture, Beat::Challenge) => Some(PassBeat::Challenge),
+            (Phase::Manufacture, Beat::Resolve) => Some(PassBeat::Resolve),
+            _ => None,
+        }
+    }
+
     /// The narration line for this tick, e.g.
     /// `"build · manufacture → challenge: attack it — find the weakest seam"`.
     pub fn narration(&self) -> String {
-        match self.beat {
-            Some(b) => format!(
-                "{station} · manufacture → {beat}: {desc}",
-                station = self.station_slug,
-                beat = b.label(),
-                desc = b.beat(),
-            ),
-            None => format!(
-                "{station} · {phase} → {beat}",
-                station = self.station_slug,
-                phase = self.phase.name(),
-                beat = phase_beat(self.phase),
-            ),
-        }
+        format!(
+            "{station} · {phase} → {beat}: {desc}",
+            station = self.station_slug,
+            phase = self.phase.name(),
+            beat = self.beat.label(),
+            desc = self.beat.desc(),
+        )
     }
 }
 
 /// Build the full ordered list of walkthrough ticks for a pipeline of `stations`
-/// slugs. Each station expands into its six phases; the Manufacture phase further
-/// expands into the three Pass beats (Make/Challenge/Resolve), so each station is
-/// `5 + 3 = 8` ticks and the whole run is `stations * 8`.
+/// slugs. Each station expands into its six phases, and **every** phase further
+/// expands into its named beats ([`phase_beats`]): spec(2) + review(4) +
+/// manufacture(4) + audit(2) + reflect(1) + checkpoint(2) = [`TICKS_PER_STATION`]
+/// ticks per station, and the whole run is `stations * TICKS_PER_STATION`.
 pub fn walkthrough_steps(stations: &[String]) -> Vec<WalkStep> {
-    let mut steps = Vec::with_capacity(stations.len() * (Phase::ALL.len() + PassBeat::ALL.len() - 1));
+    let mut steps = Vec::with_capacity(stations.len() * TICKS_PER_STATION);
     for (station_index, slug) in stations.iter().enumerate() {
         for phase in Phase::ALL {
-            if phase == Phase::Manufacture {
-                for beat in PassBeat::ALL {
-                    steps.push(WalkStep {
-                        station_index,
-                        station_slug: slug.clone(),
-                        phase,
-                        beat: Some(beat),
-                    });
-                }
-            } else {
+            for beat in phase_beats(phase) {
                 steps.push(WalkStep {
                     station_index,
                     station_slug: slug.clone(),
                     phase,
-                    beat: None,
+                    beat,
                 });
             }
         }
@@ -340,9 +437,10 @@ pub fn walkthrough_steps(stations: &[String]) -> Vec<WalkStep> {
     steps
 }
 
-/// The number of ticks one station contributes to a walkthrough (8: five plain
-/// phases plus the three-beat Manufacture pass).
-pub const TICKS_PER_STATION: usize = Phase::ALL.len() + PassBeat::ALL.len() - 1;
+/// The number of ticks one station contributes to a walkthrough — the sum of
+/// every phase's beat count: spec(2)+review(4)+manufacture(4)+audit(2)+
+/// reflect(1)+checkpoint(2) = 15.
+pub const TICKS_PER_STATION: usize = 15;
 
 /// Resolve a checkpoint kind to the hue used to tint its badge. Auto reads as
 /// success-green; ask/await as caution; external as info.
@@ -454,9 +552,13 @@ mod tests {
 
     #[test]
     fn pass_beats_are_three_in_order() {
-        assert_eq!(PassBeat::ALL, [PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve]);
+        assert_eq!(PassBeat::ALL, [PassBeat::Plan, PassBeat::Make, PassBeat::Challenge, PassBeat::Resolve]);
         assert_eq!(PassBeat::Make.label(), "make");
         assert_eq!(PassBeat::Resolve.label(), "resolve");
+        // bridges into the generalized Beat vocabulary
+        assert_eq!(PassBeat::Make.as_beat(), Beat::Make);
+        assert_eq!(PassBeat::Challenge.as_beat(), Beat::Challenge);
+        assert_eq!(PassBeat::Resolve.as_beat(), Beat::Resolve);
     }
 
     #[test]
@@ -468,31 +570,75 @@ mod tests {
     }
 
     #[test]
-    fn walkthrough_expands_each_station_into_eight_ticks() {
-        let steps = walkthrough_steps(&["frame".into(), "build".into()]);
-        assert_eq!(TICKS_PER_STATION, 8);
-        assert_eq!(steps.len(), 16);
-        // first station occupies the first 8 ticks
-        assert!(steps[..8].iter().all(|s| s.station_index == 0));
-        assert!(steps[8..].iter().all(|s| s.station_index == 1));
+    fn phase_beats_match_the_spec_table() {
+        assert_eq!(phase_beats(Phase::Spec), vec![Beat::Elaborate, Beat::Explore]);
+        assert_eq!(
+            phase_beats(Phase::Review),
+            vec![Beat::Spec, Beat::Adversarial, Beat::Brief, Beat::User]
+        );
+        assert_eq!(
+            phase_beats(Phase::Manufacture),
+            vec![Beat::Plan, Beat::Make, Beat::Challenge, Beat::Resolve]
+        );
+        assert_eq!(phase_beats(Phase::Audit), vec![Beat::Spec, Beat::Adversarial]);
+        assert_eq!(phase_beats(Phase::Reflect), vec![Beat::Agentic]);
+        assert_eq!(phase_beats(Phase::Checkpoint), vec![Beat::Brief, Beat::User]);
     }
 
     #[test]
-    fn walkthrough_manufacture_carries_three_beats() {
+    fn phase_beats_sum_to_ticks_per_station() {
+        let total: usize = Phase::ALL.iter().map(|p| phase_beats(*p).len()).sum();
+        assert_eq!(total, TICKS_PER_STATION);
+        assert_eq!(TICKS_PER_STATION, 15);
+    }
+
+    #[test]
+    fn every_beat_has_nonempty_label_and_desc() {
+        for p in Phase::ALL {
+            for b in phase_beats(p) {
+                assert!(!b.label().is_empty());
+                assert!(!b.desc().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn walkthrough_expands_each_station_into_its_beats() {
+        let steps = walkthrough_steps(&["frame".into(), "build".into()]);
+        assert_eq!(TICKS_PER_STATION, 15);
+        assert_eq!(steps.len(), 30);
+        // first station occupies the first 15 ticks
+        assert!(steps[..15].iter().all(|s| s.station_index == 0));
+        assert!(steps[15..].iter().all(|s| s.station_index == 1));
+    }
+
+    #[test]
+    fn walkthrough_phase_beat_counts_match_phase_beats() {
+        let steps = walkthrough_steps(&["build".into()]);
+        for phase in Phase::ALL {
+            let got: Vec<Beat> =
+                steps.iter().filter(|s| s.phase == phase).map(|s| s.beat).collect();
+            assert_eq!(got, phase_beats(phase), "beats for {phase:?}");
+        }
+    }
+
+    #[test]
+    fn walkthrough_manufacture_carries_four_pass_beats() {
         let steps = walkthrough_steps(&["build".into()]);
         let manu: Vec<&WalkStep> = steps.iter().filter(|s| s.phase == Phase::Manufacture).collect();
-        assert_eq!(manu.len(), 3);
-        assert_eq!(manu[0].beat, Some(PassBeat::Make));
-        assert_eq!(manu[1].beat, Some(PassBeat::Challenge));
-        assert_eq!(manu[2].beat, Some(PassBeat::Resolve));
-        // non-manufacture ticks carry no beat
-        assert!(steps.iter().filter(|s| s.phase != Phase::Manufacture).all(|s| s.beat.is_none()));
+        assert_eq!(manu.len(), 4);
+        assert_eq!(manu[0].pass_beat(), Some(PassBeat::Plan));
+        assert_eq!(manu[1].pass_beat(), Some(PassBeat::Make));
+        assert_eq!(manu[2].pass_beat(), Some(PassBeat::Challenge));
+        assert_eq!(manu[3].pass_beat(), Some(PassBeat::Resolve));
+        // non-manufacture ticks have no typed pass beat
+        assert!(steps.iter().filter(|s| s.phase != Phase::Manufacture).all(|s| s.pass_beat().is_none()));
     }
 
     #[test]
     fn walkthrough_phase_order_within_a_station() {
         let steps = walkthrough_steps(&["frame".into()]);
-        // Collapse the manufacture beats back to a single phase to check order.
+        // Collapse the per-phase beats back to a single phase to check order.
         let mut seen: Vec<Phase> = Vec::new();
         for s in &steps {
             if seen.last() != Some(&s.phase) {
@@ -510,7 +656,7 @@ mod tests {
     #[test]
     fn narration_for_manufacture_names_the_beat() {
         let steps = walkthrough_steps(&["build".into()]);
-        let challenge = steps.iter().find(|s| s.beat == Some(PassBeat::Challenge)).unwrap();
+        let challenge = steps.iter().find(|s| s.pass_beat() == Some(PassBeat::Challenge)).unwrap();
         let n = challenge.narration();
         assert!(n.contains("build"));
         assert!(n.contains("manufacture"));
@@ -518,13 +664,14 @@ mod tests {
     }
 
     #[test]
-    fn narration_for_plain_phase_uses_phase_beat() {
+    fn narration_for_plain_phase_names_phase_and_beat() {
         let steps = walkthrough_steps(&["frame".into()]);
         let spec = steps.iter().find(|s| s.phase == Phase::Spec).unwrap();
         let n = spec.narration();
         assert!(n.contains("frame"));
         assert!(n.contains("spec"));
-        assert!(n.contains(phase_beat(Phase::Spec)));
+        assert!(n.contains(spec.beat.label()));
+        assert!(n.contains(spec.beat.desc()));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
   "name": "darkrun",
   "version": "0.1.0",
-  "description": "darkrun — factory-based lifecycle orchestration for Claude Code. Ships a native, per-arch Rust binary (no JS runtime).",
+  "description": "darkrun — a dark factory harness for Claude Code: an agentic assembly line for any structured work. Ships a native, per-arch Rust binary (no JS runtime).",
   "homepage": "https://darkrun.ai",
   "repository": {
     "type": "git",

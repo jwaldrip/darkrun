@@ -9,7 +9,7 @@ name = "darkrun-site"
 default_platform = "web"
 
 [web.app]
-title = "darkrun — an assembly line for software"
+title = "darkrun — a dark factory for your business"
 
 [web.watcher]
 reload_html = true

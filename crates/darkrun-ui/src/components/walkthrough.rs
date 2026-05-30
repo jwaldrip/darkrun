@@ -87,7 +87,7 @@ pub fn RunWalkthrough(
     let cur = &steps[at];
     let active_station = cur.station_index;
     let active_phase = cur.phase;
-    let active_beat = cur.beat;
+    let active_beat = cur.pass_beat();
     let narration = cur.narration();
 
     let panel = format!(

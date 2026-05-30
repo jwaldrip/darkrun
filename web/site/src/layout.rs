@@ -55,7 +55,7 @@ pub fn Shell() -> Element {
             }
             main { style: "{main}", Outlet::<Route> {} }
             footer { style: "{footer}",
-                span { "darkrun \u{00b7} the software factory" }
+                span { "darkrun \u{00b7} the dark factory harness" }
                 div { style: "display:flex;gap:18px;",
                     NavLink { to: Route::Changelog {}, label: "Changelog" }
                     NavLink { to: Route::Privacy {}, label: "Privacy" }

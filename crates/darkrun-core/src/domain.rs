@@ -34,12 +34,16 @@ pub enum Status {
 }
 
 /// The fixed taxonomy of phases every Station walks, in order:
-/// `Spec -> Review -> Manufacture -> Audit -> Tests -> Checkpoint`.
+/// `Spec -> Review -> Manufacture -> Audit -> Reflect -> Checkpoint`.
 ///
 /// Explore + Decompose happen in `Spec`; the Pass-loop (Make -> Challenge ->
-/// Resolve) runs in `Manufacture`; the gate runs in `Checkpoint`. Note the
-/// `Spec` *phase* (every station has one) is distinct from the `Specify`
-/// *station* — they sit at different levels of Factory > Station > phase.
+/// Resolve) runs in `Manufacture`; verification AND the quality checks/tests
+/// both happen in `Audit` (audit verifies the output against the spec *and*
+/// runs the tests — there is no separate tests phase); `Reflect` is an
+/// autonomous retrospective that feeds the run-level reflections; the gate
+/// runs in `Checkpoint`. Note the `Spec` *phase* (every station has one) is
+/// distinct from the `Specify` *station* — they sit at different levels of
+/// Factory > Station > phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StationPhase {
@@ -49,10 +53,12 @@ pub enum StationPhase {
     Review,
     /// Manufacture the output: the Pass-loop (Make -> Challenge -> Resolve).
     Manufacture,
-    /// Audit the manufactured output against the spec.
+    /// Audit the manufactured output against the spec AND run the quality
+    /// checks / tests (the old `Tests` phase folded in here).
     Audit,
-    /// Quality checks / tests over the output.
-    Tests,
+    /// Reflect: an autonomous retrospective that captures learnings feeding the
+    /// run-level reflections, before the gate fires.
+    Reflect,
     /// The Checkpoint gate fires (auto/ask/external/await).
     Checkpoint,
 }

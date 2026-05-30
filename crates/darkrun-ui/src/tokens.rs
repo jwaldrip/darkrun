@@ -47,7 +47,7 @@ pub const ACCENT_STRONG: &str = "#33c5f5";
 pub const ON_ACCENT: &str = "#04141b";
 
 // --- Phase hues -----------------------------------------------------------
-// spec=grey review=blue manufacture=cyan audit=amber tests=green checkpoint=magenta
+// spec=grey review=blue manufacture=cyan audit=amber reflect=teal checkpoint=magenta
 
 /// `spec` phase — neutral grey: the work is still being framed.
 pub const PHASE_SPEC: Hue = Hue { base: "#8b98a5", on: "#0b0e12" };
@@ -55,10 +55,12 @@ pub const PHASE_SPEC: Hue = Hue { base: "#8b98a5", on: "#0b0e12" };
 pub const PHASE_REVIEW: Hue = Hue { base: "#5b8def", on: "#04101f" };
 /// `manufacture` phase — cyan: output is being made (shares the brand accent family).
 pub const PHASE_MANUFACTURE: Hue = Hue { base: "#5fd7ff", on: "#04141b" };
-/// `audit` phase — amber: output is being checked against spec.
+/// `audit` phase — amber: output is being checked against spec (folds in the old
+/// quality-gate/tests work).
 pub const PHASE_AUDIT: Hue = Hue { base: "#f0b429", on: "#1a1200" };
-/// `tests` phase — green: quality gates run.
-pub const PHASE_TESTS: Hue = Hue { base: "#3fb950", on: "#031a08" };
+/// `reflect` phase — teal: the autonomous retrospective. A cool blue-green that
+/// is distinct from both the review-blue and the manufacture-cyan around it.
+pub const PHASE_REFLECT: Hue = Hue { base: "#2dd4bf", on: "#04201c" };
 /// `checkpoint` phase — magenta: the gate fires.
 pub const PHASE_CHECKPOINT: Hue = Hue { base: "#d160e8", on: "#1b0420" };
 
@@ -113,7 +115,7 @@ pub const THEME_CSS: &str = r#":root{
   --dr-phase-review:#5b8def;
   --dr-phase-manufacture:#5fd7ff;
   --dr-phase-audit:#f0b429;
-  --dr-phase-tests:#3fb950;
+  --dr-phase-reflect:#2dd4bf;
   --dr-phase-checkpoint:#d160e8;
   --dr-status-ok:#3fb950;
   --dr-status-warn:#f0b429;
@@ -137,13 +139,13 @@ html,body{
 ///
 /// Mirrors `darkrun_core::domain::StationPhase` but lives here so the UI crate
 /// stays dependency-light (no core dependency, wasm-safe). Order is load-bearing:
-/// `spec -> review -> manufacture -> audit -> tests -> checkpoint`.
+/// `spec -> review -> manufacture -> audit -> reflect -> checkpoint`.
 pub const PHASES: [(&str, Hue); 6] = [
     ("spec", PHASE_SPEC),
     ("review", PHASE_REVIEW),
     ("manufacture", PHASE_MANUFACTURE),
     ("audit", PHASE_AUDIT),
-    ("tests", PHASE_TESTS),
+    ("reflect", PHASE_REFLECT),
     ("checkpoint", PHASE_CHECKPOINT),
 ];
 
@@ -184,7 +186,7 @@ mod tests {
             PHASE_REVIEW.base,
             PHASE_MANUFACTURE.base,
             PHASE_AUDIT.base,
-            PHASE_TESTS.base,
+            PHASE_REFLECT.base,
             PHASE_CHECKPOINT.base,
         ] {
             assert!(

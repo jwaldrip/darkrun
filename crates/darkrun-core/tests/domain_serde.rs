@@ -224,7 +224,7 @@ const ALL_PHASES: [(StationPhase, &str); 6] = [
     (StationPhase::Review, "review"),
     (StationPhase::Manufacture, "manufacture"),
     (StationPhase::Audit, "audit"),
-    (StationPhase::Tests, "tests"),
+    (StationPhase::Reflect, "reflect"),
     (StationPhase::Checkpoint, "checkpoint"),
 ];
 
@@ -254,8 +254,8 @@ fn station_phase_audit_token() {
 }
 
 #[test]
-fn station_phase_tests_token() {
-    assert_eq!(json_token(&StationPhase::Tests), "tests");
+fn station_phase_reflect_token() {
+    assert_eq!(json_token(&StationPhase::Reflect), "reflect");
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn station_phase_schema_lists_six_in_order() {
         .collect();
     assert_eq!(
         tokens,
-        vec!["spec", "review", "manufacture", "audit", "tests", "checkpoint"]
+        vec!["spec", "review", "manufacture", "audit", "reflect", "checkpoint"]
     );
 }
 
@@ -316,7 +316,7 @@ fn station_phase_variants_are_distinct() {
 #[test]
 fn station_phase_equality_distinguishes_spec_from_review() {
     assert_ne!(StationPhase::Spec, StationPhase::Review);
-    assert_ne!(StationPhase::Audit, StationPhase::Tests);
+    assert_ne!(StationPhase::Audit, StationPhase::Reflect);
 }
 
 // ===========================================================================
@@ -2485,7 +2485,7 @@ fn double_roundtrip_is_idempotent_for_station() {
     let station = Station {
         station: "build".into(),
         status: Status::Active,
-        phase: StationPhase::Tests,
+        phase: StationPhase::Reflect,
         checkpoint: Some(Checkpoint {
             kind: CheckpointKind::External,
             entered_at: Some("t".into()),

@@ -799,7 +799,7 @@ fn run_phase_tokens_follow_factory_vocabulary() {
         (RunPhase::Review, "review"),
         (RunPhase::Manufacture, "manufacture"),
         (RunPhase::Audit, "audit"),
-        (RunPhase::Tests, "tests"),
+        (RunPhase::Reflect, "reflect"),
         (RunPhase::Checkpoint, "checkpoint"),
     ];
     for (v, s) in cases {
@@ -2237,7 +2237,7 @@ fn run_phase_schema_enumerates_six_phases() {
         "review",
         "manufacture",
         "audit",
-        "tests",
+        "reflect",
         "checkpoint",
     ];
     for e in expected {

@@ -25,10 +25,11 @@ pub enum RunPhase {
     Review,
     /// Manufacture: the Pass-loop over Units.
     Manufacture,
-    /// Audit the output against the spec.
+    /// Audit the output against the spec AND run the quality checks / tests
+    /// (the old `Tests` phase folded in here).
     Audit,
-    /// Quality checks / tests.
-    Tests,
+    /// Reflect: autonomous retrospective feeding the run-level reflections.
+    Reflect,
     /// The Checkpoint gate fires.
     Checkpoint,
 }

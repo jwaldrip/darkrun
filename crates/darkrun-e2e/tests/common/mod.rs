@@ -26,7 +26,7 @@ pub const PHASES: [StationPhase; 6] = [
     StationPhase::Review,
     StationPhase::Manufacture,
     StationPhase::Audit,
-    StationPhase::Tests,
+    StationPhase::Reflect,
     StationPhase::Checkpoint,
 ];
 
@@ -280,9 +280,9 @@ pub fn is_audit(a: &RunAction, station: &str) -> bool {
     matches!(a, RunAction::Audit { station: s, .. } if s == station)
 }
 
-/// Assert an action is a `Tests` on `station`.
-pub fn is_tests(a: &RunAction, station: &str) -> bool {
-    matches!(a, RunAction::Tests { station: s, .. } if s == station)
+/// Assert an action is a `Reflect` on `station`.
+pub fn is_reflect(a: &RunAction, station: &str) -> bool {
+    matches!(a, RunAction::Reflect { station: s, .. } if s == station)
 }
 
 /// Assert an action is a `Checkpoint` on `station`.

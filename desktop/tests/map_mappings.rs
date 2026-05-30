@@ -32,8 +32,8 @@ fn phase_audit() {
 }
 
 #[test]
-fn phase_tests() {
-    assert_eq!(phase(RunPhase::Tests), Phase::Tests);
+fn phase_reflect() {
+    assert_eq!(phase(RunPhase::Reflect), Phase::Reflect);
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn phase_is_total_and_distinct() {
         phase(RunPhase::Review),
         phase(RunPhase::Manufacture),
         phase(RunPhase::Audit),
-        phase(RunPhase::Tests),
+        phase(RunPhase::Reflect),
         phase(RunPhase::Checkpoint),
     ];
     for (i, a) in all.iter().enumerate() {

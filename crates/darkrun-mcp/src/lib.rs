@@ -14,9 +14,10 @@
 //!
 //! Three-track priority (Track C -> B -> A): **drift -> feedback ->
 //! run**. Inside the run track, each Station walks the phase machine
-//! `Elaborate -> Execute -> Review -> Checkpoint`, where the checkpoint kind
-//! (`auto`/`ask`/`external`/`await`) decides whether the station advances
-//! automatically or holds for an operator decision.
+//! `Spec -> Review -> Manufacture -> Audit -> Reflect -> Checkpoint`, where the
+//! checkpoint kind (`auto`/`ask`/`external`/`await`) decides whether the station
+//! advances automatically or holds for an operator decision. Each phase expands
+//! into named sub-step beats in the *rendered prompt*, not in separate ticks.
 //!
 //! ## MCP surface
 //!
@@ -51,7 +52,8 @@ pub use change::{change_request_intent, ChangeRequestIntent};
 pub use error::{McpError, Result};
 pub use factory::{list_factories, resolve_factory, FactoryDef, StationDef};
 pub use position::{
-    checkpoint_decide, derive_position, run_start, run_tick, Position, RunAction, TickResult, Track,
+    checkpoint_decide, derive_position, render_prompt, run_start, run_tick, Position, PromptContext,
+    RunAction, TickResult, Track,
 };
 pub use runs::RunSummary;
 pub use server::serve_stdio;

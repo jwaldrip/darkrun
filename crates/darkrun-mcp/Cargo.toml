@@ -9,6 +9,7 @@ description = "darkrun MCP server + manager — drives a Run through the factory
 
 [dependencies]
 darkrun-core.workspace = true
+darkrun-prompts.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

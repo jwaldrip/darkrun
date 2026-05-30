@@ -20,8 +20,11 @@ Frame  →  Specify  →  Shape  →  Build  →  Prove  →  Harden
 ## Inside a station
 
 Every station, regardless of what it produces, runs the same lifecycle in
-miniature: spec → review → manufacture → audit → tests → checkpoint. The
-artifact only locks once the audit and tests pass and the checkpoint clears.
+miniature: spec → review → manufacture → audit → reflect → checkpoint. The
+audit folds in the quality checks (tests, types, lints) alongside the reviewers,
+so there is no separate tests phase; reflect is an autonomous retrospective that
+feeds the run-level reflections. The artifact only locks once the audit passes,
+the retrospective is captured, and the checkpoint clears.
 
 ## Why the order is fixed
 
