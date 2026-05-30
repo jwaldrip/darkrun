@@ -55,6 +55,7 @@ pub mod factory;
 pub mod feedback;
 pub mod position;
 pub mod proof;
+pub mod reflection;
 pub mod runs;
 pub mod server;
 pub mod sessions;

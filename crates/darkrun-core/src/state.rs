@@ -302,6 +302,40 @@ impl StateStore {
         let path = dir.join(format!("{id}.md"));
         io(&path, fs::write(&path, content))
     }
+
+    /// The `reflections/` directory for a run — where the Reflect phase's
+    /// retrospectives collect.
+    pub fn reflections_dir(&self, slug: &str) -> PathBuf {
+        self.run_dir(slug).join("reflections")
+    }
+
+    /// Read every reflection document for a run, keyed by id (sorted).
+    pub fn read_reflections_raw(&self, run: &str) -> Result<BTreeMap<String, String>> {
+        let dir = self.reflections_dir(run);
+        let mut out = BTreeMap::new();
+        if !dir.exists() {
+            return Ok(out);
+        }
+        for entry in io(&dir, fs::read_dir(&dir))? {
+            let entry = io(&dir, entry)?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let raw = io(&path, fs::read_to_string(&path))?;
+                    out.insert(stem.to_string(), raw);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Write a raw reflection document.
+    pub fn write_reflection_raw(&self, run: &str, id: &str, content: &str) -> Result<()> {
+        let dir = self.reflections_dir(run);
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = dir.join(format!("{id}.md"));
+        io(&path, fs::write(&path, content))
+    }
 }
 
 /// Whether a run is in a terminal (completed) status.

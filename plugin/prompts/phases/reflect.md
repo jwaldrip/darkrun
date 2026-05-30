@@ -23,8 +23,8 @@ Reflect on this station's pass, on your own, no human in the loop:
 {% endfor %}
 {% endif %}
 
-Write the learnings down where the run-level reflections collect them. Be specific and honest — a vague reflection is a wasted one.
+Record the learnings with `darkrun_reflection_record` (pass the `{{ station }}` station and your retrospective as the `body`) so they persist on the run and inform later stations — read them back any time with `darkrun_reflection_list`. Be specific and honest — a vague reflection is a wasted one.
 
 ## Done when
 
-The retrospective is captured against the run's reflections. Then call `run_next` to reach the checkpoint.
+The retrospective is captured via `darkrun_reflection_record`. Then call `run_next` to reach the checkpoint.

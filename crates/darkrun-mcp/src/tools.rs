@@ -27,7 +27,7 @@ use darkrun_http::SessionRegistry;
 use crate::factory::{list_factories, resolve_factory};
 use crate::position::{checkpoint_decide, run_start, run_tick};
 use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
-use crate::{feedback, proof, runs, units};
+use crate::{feedback, proof, reflection, runs, units};
 
 /// The darkrun MCP server: a manager bound to a repo root, holding the shared
 /// in-memory [`SessionRegistry`] that the in-process HTTP/WS server also serves
@@ -242,6 +242,27 @@ pub struct FeedbackCreateInput {
     /// Optional severity: `blocker`/`high`/`medium`/`low`.
     #[serde(default)]
     pub severity: Option<String>,
+}
+
+/// Input for `darkrun_reflection_record` — capture a Reflect-phase retrospective.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ReflectionRecordInput {
+    /// The run slug.
+    pub slug: String,
+    /// The reflection prose — specific, honest learnings.
+    pub body: String,
+    /// The station this reflection came out of. Omit for a run-level note.
+    #[serde(default)]
+    pub station: Option<String>,
+}
+
+/// Input for `darkrun_reflection_list` — read a run's collected reflections.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ReflectionListInput {
+    /// The run slug.
+    pub slug: String,
 }
 
 /// Input for `darkrun_feedback_list`.
@@ -742,6 +763,40 @@ impl DarkrunServer {
         };
         match feedback::create(&store, &input.slug, &input.station, &input.body, severity) {
             Ok(fb) => ok_json(&fb),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    // ── Reflections ──────────────────────────────────────────────────────
+
+    /// Record a Reflect-phase retrospective so it survives the run.
+    #[tool(
+        name = "darkrun_reflection_record",
+        description = "Capture a Reflect-phase retrospective into the run's durable reflections."
+    )]
+    pub fn darkrun_reflection_record(
+        &self,
+        Parameters(input): Parameters<ReflectionRecordInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match reflection::record(&store, &input.slug, input.station.clone(), &input.body) {
+            Ok(r) => ok_json(&r),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// List a run's collected reflections.
+    #[tool(
+        name = "darkrun_reflection_list",
+        description = "List the run's collected Reflect-phase reflections (oldest first)."
+    )]
+    pub fn darkrun_reflection_list(
+        &self,
+        Parameters(input): Parameters<ReflectionListInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match reflection::list(&store, &input.slug) {
+            Ok(rs) => ok_json(&rs),
             Err(e) => Ok(err_text(e)),
         }
     }
