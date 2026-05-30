@@ -14,6 +14,7 @@
 //! native host (for the static-site generator).
 
 pub mod content;
+pub mod factory_view;
 pub mod layout;
 pub mod pages;
 pub mod route;

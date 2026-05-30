@@ -1,0 +1,13 @@
+description = "Run a Run's gates autonomously — promote ask Checkpoints to auto so the manager advances without stopping, pausing only on external/await gates and ambiguity"
+prompt = """
+Run a Run on autopilot. Follow the `darkrun-autopilot` skill:
+
+1. No active Run? Create one with `/darkrun:darkrun-start`.
+2. Enable autopilot via `darkrun_run_start { ..., autopilot: true }` at creation, or on an existing
+   Run through the manager. Autopilot is Run-level — don't flip individual Checkpoints by hand.
+3. Drive the loop with `darkrun_run_next { run: "<slug>" }`; do exactly what each return says and
+   re-call to advance.
+4. Pause and surface to the user on: external/await Checkpoints, elicitation-required decisions,
+   scope explosion (a Station decomposing into more than ~5 Units), mid-Run PR creation, or any
+   manager rejection that survives one retry. Never guess.
+"""

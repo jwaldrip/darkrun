@@ -1,0 +1,15 @@
+description = "Wipe one Station of a Run (Units, outputs, artifacts, decomposition, feedback, branch) so the manager re-enters it from scratch — or reset/archive the whole Run. Other Stations stay untouched."
+prompt = """
+Reset a darkrun Station or Run. Follow the `darkrun-reset` skill. Reset is destructive and confirmed
+before anything is removed.
+
+1. Identify the Run — call `darkrun_run_list` if no slug is in context; ask which if several are
+   active.
+2. Station scope: `darkrun_run_reset { run, station }` (confirms and lists what will be deleted).
+   Run scope: omit `station`, or `darkrun_run_archive { run }` to retire the Run.
+3. After confirmation, the tool performs the wipe.
+4. Call `darkrun_run_next` — the next tick re-enters the Station at its spec phase.
+
+Not for: a few specific problems (use `darkrun_feedback_create`), or rolling back git history (manual
+`git revert`/`reset`).
+"""

@@ -25,6 +25,8 @@ pub enum Route {
         Factories {},
         #[route("/factories/:slug")]
         FactoryDetail { slug: String },
+        #[route("/factories/:factory/stations/:station")]
+        StationDetail { factory: String, station: String },
 
         #[route("/docs")]
         Docs {},
@@ -33,6 +35,8 @@ pub enum Route {
 
         #[route("/methodology")]
         Methodology {},
+        #[route("/methodology/:phase")]
+        PhaseDetail { phase: String },
         #[route("/glossary")]
         Glossary {},
         #[route("/lifecycles")]
@@ -68,9 +72,9 @@ pub enum Route {
 pub use pages::blog::{Blog, Post};
 pub use pages::browse::Browse;
 pub use pages::changelog::Changelog;
-pub use pages::concepts::{Glossary, Lifecycles, Methodology};
+pub use pages::concepts::{Glossary, Lifecycles, Methodology, PhaseDetail};
 pub use pages::docs::{DocPage, Docs};
-pub use pages::factories::{FactoryDetail, Factories};
+pub use pages::factories::{FactoryDetail, Factories, StationDetail};
 pub use pages::landing::Landing;
 pub use pages::legal::{Privacy, Terms};
 pub use pages::misc::{NotFound, Paper, Templates};
@@ -100,6 +104,16 @@ impl Route {
         ];
         for slug in darkrun_content::list_factories() {
             paths.push(format!("/factories/{slug}"));
+            // Each station drills down to its own deep page.
+            if let Ok(factory) = darkrun_content::load_validated(&slug) {
+                for station in &factory.stations {
+                    paths.push(format!("/factories/{slug}/stations/{}", station.name()));
+                }
+            }
+        }
+        // One explainer page per phase under /methodology.
+        for phase in crate::pages::concepts::PHASE_SLUGS {
+            paths.push(format!("/methodology/{phase}"));
         }
         for doc in crate::content::DOCS {
             paths.push(format!("/docs/{}", doc.slug));
@@ -133,6 +147,24 @@ mod tests {
         assert!(paths.iter().any(|p| p.starts_with("/factories/")));
         assert!(paths.iter().any(|p| p.starts_with("/docs/")));
         assert!(paths.iter().any(|p| p.starts_with("/blog/")));
+    }
+
+    #[test]
+    fn all_paths_expands_station_and_phase_routes() {
+        let paths = Route::all_paths();
+        // Every station of every factory has a deep page.
+        for slug in darkrun_content::list_factories() {
+            let factory = darkrun_content::load_validated(&slug).expect("load");
+            for station in &factory.stations {
+                let want = format!("/factories/{slug}/stations/{}", station.name());
+                assert!(paths.iter().any(|p| p == &want), "missing {want}");
+            }
+        }
+        // One explainer page per phase.
+        for phase in crate::pages::concepts::PHASE_SLUGS {
+            let want = format!("/methodology/{phase}");
+            assert!(paths.iter().any(|p| p == &want), "missing {want}");
+        }
     }
 
     #[test]

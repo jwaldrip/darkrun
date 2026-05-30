@@ -1,0 +1,16 @@
+{
+  "name": "darkrun-dev",
+  "owner": {
+    "name": "Jason Waldrip"
+  },
+  "metadata": {
+    "description": "darkrun (dev)"
+  },
+  "plugins": [
+    {
+      "name": "darkrun",
+      "description": "darkrun (dev)",
+      "source": "./plugin"
+    }
+  ]
+}

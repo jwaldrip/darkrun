@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/darkrun\" hook redirect-plan-mode",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*__darkrun_",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/darkrun\" hook inject-state-file",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/darkrun\" hook guard-workflow-fields",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

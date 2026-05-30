@@ -65,10 +65,17 @@ pub fn load_factory(name: &str) -> Result<Factory> {
         stations.push(load_station(name, station_slug)?);
     }
 
+    // Run-level (factory-scope) roles live beside the stations: whole-Run
+    // reviewers under `reviewers/`, reflection dimensions under `reflections/`.
+    let run_reviewers = load_factory_roles(name, "reviewers", &frontmatter.reviewers)?;
+    let reflections = load_factory_roles(name, "reflections", &frontmatter.reflections)?;
+
     Ok(Factory {
         frontmatter,
         body,
         stations,
+        run_reviewers,
+        reflections,
     })
 }
 
@@ -102,6 +109,22 @@ fn load_roles(station_base: &str, subdir: &str, names: &[String]) -> Result<Vec<
     let mut roles = Vec::with_capacity(names.len());
     for slug in names {
         let path = format!("{station_base}/{subdir}/{slug}.md");
+        let (frontmatter, body): (RoleFrontmatter, String) =
+            frontmatter::parse(&read_text(&path)?)?;
+        roles.push(Role { frontmatter, body });
+    }
+    Ok(roles)
+}
+
+/// Load each named run-level role from a factory-scope subdirectory
+/// (`factories/<factory>/<subdir>/<slug>.md`), preserving declaration order.
+///
+/// These are the factory-scope analog of [`load_roles`]: whole-Run reviewers
+/// and reflection dimensions live beside the stations, not inside one.
+fn load_factory_roles(factory: &str, subdir: &str, names: &[String]) -> Result<Vec<Role>> {
+    let mut roles = Vec::with_capacity(names.len());
+    for slug in names {
+        let path = format!("factories/{factory}/{subdir}/{slug}.md");
         let (frontmatter, body): (RoleFrontmatter, String) =
             frontmatter::parse(&read_text(&path)?)?;
         roles.push(Role { frontmatter, body });
@@ -174,5 +197,47 @@ mod tests {
         let parsed: Result<(StationFrontmatter, String)> =
             frontmatter::parse(doc).map_err(Into::into);
         assert!(parsed.is_err(), "missing checkpoint must be rejected");
+    }
+
+    #[test]
+    fn software_loads_run_level_roles_from_the_corpus() {
+        // The loader populates run_reviewers / reflections from the factory-scope
+        // `reviewers/` and `reflections/` directories beside the stations.
+        let f = load_factory("software").expect("load");
+        let reviewers: Vec<&str> = f.run_reviewers.iter().map(Role::name).collect();
+        let reflections: Vec<&str> = f.reflections.iter().map(Role::name).collect();
+        assert_eq!(
+            reviewers,
+            vec!["integration-auditor", "regression-auditor", "security-auditor"]
+        );
+        assert_eq!(reflections, vec!["architecture", "process", "quality", "velocity"]);
+    }
+
+    #[test]
+    fn run_level_role_bodies_are_loaded_verbatim() {
+        // Bodies must come through with their instructions intact, not stubbed.
+        let f = load_factory("software").expect("load");
+        for r in f.run_reviewers.iter().chain(&f.reflections) {
+            assert!(r.body.contains('#'), "{} body lost its heading", r.name());
+            assert!(r.body.trim().len() > 120, "{} body too thin", r.name());
+        }
+    }
+
+    #[test]
+    fn load_factory_roles_reports_a_missing_factory_scope_file() {
+        // A dangling factory-scope reference resolves to a FileNotFound naming
+        // the missing path under the factory directory (not a station).
+        match load_factory_roles("software", "reflections", &["ghost".to_string()]) {
+            Err(ContentError::FileNotFound(p)) => {
+                assert!(p.contains("factories/software/reflections/ghost.md"), "{p}");
+            }
+            other => panic!("expected FileNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_factory_roles_empty_list_loads_nothing() {
+        let roles = load_factory_roles("software", "reviewers", &[]).expect("empty list is ok");
+        assert!(roles.is_empty());
     }
 }

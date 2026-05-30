@@ -21,6 +21,7 @@
 //! their state at the current working directory unless `--repo` overrides it.
 
 mod auth;
+mod hook;
 mod pr;
 mod statusline;
 
@@ -62,6 +63,14 @@ enum Command {
     Factory(FactoryCommand),
     /// Render or wire the Claude Code status line.
     Statusline(StatuslineArgs),
+    /// Run a plugin hook handler (invoked by Claude Code; advisory, never blocks).
+    Hook {
+        /// The hook name (e.g. redirect-plan-mode, inject-state-file).
+        name: String,
+        /// Trailing args from Claude Code are tolerated and ignored.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<String>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -193,6 +202,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         // Statusline resolves its own root (it prefers the cwd Claude Code
         // pipes in on stdin), so it bypasses the process-cwd default.
         Command::Statusline(args) => statusline_command(repo, args),
+        // Hooks are advisory and must never block a tool — handle early, resolve
+        // their own cwd, and always succeed.
+        Command::Hook { name, .. } => {
+            hook::run(&name);
+            Ok(())
+        }
         other => {
             let repo_root = match repo {
                 Some(p) => p,
@@ -204,7 +219,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 Command::Run(cmd) => run_command(&repo_root, cmd),
                 Command::Auth(cmd) => auth_command(cmd),
                 Command::Factory(cmd) => factory_command(cmd),
-                Command::Statusline(_) => unreachable!("handled above"),
+                Command::Statusline(_) | Command::Hook { .. } => unreachable!("handled above"),
             }
         }
     }

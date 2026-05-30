@@ -74,9 +74,13 @@ fn valid_factory() -> Factory {
             default_model: "sonnet".into(),
             stations: vec!["s1".into()],
             fix_workers: vec![],
+            reviewers: vec![],
+            reflections: vec![],
         },
         body: "# demo".into(),
         stations: vec![valid_station()],
+        run_reviewers: vec![],
+        reflections: vec![],
     }
 }
 

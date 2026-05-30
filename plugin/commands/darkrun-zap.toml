@@ -1,0 +1,16 @@
+description = "Zero-ceremony single-Unit execution — run one task straight through a Station's Worker loop with nothing written under .darkrun/"
+prompt = """
+Run a zero-ceremony zap. Follow the `darkrun-zap` skill:
+
+1. Call `darkrun_zap { task: "<the task>", factory?, station? }`. Omit `factory`/`station` to default
+   to the software factory's build-class Station (Build). Stateless — nothing is written under
+   `.darkrun/`.
+2. On `zap_factory_not_found` / `zap_station_not_found`, surface `valid_factories` / `valid_stations`
+   via `AskUserQuestion`, let the user pick, and call `darkrun_zap` again.
+3. Otherwise follow the returned `message` verbatim — it carries the resolved Factory/Station, the
+   Worker sequence (Make → Challenge → Resolve), per-Worker subagent prompts, and the full
+   run/verify/commit procedure (preflight, sequential dispatch, PASS/FAIL parsing, retry cap,
+   commit-only-on-PASS).
+4. If the work spans more than one Station, stop and suggest `/darkrun:darkrun-quick` or
+   `/darkrun:darkrun-start` instead.
+"""

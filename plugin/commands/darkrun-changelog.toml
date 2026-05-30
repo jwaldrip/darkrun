@@ -1,0 +1,8 @@
+description = "Show the darkrun changelog / release notes, optionally for a specific version"
+prompt = """
+Show darkrun release notes. Follow the `darkrun-changelog` skill:
+
+Call `darkrun_changelog` with an optional `version` argument. With no version, show the latest notes;
+with `version: "x.y.z"`, show that release. Present the result leading with the newest changes; if a
+pending update is reported, mention it.
+"""

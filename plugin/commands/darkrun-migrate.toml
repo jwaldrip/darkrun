@@ -1,0 +1,14 @@
+description = "Migrate legacy lifecycle state into darkrun's .darkrun/ StateStore — dry-run first, get approval, then apply one Run at a time"
+prompt = """
+Migrate legacy state into darkrun. Follow the `darkrun-migrate` skill. Never apply without a dry-run
+first.
+
+1. List legacy candidates; use the named slug or ask which.
+2. Dry-run: `darkrun migrate <slug>` (default). Show what would be written, where, how many files.
+3. Get explicit approval — don't infer consent.
+4. Apply: `darkrun migrate <slug> --apply`, one slug at a time unless the user approved `--all`.
+5. Suggest `/darkrun:darkrun-pickup <slug>` to resume.
+
+Flags: `--apply` (write), `--all` (every Run), `--force` (re-migrate existing), `--allow-dirty` (skip
+git-clean precheck — only with explicit approval).
+"""

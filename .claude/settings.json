@@ -1,0 +1,18 @@
+{
+  "enabledPlugins": {
+    "darkrun@darkrun-dev": true
+  },
+  "extraKnownMarketplaces": {
+    "darkrun-dev": {
+      "source": {
+        "path": "./dev",
+        "source": "directory"
+      }
+    }
+  },
+  "statusLine": {
+    "command": "/Users/jwaldrip/dev/src/github.com/jwaldrip/darkrun/dev/plugin/bin/darkrun statusline",
+    "padding": 0,
+    "type": "command"
+  }
+}

@@ -1,0 +1,12 @@
+description = "Configure darkrun for this project — auto-detect VCS, hosting, CI/CD, and default branch, then write .darkrun/settings.yml"
+prompt = """
+Configure darkrun for this project. Follow the `darkrun-setup` skill:
+
+1. Detect VCS (git/jj), hosting (remote URL), CI/CD (workflow files), default branch.
+2. Use ToolSearch to discover available MCP providers (ticketing, spec, design, comms).
+3. Confirm detected settings via `AskUserQuestion`; allow adjustments.
+4. Configure each confirmed provider's required config.
+5. Tune defaults — factory, decomposition granularity, Checkpoint posture, default Reviewers.
+6. Write `.darkrun/settings.yml` preserving existing fields, and commit.
+7. Summarize and suggest `/darkrun:darkrun-start`.
+"""

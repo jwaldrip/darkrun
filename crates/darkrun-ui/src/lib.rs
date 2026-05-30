@@ -12,8 +12,21 @@
 //!   custom-property block. Source of truth for both Rust styling and CSS.
 //! - [`kinds`] — small `Copy` enums ([`kinds::Phase`], [`kinds::Tone`],
 //!   [`kinds::Step`]) shared across components. No `darkrun-core` dependency.
-//! - [`components`] — [`Wordmark`], [`Card`], [`Badge`], [`Button`],
-//!   [`StationPipeline`], [`FactoryCard`], [`UnitRow`], [`CheckpointBar`].
+//! - [`components`] — the primitives ([`Wordmark`](components::wordmark::Wordmark),
+//!   [`Card`](components::primitives::Card), [`Badge`](components::primitives::Badge),
+//!   [`Button`](components::primitives::Button)) plus the factory-browser set:
+//!   [`StationFlow`](components::station_flow::StationFlow) (interactive SVG
+//!   station pipeline), [`PhaseMachine`](components::phase_machine::PhaseMachine)
+//!   (the within-station six-phase ring),
+//!   [`ExpandableRole`](components::role::ExpandableRole)/[`ArtifactCard`](components::role::ArtifactCard)
+//!   (markdown drill-down cards), [`RunWalkthrough`](components::walkthrough::RunWalkthrough)
+//!   (the run stepper), and the small chips
+//!   [`CheckpointBadge`](components::chips::CheckpointBadge),
+//!   [`RiskChip`](components::chips::RiskChip),
+//!   [`RightSizeStrip`](components::chips::RightSizeStrip).
+//! - [`flow`] — the pure layout + semantics behind those visualizations: the
+//!   station-pipeline placement, the phase-ring geometry, the phase-machine beat
+//!   mapping, and the walkthrough step sequencing. Testable without a renderer.
 //! - [`graph`] — the SVG unit-DAG visualization with a pluggable
 //!   [`graph::layout::GraphLayout`] (default layered/Sugiyama-ish placement).
 //!
@@ -37,6 +50,7 @@
 //! ```
 
 pub mod components;
+pub mod flow;
 pub mod graph;
 pub mod kinds;
 pub mod tokens;
@@ -46,12 +60,24 @@ pub mod tokens;
 pub mod prelude {
     pub use dioxus::prelude::*;
 
+    pub use crate::components::chips::{
+        CheckpointBadge, RightSizeStrip, RightSizeTier, RiskChip,
+    };
     pub use crate::components::factory::{
         CheckpointBar, CheckpointKind, FactoryCard, UnitRow,
     };
+    pub use crate::components::phase_machine::PhaseMachine;
     pub use crate::components::pipeline::{strip_for, PhaseDot, StationPipeline};
     pub use crate::components::primitives::{Badge, Button, ButtonVariant, Card};
+    pub use crate::components::role::{ArtifactCard, ExpandableRole, RoleKind};
+    pub use crate::components::station_flow::StationFlow;
+    pub use crate::components::walkthrough::RunWalkthrough;
     pub use crate::components::wordmark::{Wordmark, WordmarkVariant};
+    pub use crate::flow::{
+        layout_flow, phase_beat, phase_label, phase_ring_points, station_hue,
+        walkthrough_steps, checkpoint_hue, FlowConnector, FlowLayout, FlowOptions,
+        FlowStation, PassBeat, PlacedStation, WalkStep, TICKS_PER_STATION,
+    };
     pub use crate::graph::layout::{
         GraphEdge, GraphLayout, GraphNode, LayeredLayout, LayoutOptions,
         LayoutResult, PlacedEdge, PlacedNode,

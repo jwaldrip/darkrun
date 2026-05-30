@@ -1,11 +1,19 @@
-//! `/factories` and `/factories/:slug` — rendered from the embedded factory
-//! corpus in `darkrun-content`. This is real content, not a stub: every factory
-//! the binary ships is listed and detailed here.
+//! `/factories`, `/factories/:slug`, and `/factories/:factory/stations/:station`
+//! — rendered from the embedded factory corpus in `darkrun-content`. This is real
+//! content, not a stub: every factory the binary ships is listed and detailed
+//! here, every station drills down to its real role instructions.
 
 use darkrun_ui::prelude::*;
 
+use crate::content::render_markdown;
+use crate::factory_view::{
+    flow_stations, humanize, pipeline_slugs, right_size_tiers, role_view, station_index,
+    ui_checkpoint,
+};
 use crate::route::Route;
 use crate::ui::SectionHead;
+
+use darkrun_content::{Factory, Station};
 
 /// `/factories` — the index of every embedded factory.
 #[component]
@@ -92,51 +100,13 @@ fn FactoryTile(slug: String) -> Element {
     }
 }
 
-/// `/factories/:slug` — the detail view: overview, then every station with its
-/// roles and checkpoint.
+/// `/factories/:slug` — the enriched factory view: overview, the interactive
+/// station-flow diagram, a run walkthrough, the right-sizing strip, the
+/// fix-workers track, then every station as a card linking to its detail page.
 #[component]
 pub fn FactoryDetail(slug: String) -> Element {
     match darkrun_content::load_validated(&slug) {
-        Ok(factory) => {
-            let overview = crate::content::render_markdown(&factory.body);
-            let default_model = factory.frontmatter.default_model.clone();
-            rsx! {
-                div { style: "margin-bottom:8px;",
-                    Link { to: Route::Factories {},
-                        span {
-                            style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
-                            "\u{2190} all factories"
-                        }
-                    }
-                }
-                SectionHead {
-                    kicker: "factory".to_string(),
-                    title: slug.clone(),
-                    lead: Some(factory.frontmatter.description.clone()),
-                }
-                if !default_model.is_empty() {
-                    div { style: "margin-bottom:16px;",
-                        Badge { tone: Tone::Info, "default model: {default_model}" }
-                    }
-                }
-                article { class: "dr-prose", dangerous_inner_html: "{overview}" }
-
-                div { style: "margin-top:32px;display:flex;flex-direction:column;gap:14px;",
-                    for (i, station) in factory.stations.iter().enumerate() {
-                        StationDetail {
-                            index: i,
-                            slug: slug.clone(),
-                            name: station.name().to_string(),
-                            description: station.frontmatter.description.clone(),
-                            checkpoint: checkpoint_label(station.checkpoint()),
-                            explorers: station.explorers.iter().map(|r| r.name().to_string()).collect(),
-                            workers: station.workers.iter().map(|r| r.name().to_string()).collect(),
-                            reviewers: station.reviewers.iter().map(|r| r.name().to_string()).collect(),
-                        }
-                    }
-                }
-            }
-        }
+        Ok(factory) => rsx! { FactoryBody { slug, factory } },
         Err(err) => {
             let msg = err.to_string();
             rsx! {
@@ -153,13 +123,127 @@ pub fn FactoryDetail(slug: String) -> Element {
     }
 }
 
-/// One station block on a factory detail page: its phase, checkpoint, and the
-/// explorer/worker/reviewer roster.
+/// The loaded body of a factory detail page. Split out so the click handler can
+/// own a router navigation closure with the factory slug in scope.
 #[component]
-fn StationDetail(
+fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
+    let factory = factory();
+    let overview = render_markdown(&factory.body);
+    let default_model = factory.frontmatter.default_model.clone();
+    let flows = flow_stations(&factory);
+    let walk_flows = flows.clone();
+    let tiers = right_size_tiers(&factory);
+    let full = pipeline_slugs(&factory);
+    let fix_workers = factory.frontmatter.fix_workers.clone();
+
+    // Clicking a node in the StationFlow navigates to that station's detail page.
+    let nav = use_navigator();
+    let factory_slug = slug.clone();
+    let on_select = move |station_slug: String| {
+        nav.push(Route::StationDetail {
+            factory: factory_slug.clone(),
+            station: station_slug,
+        });
+    };
+
+    rsx! {
+        div { style: "margin-bottom:8px;",
+            Link { to: Route::Factories {},
+                span {
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    "\u{2190} all factories"
+                }
+            }
+        }
+        SectionHead {
+            kicker: "factory".to_string(),
+            title: slug.clone(),
+            lead: Some(factory.frontmatter.description.clone()),
+        }
+        if !default_model.is_empty() {
+            div { style: "margin-bottom:16px;",
+                Badge { tone: Tone::Info, "default model: {default_model}" }
+            }
+        }
+
+        // The interactive pipeline: click a station to open its detail page.
+        Panel { label: "the assembly line".to_string(),
+            div { style: "overflow-x:auto;",
+                StationFlow { stations: flows.clone(), on_select }
+            }
+            p {
+                style: format!(
+                    "font-family:{};font-size:12px;color:{};margin:8px 0 0;",
+                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                ),
+                "Click a station to open its phase machine and role instructions."
+            }
+        }
+
+        // The standout: a run stepper synchronizing the pipeline and phase ring.
+        Panel { label: "walk a run".to_string(),
+            RunWalkthrough { stations: walk_flows }
+        }
+
+        // Right-sizing: how small runs collapse stations.
+        Panel { label: "right-sizing".to_string(),
+            p {
+                style: format!(
+                    "font-family:{};font-size:13px;color:{};margin:0 0 10px;",
+                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                ),
+                "At run start the factory assesses size and may collapse stations. A one-line fix \
+                 drops straight to build → prove; bigger work keeps the full line."
+            }
+            RightSizeStrip { full, tiers }
+        }
+
+        // fix-workers: the drift/feedback repair track.
+        if !fix_workers.is_empty() {
+            Panel { label: "fix-workers".to_string(),
+                p {
+                    style: format!(
+                        "font-family:{};font-size:13px;color:{};margin:0 0 10px;",
+                        tokens::FONT_SANS, tokens::TEXT_MUTED,
+                    ),
+                    "When a checkpoint routes rework back as drift or feedback, fix-workers take the \
+                     repair without re-running the whole station."
+                }
+                div { style: "display:flex;gap:8px;flex-wrap:wrap;",
+                    for fw in fix_workers.iter() {
+                        Badge { tone: Tone::Warn, "{humanize(fw)}" }
+                    }
+                }
+            }
+        }
+
+        article { class: "dr-prose", style: "margin-top:24px;", dangerous_inner_html: "{overview}" }
+
+        // Every station as a card linking to its deep page.
+        div { style: "margin-top:32px;display:flex;flex-direction:column;gap:14px;",
+            for (i, station) in factory.stations.iter().enumerate() {
+                StationCard {
+                    index: i,
+                    factory: slug.clone(),
+                    station: station.name().to_string(),
+                    description: station.frontmatter.description.clone(),
+                    checkpoint: checkpoint_label(station.checkpoint()),
+                    explorers: station.explorers.iter().map(|r| humanize(r.name())).collect(),
+                    workers: station.workers.iter().map(|r| humanize(r.name())).collect(),
+                    reviewers: station.reviewers.iter().map(|r| humanize(r.name())).collect(),
+                }
+            }
+        }
+    }
+}
+
+/// One station summary card on a factory detail page: its phase accent,
+/// checkpoint, and role roster, linking to the deep station page.
+#[component]
+fn StationCard(
     index: usize,
-    slug: String,
-    name: String,
+    factory: String,
+    station: String,
     description: String,
     checkpoint: String,
     explorers: Vec<String>,
@@ -169,30 +253,292 @@ fn StationDetail(
     let phase = phase_for_index(index);
     let accent = phase.map(|p| p.hue().base.to_string());
     rsx! {
-        Card { accent: accent.clone(),
-            div {
-                style: format!(
-                    "display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px;font-family:{};",
-                    tokens::FONT_SANS,
-                ),
+        Link {
+            to: Route::StationDetail { factory: factory.clone(), station: station.clone() },
+            style: "text-decoration:none;display:block;",
+            Card { accent: accent.clone(),
+                div {
+                    style: format!(
+                        "display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px;font-family:{};",
+                        tokens::FONT_SANS,
+                    ),
+                    span {
+                        style: format!(
+                            "font-size:17px;font-weight:700;color:{};text-transform:capitalize;",
+                            tokens::TEXT,
+                        ),
+                        "{index + 1}. {humanize(&station)}"
+                    }
+                    Badge { tone: Tone::Accent, filled: true, "checkpoint: {checkpoint}" }
+                }
+                if !description.is_empty() {
+                    p {
+                        style: format!("font-family:{};font-size:14px;color:{};margin:0 0 10px;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                        "{description}"
+                    }
+                }
+                RoleRow { label: "explorers".to_string(), roles: explorers }
+                RoleRow { label: "workers".to_string(), roles: workers }
+                RoleRow { label: "reviewers".to_string(), roles: reviewers }
+                div { style: format!("margin-top:8px;font-family:{};font-size:12px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    "open station \u{2192}"
+                }
+            }
+        }
+    }
+}
+
+/// `/factories/:factory/stations/:station` — the deep station page: header,
+/// the phase machine, per-phase role sections (each role an ExpandableRole with
+/// its real markdown), and prev/next nav along the pipeline.
+#[component]
+pub fn StationDetail(factory: String, station: String) -> Element {
+    match darkrun_content::load_validated(&factory) {
+        Ok(loaded) => match loaded.station(&station).cloned() {
+            Some(st) => rsx! {
+                StationBody { factory: factory.clone(), factory_data: loaded, station: st }
+            },
+            None => rsx! {
+                StationMissing {
+                    factory: factory.clone(),
+                    message: format!("Station `{station}` is not part of the {factory} factory."),
+                }
+            },
+        },
+        Err(err) => rsx! {
+            StationMissing {
+                factory: factory.clone(),
+                message: format!("This factory could not be loaded: {err}"),
+            }
+        },
+    }
+}
+
+/// The loaded body of a station detail page.
+#[component]
+fn StationBody(
+    factory: String,
+    factory_data: ReadSignal<Factory>,
+    station: ReadSignal<Station>,
+) -> Element {
+    let factory_data = factory_data();
+    let station = station();
+    let idx = station_index(&factory_data, station.name()).unwrap_or(0);
+    let phase = phase_for_index(idx);
+
+    let fm = &station.frontmatter;
+    let checkpoint = checkpoint_label(station.checkpoint());
+    let locked_artifact = fm.locked_artifact.clone();
+    let inputs = fm.inputs.clone();
+    let body_html = render_markdown(&station.body);
+
+    // Prev/next stations along the pipeline.
+    let prev = idx
+        .checked_sub(1)
+        .and_then(|i| factory_data.stations.get(i))
+        .map(|s| s.name().to_string());
+    let next = factory_data.stations.get(idx + 1).map(|s| s.name().to_string());
+
+    // Role view-models, rendered with the site markdown renderer.
+    let explorers: Vec<_> = station.explorers.iter().map(|r| role_view(r, render_markdown)).collect();
+    let workers: Vec<_> = station.workers.iter().map(|r| role_view(r, render_markdown)).collect();
+    let reviewers: Vec<_> = station.reviewers.iter().map(|r| role_view(r, render_markdown)).collect();
+
+    rsx! {
+        div { style: "margin-bottom:8px;",
+            Link { to: Route::FactoryDetail { slug: factory.clone() },
+                span {
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    "\u{2190} {factory} factory"
+                }
+            }
+        }
+        SectionHead {
+            kicker: format!("station {} / {}", idx + 1, factory_data.stations.len()),
+            title: humanize(station.name()),
+            lead: Some(fm.description.clone()),
+        }
+
+        // Header: risk killed, checkpoint, locked artifact, inputs.
+        div { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;",
+            CheckpointBadge { kind: ui_checkpoint(station.checkpoint()), filled: true }
+            if let Some(risk) = crate::factory_view::risk_from_body(&station.body) {
+                RiskChip { risk }
+            }
+        }
+        if !locked_artifact.is_empty() {
+            div { style: "margin-bottom:12px;",
+                ArtifactCard {
+                    name: locked_artifact.clone(),
+                    description: Some(format!("locked by {} · checkpoint {checkpoint}", humanize(station.name()))),
+                }
+            }
+        }
+        if !inputs.is_empty() {
+            div { style: "display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:20px;",
                 span {
                     style: format!(
-                        "font-size:17px;font-weight:700;color:{};text-transform:capitalize;",
-                        tokens::TEXT,
+                        "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{};",
+                        tokens::FONT_MONO, tokens::TEXT_FAINT,
                     ),
-                    "{index + 1}. {name}"
+                    "inputs"
                 }
-                Badge { tone: Tone::Accent, filled: true, "checkpoint: {checkpoint}" }
-            }
-            if !description.is_empty() {
-                p {
-                    style: format!("font-family:{};font-size:14px;color:{};margin:0 0 10px;", tokens::FONT_SANS, tokens::TEXT_MUTED),
-                    "{description}"
+                for input in inputs.iter() {
+                    Badge { tone: Tone::Neutral, "{input}" }
                 }
             }
-            RoleRow { label: "explorers".to_string(), roles: explorers }
-            RoleRow { label: "workers".to_string(), roles: workers }
-            RoleRow { label: "reviewers".to_string(), roles: reviewers }
+        }
+
+        // The within-station phase machine, fixed on this station's phase slot.
+        Panel { label: "phase machine".to_string(),
+            div { style: "display:flex;justify-content:center;",
+                PhaseMachine { active: phase, size: 340.0 }
+            }
+            p {
+                style: format!(
+                    "font-family:{};font-size:12px;color:{};margin:8px 0 0;text-align:center;",
+                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                ),
+                "spec → review → manufacture → audit → tests → checkpoint"
+            }
+        }
+
+        // The station purpose / risk prose.
+        article { class: "dr-prose", style: "margin:24px 0;", dangerous_inner_html: "{body_html}" }
+
+        // Per-phase role sections.
+        PhaseSection {
+            heading: "Explore".to_string(),
+            phase: Some(Phase::Spec),
+            note: "Explorers gather only the context this station needs.".to_string(),
+            roles: explorers,
+        }
+        PhaseSection {
+            heading: "Manufacture · Make → Challenge → Resolve".to_string(),
+            phase: Some(Phase::Manufacture),
+            note: "Workers run the pass loop: make a candidate, challenge it, resolve the weakness.".to_string(),
+            roles: workers,
+            beats: true,
+        }
+        PhaseSection {
+            heading: "Review / Audit".to_string(),
+            phase: Some(Phase::Review),
+            note: "Reviewers verify output against criteria, independent of the workers that produced it.".to_string(),
+            roles: reviewers,
+        }
+
+        // Checkpoint section.
+        Panel { label: "checkpoint".to_string(),
+            div { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;",
+                CheckpointBadge { kind: ui_checkpoint(station.checkpoint()), filled: true }
+                span {
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                    {checkpoint_note(checkpoint.as_str())}
+                }
+            }
+        }
+
+        // Prev/next pipeline nav.
+        div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", tokens::BORDER),
+            if let Some(prev) = prev {
+                Link { to: Route::StationDetail { factory: factory.clone(), station: prev.clone() },
+                    Button { variant: ButtonVariant::Secondary, "\u{2190} {humanize(&prev)}" }
+                }
+            } else {
+                span {}
+            }
+            if let Some(next) = next {
+                Link { to: Route::StationDetail { factory: factory.clone(), station: next.clone() },
+                    Button { variant: ButtonVariant::Secondary, "{humanize(&next)} \u{2192}" }
+                }
+            } else {
+                span {}
+            }
+        }
+    }
+}
+
+/// A per-phase section of the station detail page: a heading, a note, and each
+/// role as an [`ExpandableRole`] card rendering its real markdown instructions.
+#[component]
+fn PhaseSection(
+    heading: String,
+    phase: Option<Phase>,
+    note: String,
+    roles: Vec<crate::factory_view::RoleView>,
+    #[props(default = false)] beats: bool,
+) -> Element {
+    if roles.is_empty() {
+        return rsx! {};
+    }
+    let accent = phase.map(|p| p.hue().base).unwrap_or(tokens::ACCENT);
+    rsx! {
+        section { style: "margin:28px 0;",
+            h2 {
+                style: format!(
+                    "font-family:{};font-size:18px;font-weight:700;color:{};margin:0 0 4px;\
+                     border-left:3px solid {};padding-left:10px;",
+                    tokens::FONT_SANS, tokens::TEXT, accent,
+                ),
+                "{heading}"
+            }
+            p {
+                style: format!(
+                    "font-family:{};font-size:13px;color:{};margin:0 0 12px;padding-left:13px;",
+                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                ),
+                "{note}"
+            }
+            div { style: "display:flex;flex-direction:column;gap:10px;",
+                for (i, role) in roles.iter().enumerate() {
+                    ExpandableRole {
+                        name: role.name.clone(),
+                        kind: role.kind,
+                        agent_type: Some(role.agent_type.clone()),
+                        model: role.model.clone(),
+                        beat: if beats { PassBeat::ALL.get(i).copied() } else { None },
+                        summary: role.summary.clone(),
+                        body_html: Some(role.body_html.clone()),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A bordered panel with a mono label, used to frame each diagram block.
+#[component]
+fn Panel(label: String, children: Element) -> Element {
+    let wrap = format!(
+        "border:1px solid {};border-radius:10px;padding:16px;margin:16px 0;background:{};",
+        tokens::BORDER,
+        tokens::SURFACE_RAISED,
+    );
+    let label_style = format!(
+        "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;\
+         color:{};margin-bottom:12px;",
+        tokens::FONT_MONO,
+        tokens::ACCENT,
+    );
+    rsx! {
+        div { style: "{wrap}",
+            div { style: "{label_style}", "{label}" }
+            {children}
+        }
+    }
+}
+
+/// The "not found" state for a station that does not exist.
+#[component]
+fn StationMissing(factory: String, message: String) -> Element {
+    rsx! {
+        SectionHead {
+            kicker: "not found".to_string(),
+            title: "Station".to_string(),
+            lead: Some(message),
+        }
+        Link { to: Route::FactoryDetail { slug: factory.clone() },
+            Button { variant: ButtonVariant::Secondary, "Back to {factory}" }
         }
     }
 }
@@ -247,4 +593,15 @@ pub fn checkpoint_label(kind: darkrun_core::domain::CheckpointKind) -> String {
         C::Await => "await",
     }
     .to_string()
+}
+
+/// A one-line explainer for what a checkpoint kind means at the gate.
+pub fn checkpoint_note(label: &str) -> &'static str {
+    match label {
+        "auto" => "Advances automatically when the gates pass — no human in the loop.",
+        "ask" => "A human confirms the judgment call before the factory spends the next station.",
+        "external" => "Hands off to an external surface (a PR, a deploy approval) to advance.",
+        "await" => "Blocks until a decision arrives from outside the run.",
+        _ => "The gate that ends this station.",
+    }
 }

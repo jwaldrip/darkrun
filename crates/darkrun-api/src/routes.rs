@@ -54,6 +54,14 @@ pub mod paths {
     pub fn review_current() -> String {
         "/api/review/current".to_string()
     }
+    /// `GET /api/runs`.
+    pub fn runs() -> String {
+        "/api/runs".to_string()
+    }
+    /// `GET /api/runs/{slug}`.
+    pub fn run_detail(slug: &str) -> String {
+        format!("/api/runs/{slug}")
+    }
     /// `POST /question/{id}/answer`.
     pub fn question_answer(id: &str) -> String {
         format!("/question/{id}/answer")
@@ -121,6 +129,20 @@ pub const ROUTES: &[RouteSpec] = &[
         operation_id: "getReviewCurrent",
         summary: "Compact run-state summary: active station, units, feedback counts.",
         tag: "review",
+    },
+    RouteSpec {
+        method: HttpMethod::Get,
+        path_template: "/api/runs",
+        operation_id: "listRuns",
+        summary: "List the project's runs as compact summaries, sorted by slug.",
+        tag: "runs",
+    },
+    RouteSpec {
+        method: HttpMethod::Get,
+        path_template: "/api/runs/{slug}",
+        operation_id: "getRun",
+        summary: "Return a run's detail: stations, units on the active station, and phase.",
+        tag: "runs",
     },
     RouteSpec {
         method: HttpMethod::Post,

@@ -21,6 +21,7 @@ pub mod question;
 pub mod review;
 pub mod review_current;
 pub mod routes;
+pub mod runs;
 pub mod session;
 
 pub use advance::AdvanceResponse;
@@ -46,6 +47,9 @@ pub use review_current::{
     FeedbackSummary, ReviewCurrentPayload, ReviewCurrentStation, ReviewCurrentUnit,
 };
 pub use routes::{HttpMethod, RouteSpec, ROUTES};
+pub use runs::{
+    RunDetailPayload, RunDetailStation, RunDetailUnit, RunListPayload, RunSummary, StationProgress,
+};
 pub use session::{
     ApproveAction, ApproveActionKind, DirectionArchetype, DirectionSelection,
     DirectionSessionPayload, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
@@ -227,6 +231,17 @@ mod tests {
             routes::paths::feedback_item("run", "frame", "FB-01"),
             "/api/feedback/run/frame/FB-01"
         );
+    }
+
+    #[test]
+    fn runs_routes_resolve() {
+        let list = routes::find(HttpMethod::Get, "/api/runs").expect("runs list route");
+        assert_eq!(list.operation_id, "listRuns");
+        assert_eq!(list.tag, "runs");
+        let detail = routes::find(HttpMethod::Get, "/api/runs/{slug}").expect("run detail route");
+        assert_eq!(detail.operation_id, "getRun");
+        assert_eq!(routes::paths::runs(), "/api/runs");
+        assert_eq!(routes::paths::run_detail("alpha"), "/api/runs/alpha");
     }
 
     /// Every route in the table has a unique operation id.

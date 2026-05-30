@@ -46,6 +46,38 @@ pub fn validate(factory: &Factory) -> Result<()> {
         validate_station(&slug, station)?;
     }
 
+    validate_run_level(&invalid, factory)?;
+
+    Ok(())
+}
+
+/// Validate the factory-scope (run-level) roles: whole-Run reviewers that run
+/// after the final station, and reflection dimensions evaluated at completion.
+///
+/// Like a station's roles, each declared slug must resolve to a loaded role
+/// whose `name` matches and whose `agent_type` is the kind its list expects —
+/// a dangling reference (length mismatch), a slug typo, or a mis-kinded file is
+/// rejected. No two entries within a list may share a slug.
+fn validate_run_level(
+    invalid: &impl Fn(String) -> ContentError,
+    factory: &Factory,
+) -> Result<()> {
+    reject_duplicate_slugs(invalid, "run reviewer", &factory.frontmatter.reviewers)?;
+    reject_duplicate_slugs(invalid, "reflection", &factory.frontmatter.reflections)?;
+
+    check_roles(
+        invalid,
+        &factory.frontmatter.reviewers,
+        &factory.run_reviewers,
+        RoleKind::Reviewer,
+    )?;
+    check_roles(
+        invalid,
+        &factory.frontmatter.reflections,
+        &factory.reflections,
+        RoleKind::Reflection,
+    )?;
+
     Ok(())
 }
 
@@ -198,9 +230,13 @@ mod tests {
                 default_model: "sonnet".into(),
                 stations: vec!["s1".into()],
                 fix_workers: vec![],
+                reviewers: vec![],
+                reflections: vec![],
             },
             body: "# demo".into(),
             stations: vec![station],
+            run_reviewers: vec![],
+            reflections: vec![],
         }
     }
 
@@ -323,5 +359,93 @@ mod tests {
         f.stations[0].workers[0] = role("w1", RoleKind::Reviewer);
         let msg = message(&f);
         assert!(msg.contains("Worker `w1` declares agent_type Reviewer"), "{msg}");
+    }
+
+    // --- run-level (factory-scope) reviewers + reflections ---
+
+    /// Attach one resolved run reviewer and one resolved reflection to the
+    /// baseline so the run-level branch has something to validate.
+    fn factory_with_run_level() -> Factory {
+        let mut f = valid_factory();
+        f.frontmatter.reviewers = vec!["audit".into()];
+        f.run_reviewers = vec![role("audit", RoleKind::Reviewer)];
+        f.frontmatter.reflections = vec!["learn".into()];
+        f.reflections = vec![role("learn", RoleKind::Reflection)];
+        f
+    }
+
+    #[test]
+    fn run_level_baseline_validates() {
+        validate(&factory_with_run_level()).expect("run-level baseline must validate");
+    }
+
+    #[test]
+    fn empty_run_level_lists_are_valid() {
+        // The default (no run reviewers, no reflections) must still validate.
+        validate(&valid_factory()).expect("a factory with no run-level roles is valid");
+    }
+
+    #[test]
+    fn rejects_dangling_run_reviewer() {
+        let mut f = factory_with_run_level();
+        f.frontmatter.reviewers.push("ghost".into());
+        let msg = message(&f);
+        assert!(msg.contains("declared 2"), "{msg}");
+        assert!(msg.contains("Reviewer"), "{msg}");
+    }
+
+    #[test]
+    fn rejects_dangling_reflection() {
+        let mut f = factory_with_run_level();
+        f.frontmatter.reflections.push("ghost".into());
+        let msg = message(&f);
+        assert!(msg.contains("declared 2"), "{msg}");
+        assert!(msg.contains("Reflection"), "{msg}");
+    }
+
+    #[test]
+    fn rejects_run_reviewer_kind_mismatch() {
+        let mut f = factory_with_run_level();
+        f.run_reviewers[0] = role("audit", RoleKind::Reflection);
+        let msg = message(&f);
+        assert!(msg.contains("Reviewer `audit` declares agent_type Reflection"), "{msg}");
+    }
+
+    #[test]
+    fn rejects_reflection_kind_mismatch() {
+        let mut f = factory_with_run_level();
+        f.reflections[0] = role("learn", RoleKind::Reviewer);
+        let msg = message(&f);
+        assert!(msg.contains("Reflection `learn` declares agent_type Reviewer"), "{msg}");
+    }
+
+    #[test]
+    fn rejects_run_reviewer_slug_mismatch() {
+        let mut f = factory_with_run_level();
+        f.run_reviewers[0] = role("wrong", RoleKind::Reviewer);
+        let msg = message(&f);
+        assert!(msg.contains("Reviewer `audit` defines name `wrong`"), "{msg}");
+    }
+
+    #[test]
+    fn rejects_duplicate_run_reviewer() {
+        let mut f = factory_with_run_level();
+        f.frontmatter.reviewers = vec!["audit".into(), "audit".into()];
+        f.run_reviewers = vec![
+            role("audit", RoleKind::Reviewer),
+            role("audit", RoleKind::Reviewer),
+        ];
+        assert!(message(&f).contains("run reviewer `audit` more than once"));
+    }
+
+    #[test]
+    fn rejects_duplicate_reflection() {
+        let mut f = factory_with_run_level();
+        f.frontmatter.reflections = vec!["learn".into(), "learn".into()];
+        f.reflections = vec![
+            role("learn", RoleKind::Reflection),
+            role("learn", RoleKind::Reflection),
+        ];
+        assert!(message(&f).contains("reflection `learn` more than once"));
     }
 }

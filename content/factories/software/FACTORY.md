@@ -5,6 +5,8 @@ category: engineering
 default_model: sonnet
 stations: [frame, specify, shape, build, prove, harden]
 fix_workers: [builder, reconciler, validator]
+reviewers: [integration-auditor, regression-auditor, security-auditor]
+reflections: [architecture, process, quality, velocity]
 ---
 
 # Software Factory
@@ -50,3 +52,21 @@ When a Checkpoint routes rework back as drift or feedback, **fix-workers**
 (Builder, Reconciler, Validator) take the repair without re-running the whole
 station. They apply the minimal change, reconcile it against the locked artifact,
 and validate the fix landed.
+
+## Run-level review and reflection
+
+Stations and their Reviewers each judge one station's output. Two factory-scope
+roles judge the **whole Run**, after the final station's checkpoint closes:
+
+- **Run reviewers** (Integration Auditor, Regression Auditor, Security Auditor)
+  are whole-Run, cross-station auditors. They run *after* the last station and
+  judge the integrated Run end-to-end — the seams between stations, collateral
+  damage to untouched flows, and the attacker's view of the complete result.
+  Like a station Reviewer, a run reviewer **gates**: an open finding holds the
+  Run's close and routes a repair to the fix-workers until the Run is clean.
+
+- **Reflections** (Architecture, Process, Quality, Velocity) run at Run
+  completion and produce *learnings*, not verdicts. A reflection never blocks —
+  it looks back over the finished Run on one dimension and writes down what would
+  make the next Run sharper. The train moves faster next time because the
+  reflection improved the track.

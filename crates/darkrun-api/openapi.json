@@ -1435,6 +1435,103 @@
         "title": "RunCurrentState",
         "type": "object"
       },
+      "RunDetailPayload": {
+        "description": "`GET /api/runs/:slug` response body: a single run's expanded view — its identity, the live position, every station it walks, and the units that sit on the active station.",
+        "properties": {
+          "active_station": {
+            "description": "The station the run currently sits on.",
+            "type": "string"
+          },
+          "factory": {
+            "description": "The factory driving the run.",
+            "type": "string"
+          },
+          "phase": {
+            "description": "The active phase, if known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "progress": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/StationProgress"
+              }
+            ],
+            "description": "Station progress (completed / total)."
+          },
+          "slug": {
+            "description": "The run slug.",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "RFC3339 start timestamp, if recorded.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stations": {
+            "description": "Every station the run walks, in declared order.",
+            "items": {
+              "$ref": "#/definitions/RunDetailStation"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "Lifecycle status (display string).",
+            "type": "string"
+          },
+          "title": {
+            "description": "Resolved display title.",
+            "type": "string"
+          },
+          "units": {
+            "description": "The units on the active station.",
+            "items": {
+              "$ref": "#/definitions/RunDetailUnit"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "active_station",
+          "factory",
+          "progress",
+          "slug",
+          "stations",
+          "status",
+          "title",
+          "units"
+        ],
+        "title": "RunDetailPayload",
+        "type": "object"
+      },
+      "RunListPayload": {
+        "description": "`GET /api/runs` response body: every (non-archived) run on the project as a summary, sorted by slug.",
+        "properties": {
+          "count": {
+            "description": "Convenience count of `runs`.",
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "runs": {
+            "description": "The run summaries, sorted by slug.",
+            "items": {
+              "$ref": "#/definitions/RunSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "runs"
+        ],
+        "title": "RunListPayload",
+        "type": "object"
+      },
       "RunPhase": {
         "description": "The fixed phase taxonomy a Station walks (mirrors `darkrun_core::domain::StationPhase`, kept local to stay dependency-light).",
         "oneOf": [
@@ -1482,6 +1579,63 @@
           }
         ],
         "title": "RunPhase"
+      },
+      "RunSummary": {
+        "description": "A compact summary of a single run for the browse list.\n\nMirrors the engine's `run_list`-style projection: identity, the live position (`active_station` + `phase`), lifecycle `status`, station `progress`, and the `started_at` timestamp. `title` is always resolved (falling back to the slug when no explicit title was set); `phase` is nullable for a run sitting between stations.",
+        "properties": {
+          "active_station": {
+            "description": "The station the run currently sits on.",
+            "type": "string"
+          },
+          "factory": {
+            "description": "The factory driving the run (e.g. `software`).",
+            "type": "string"
+          },
+          "phase": {
+            "description": "The active phase within the active station, if known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "progress": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/StationProgress"
+              }
+            ],
+            "description": "Station progress (completed / total)."
+          },
+          "slug": {
+            "description": "The run slug — the stable id used in every run-scoped route.",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "RFC3339 start timestamp, if recorded.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Lifecycle status (display string, e.g. `active` / `completed`).",
+            "type": "string"
+          },
+          "title": {
+            "description": "Resolved display title (falls back to the slug).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active_station",
+          "factory",
+          "progress",
+          "slug",
+          "status",
+          "title"
+        ],
+        "title": "RunSummary",
+        "type": "object"
       },
       "SessionPayload": {
         "description": "The session payload returned by `GET /api/session/:id`, discriminated on `session_type`.\n\nThe `Review` variant is intentionally the largest (it is the load-bearing phase-1 payload); the size disparity is accepted to keep the public constructor ergonomic for every caller.",
@@ -2311,6 +2465,34 @@
         "summary": "Compact run-state summary: active station, units, feedback counts.",
         "tags": [
           "review"
+        ]
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "operationId": "listRuns",
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "List the project's runs as compact summaries, sorted by slug.",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{slug}": {
+      "get": {
+        "operationId": "getRun",
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "Return a run's detail: stations, units on the active station, and phase.",
+        "tags": [
+          "runs"
         ]
       }
     },

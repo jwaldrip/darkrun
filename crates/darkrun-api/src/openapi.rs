@@ -163,6 +163,11 @@ fn component_schemas() -> Map<String, Value> {
         crate::feedback::FeedbackReplyCreateResponse
     );
 
+    // Runs browse.
+    collect_schema!(schemas, "RunSummary", crate::runs::RunSummary);
+    collect_schema!(schemas, "RunListPayload", crate::runs::RunListPayload);
+    collect_schema!(schemas, "RunDetailPayload", crate::runs::RunDetailPayload);
+
     // Validation envelope.
     collect_schema!(schemas, "ValidationError", crate::common::ValidationError);
 

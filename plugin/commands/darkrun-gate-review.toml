@@ -1,0 +1,11 @@
+description = "Pre-Checkpoint code review with a multi-agent fix loop — compute the diff, dispatch Reviewers, and process findings before the Checkpoint locks"
+prompt = """
+Run a darkrun gate review. Follow the `darkrun-gate-review` skill:
+
+1. Call `darkrun_gate_review` to compute the Station's diff and get review instructions.
+2. Follow the returned instructions verbatim — which Reviewers to spawn and how to process findings.
+3. Drive the fix loop: dispatch fix-workers per finding, re-run checks, repeat until Reviewers are
+   clean or the user accepts what remains.
+4. Once clean, decide the Checkpoint via `/darkrun:darkrun-checkpoint` (approve, or request changes to
+   route rework).
+"""

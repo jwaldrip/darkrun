@@ -30,6 +30,15 @@ pub struct FactoryFrontmatter {
     /// fix-worker slugs that handle drift/feedback repairs.
     #[serde(default)]
     pub fix_workers: Vec<String>,
+    /// Run-level reviewer slugs — whole-Run auditors that run AFTER the final
+    /// station, judging the Run end-to-end across every station's locked
+    /// artifact rather than any single station's output.
+    #[serde(default)]
+    pub reviewers: Vec<String>,
+    /// Reflection-dimension slugs evaluated at Run completion — a backward look
+    /// over the finished Run that produces learnings, not a gate.
+    #[serde(default)]
+    pub reflections: Vec<String>,
 }
 
 /// Frontmatter of a `STATION.md` document.
@@ -69,6 +78,9 @@ pub enum RoleKind {
     Worker,
     /// Verifies output independently in the Review phase.
     Reviewer,
+    /// Looks back over a completed Run to produce learnings on one dimension.
+    /// Unlike a Reviewer it gates nothing — it reflects, it does not block.
+    Reflection,
 }
 
 /// Frontmatter of a role definition (`explorers|workers|reviewers/*.md`).
@@ -140,6 +152,12 @@ pub struct Factory {
     pub body: String,
     /// Stations in `frontmatter.stations` order.
     pub stations: Vec<Station>,
+    /// Whole-Run reviewers, in `frontmatter.reviewers` order. These audit the
+    /// finished Run end-to-end, after the final station's checkpoint.
+    pub run_reviewers: Vec<Role>,
+    /// Reflection dimensions, in `frontmatter.reflections` order. Evaluated at
+    /// Run completion to produce learnings.
+    pub reflections: Vec<Role>,
 }
 
 impl Factory {
@@ -151,5 +169,15 @@ impl Factory {
     /// Find a station by slug.
     pub fn station(&self, name: &str) -> Option<&Station> {
         self.stations.iter().find(|s| s.name() == name)
+    }
+
+    /// Find a whole-Run reviewer by slug.
+    pub fn run_reviewer(&self, name: &str) -> Option<&Role> {
+        self.run_reviewers.iter().find(|r| r.name() == name)
+    }
+
+    /// Find a reflection dimension by slug.
+    pub fn reflection(&self, name: &str) -> Option<&Role> {
+        self.reflections.iter().find(|r| r.name() == name)
     }
 }

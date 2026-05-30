@@ -81,7 +81,11 @@ fn expands_one_post_url_per_post() {
 #[test]
 fn dynamic_count_matches_corpora_totals() {
     let paths = Route::all_paths();
-    let factories = paths.iter().filter(|p| p.starts_with("/factories/")).count();
+    // A station path contains `/stations/`; a bare factory path does not.
+    let factories = paths
+        .iter()
+        .filter(|p| p.starts_with("/factories/") && !p.contains("/stations/"))
+        .count();
     let docs = paths.iter().filter(|p| p.starts_with("/docs/")).count();
     let posts = paths.iter().filter(|p| p.starts_with("/blog/")).count();
     assert_eq!(factories, darkrun_content::list_factories().len());
@@ -90,10 +94,35 @@ fn dynamic_count_matches_corpora_totals() {
 }
 
 #[test]
+fn station_count_matches_every_factory_station() {
+    let paths = Route::all_paths();
+    let stations = paths.iter().filter(|p| p.contains("/stations/")).count();
+    let expected: usize = darkrun_content::list_factories()
+        .iter()
+        .map(|slug| darkrun_content::load_validated(slug).map(|f| f.stations.len()).unwrap_or(0))
+        .sum();
+    assert_eq!(stations, expected);
+}
+
+#[test]
+fn phase_count_is_six() {
+    let paths = Route::all_paths();
+    let phases = paths.iter().filter(|p| p.starts_with("/methodology/")).count();
+    assert_eq!(phases, 6);
+}
+
+#[test]
 fn total_is_static_sections_plus_dynamic() {
     let paths = Route::all_paths();
     let static_count = 14; // "/" + 13 sections
+    let stations: usize = darkrun_content::list_factories()
+        .iter()
+        .map(|slug| darkrun_content::load_validated(slug).map(|f| f.stations.len()).unwrap_or(0))
+        .sum();
+    let phases = 6;
     let dynamic = darkrun_content::list_factories().len()
+        + stations
+        + phases
         + darkrun_site::content::DOCS.len()
         + darkrun_site::content::POSTS.len();
     assert_eq!(paths.len(), static_count + dynamic);

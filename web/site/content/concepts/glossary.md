@@ -8,6 +8,10 @@ Quick reference for darkrun's vocabulary.
   locks a single durable artifact.
 - **Unit** — a discrete piece of work a station produces and you review.
 - **Pass** — one Make → Challenge → Resolve cycle a worker runs inside a Unit.
+- **Make / Challenge / Resolve** — the three beats of a Pass: produce a
+  candidate, attack it for its weakest seam, then fix what the attack surfaced.
+- **Decompose** — split a station's work into Units with testable completion
+  criteria and a dependency DAG before any output is made.
 - **Worker** — an agent that runs a beat of a Pass.
 - **Run** — the top-level execution of a factory against a real task.
 - **Explorer** — an agent that gathers context in the spec phase.
