@@ -17,6 +17,7 @@ use darkrun_ui::prelude::*;
 
 use darkrun_desktop::{map, wire};
 
+mod home;
 mod review;
 
 use wire::ConnConfig;
@@ -25,12 +26,21 @@ fn main() {
     dioxus::launch(app);
 }
 
-/// Top-level app: reads the connection config from the environment, opens the
-/// live session feed, and renders the review screen.
+/// Top-level app: reads the launch config from the environment and picks the
+/// opening surface.
+///
+/// - **Pinned** (`DARKRUN_SESSION_ID` set): the engine launched us pointed at a
+///   specific run — go straight to the live Review, exactly as before.
+/// - **Unpinned**: open the run-browser HOME screen, which lists the project's
+///   runs from `GET /api/runs` and opens any one into its live Review.
 fn app() -> Element {
-    let cfg = ConnConfig::from_env();
+    let (cfg, pinned) = ConnConfig::from_env_pinned();
     rsx! {
         style { "{darkrun_ui::tokens::THEME_CSS}" }
-        review::ReviewApp { cfg }
+        if pinned {
+            review::ReviewApp { cfg }
+        } else {
+            home::HomeApp { cfg }
+        }
     }
 }

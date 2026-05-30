@@ -1,12 +1,17 @@
-//! The override cascade: project filesystem override beats embedded default.
+//! The override cascade: filesystem overrides beat the embedded default.
 //!
-//! A template key (`rel`, e.g. `phases/spec`) resolves in precedence order:
+//! A template key (`rel`, e.g. `phases/spec`) resolves in precedence order
+//! (highest → lowest):
 //!
 //! 1. **Project override** — `<repo_root>/.darkrun/prompts/<rel>.md` on the
 //!    filesystem. Lets a user override *any* prompt by dropping a file, no fork.
 //!    Reads are cached by modification time so edits are picked up live without
 //!    re-reading on every render.
-//! 2. **Embedded default** — the `content/prompts/<rel>.md` corpus baked into the
+//! 2. **Installed-plugin override** — `$CLAUDE_PLUGIN_ROOT/prompts/<rel>.md` on
+//!    disk, when `CLAUDE_PLUGIN_ROOT` is set. Lets someone edit the *installed*
+//!    plugin's prompts in place and have the change take effect without
+//!    rebuilding the binary. Also mtime-cached.
+//! 3. **Embedded default** — the `plugin/prompts/<rel>.md` corpus baked into the
 //!    binary at compile time via [`rust_embed`].
 
 use std::collections::HashMap;
@@ -18,9 +23,9 @@ use rust_embed::RustEmbed;
 
 use crate::error::{PromptError, Result};
 
-/// The embedded `content/prompts/` corpus (workspace-root relative).
+/// The embedded `plugin/prompts/` corpus (relative to this crate).
 #[derive(RustEmbed)]
-#[folder = "$CARGO_MANIFEST_DIR/../../content/prompts"]
+#[folder = "$CARGO_MANIFEST_DIR/../../plugin/prompts"]
 struct Corpus;
 
 /// A cached project-override read: the file's source plus the mtime it was read
@@ -31,47 +36,33 @@ struct CachedOverride {
     source: String,
 }
 
-/// Resolves template sources with the project-override cascade.
-///
-/// One `Cascade` is bound to a `repo_root`; clone it freely (the override cache
-/// is shared behind a mutex). It is the single source of truth used by both the
-/// public [`resolve`](crate::resolve) path and the minijinja loader, so
-/// `{% include %}` honors overrides too.
-pub struct Cascade {
-    /// `<repo_root>/.darkrun/prompts`, where project overrides live.
-    override_root: PathBuf,
+/// One filesystem override layer: a root directory plus its own mtime cache.
+struct OverrideLayer {
+    /// Directory under which `<rel>.md` override files live.
+    root: PathBuf,
     /// mtime-keyed cache of override file sources, keyed by `rel`.
     cache: Mutex<HashMap<String, CachedOverride>>,
 }
 
-impl Cascade {
-    /// Build a cascade rooted at `repo_root`. Overrides are looked up under
-    /// `<repo_root>/.darkrun/prompts/`.
-    pub fn new(repo_root: impl AsRef<Path>) -> Self {
+impl OverrideLayer {
+    fn new(root: PathBuf) -> Self {
         Self {
-            override_root: repo_root.as_ref().join(".darkrun").join("prompts"),
+            root,
             cache: Mutex::new(HashMap::new()),
         }
     }
 
-    /// The filesystem path a `rel` override would live at.
-    fn override_path(&self, rel: &str) -> PathBuf {
-        self.override_root.join(format!("{rel}.md"))
+    /// The filesystem path a `rel` override would live at in this layer.
+    fn path_for(&self, rel: &str) -> PathBuf {
+        self.root.join(format!("{rel}.md"))
     }
 
-    /// Read the embedded default source for `rel`, if one exists.
-    fn embedded(rel: &str) -> Option<String> {
-        let path = format!("{rel}.md");
-        let file = Corpus::get(&path)?;
-        String::from_utf8(file.data.into_owned()).ok()
-    }
-
-    /// Read the project override for `rel`, honoring the mtime cache.
+    /// Read this layer's override for `rel`, honoring the mtime cache.
     ///
-    /// Returns `Ok(None)` when no override file exists, `Ok(Some(src))` when one
-    /// does (fresh or cached), or an error when an existing file can't be read.
-    fn read_override(&self, rel: &str) -> Result<Option<String>> {
-        let path = self.override_path(rel);
+    /// Returns `Ok(None)` when no file exists, `Ok(Some(src))` when one does
+    /// (fresh or cached), or an error when an existing file can't be read.
+    fn read(&self, rel: &str) -> Result<Option<String>> {
+        let path = self.path_for(rel);
         let meta = match std::fs::metadata(&path) {
             Ok(meta) => meta,
             // No override file: not an error, the cascade falls through.
@@ -113,9 +104,67 @@ impl Cascade {
         );
         Ok(Some(source))
     }
+}
 
-    /// Resolve the source for `rel`: project override first, embedded default
-    /// second. Errors with [`PromptError::UnknownTemplate`] when neither exists.
+/// Resolves template sources with the filesystem-override cascade.
+///
+/// One `Cascade` is bound to a `repo_root`; clone it freely (the override caches
+/// are shared behind mutexes). It is the single source of truth used by both the
+/// public [`resolve`](crate::resolve) path and the minijinja loader, so
+/// `{% include %}` honors overrides too.
+///
+/// Filesystem layers are consulted highest-precedence first: the project
+/// override (`<repo_root>/.darkrun/prompts`) beats the installed-plugin override
+/// (`$CLAUDE_PLUGIN_ROOT/prompts`), which beats the embedded corpus.
+pub struct Cascade {
+    /// Ordered override layers, highest precedence first.
+    layers: Vec<OverrideLayer>,
+}
+
+impl Cascade {
+    /// Build a cascade rooted at `repo_root`. Project overrides are looked up
+    /// under `<repo_root>/.darkrun/prompts/`; if `CLAUDE_PLUGIN_ROOT` is set, the
+    /// installed plugin's `$CLAUDE_PLUGIN_ROOT/prompts/` is consulted next.
+    pub fn new(repo_root: impl AsRef<Path>) -> Self {
+        let plugin_root = std::env::var_os("CLAUDE_PLUGIN_ROOT").map(PathBuf::from);
+        Self::with_roots(repo_root, plugin_root)
+    }
+
+    /// Build a cascade from explicit roots. The project override layer is always
+    /// present at `<repo_root>/.darkrun/prompts`; the installed-plugin layer at
+    /// `<plugin_root>/prompts` is added only when `plugin_root` is `Some`. The
+    /// env-driven [`new`](Self::new) is the normal entry point; this exists so the
+    /// plugin root can be supplied without mutating the process environment.
+    pub fn with_roots(repo_root: impl AsRef<Path>, plugin_root: Option<PathBuf>) -> Self {
+        let mut layers = vec![OverrideLayer::new(
+            repo_root.as_ref().join(".darkrun").join("prompts"),
+        )];
+        if let Some(plugin_root) = plugin_root {
+            layers.push(OverrideLayer::new(plugin_root.join("prompts")));
+        }
+        Self { layers }
+    }
+
+    /// Read the embedded default source for `rel`, if one exists.
+    fn embedded(rel: &str) -> Option<String> {
+        let path = format!("{rel}.md");
+        let file = Corpus::get(&path)?;
+        String::from_utf8(file.data.into_owned()).ok()
+    }
+
+    /// First filesystem override that has `rel`, walking layers highest-first.
+    fn read_override(&self, rel: &str) -> Result<Option<String>> {
+        for layer in &self.layers {
+            if let Some(src) = layer.read(rel)? {
+                return Ok(Some(src));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Resolve the source for `rel`: filesystem overrides first (project, then
+    /// installed plugin), embedded default last. Errors with
+    /// [`PromptError::UnknownTemplate`] when no layer has it.
     pub fn resolve(&self, rel: &str) -> Result<String> {
         if let Some(over) = self.read_override(rel)? {
             return Ok(over);
@@ -178,5 +227,39 @@ mod tests {
             Err(PromptError::UnknownTemplate(k)) => assert_eq!(k, "phases/does-not-exist"),
             other => panic!("expected UnknownTemplate, got {other:?}"),
         }
+    }
+
+    /// The installed-plugin layer (`$CLAUDE_PLUGIN_ROOT/prompts`) overrides the
+    /// embedded default, and is itself overridden by `.darkrun/prompts` — so
+    /// editing an installed plugin's prompts works without rebuilding, while a
+    /// project override still wins.
+    ///
+    /// Uses [`Cascade::with_roots`] rather than mutating `CLAUDE_PLUGIN_ROOT`, so
+    /// the process-global env stays untouched and parallel tests don't race.
+    #[test]
+    fn plugin_root_layer_overrides_embedded_but_not_project() {
+        let repo = tempfile::tempdir().unwrap();
+        let plugin = tempfile::tempdir().unwrap();
+
+        // Installed-plugin override on disk.
+        let plugin_prompt = plugin.path().join("prompts").join("phases").join("spec.md");
+        std::fs::create_dir_all(plugin_prompt.parent().unwrap()).unwrap();
+        std::fs::write(&plugin_prompt, "FROM PLUGIN ROOT").unwrap();
+
+        // With no project override, the plugin-root disk layer beats embedded.
+        let c = Cascade::with_roots(repo.path(), Some(plugin.path().to_path_buf()));
+        assert_eq!(c.resolve("phases/spec").unwrap(), "FROM PLUGIN ROOT");
+
+        // A project override beats the plugin-root layer.
+        let proj_prompt = repo
+            .path()
+            .join(".darkrun")
+            .join("prompts")
+            .join("phases")
+            .join("spec.md");
+        std::fs::create_dir_all(proj_prompt.parent().unwrap()).unwrap();
+        std::fs::write(&proj_prompt, "FROM PROJECT").unwrap();
+        let c = Cascade::with_roots(repo.path(), Some(plugin.path().to_path_buf()));
+        assert_eq!(c.resolve("phases/spec").unwrap(), "FROM PROJECT");
     }
 }

@@ -1,7 +1,7 @@
 //! Loaded content model — the parsed shape of the embedded factory corpus.
 //!
 //! These types mirror the markdown+frontmatter definitions under
-//! `content/factories/<name>/`. A [`Factory`] is the top-level methodology; it
+//! `plugin/factories/<name>/`. A [`Factory`] is the top-level methodology; it
 //! owns an ordered list of [`Station`]s; each station references named
 //! [`Explorer`]s, [`Worker`]s, and [`Reviewer`]s by their file definitions.
 //!

@@ -1,9 +1,0 @@
-description = "Show the running darkrun engine version, plugin version, build kind, runtime, and entry point"
-prompt = """
-Show darkrun version info. Follow the `darkrun-version` skill:
-
-Call `darkrun_version_info` and display: engine version (baked into the binary, or `dev`), plugin
-version (from `plugin.json`), build kind (compiled binary vs dev-from-source), runtime, and entry
-point. If a pending update is reported, mention it. For `dev` builds, note that engine source edits
-only take effect after a `cargo build`.
-"""

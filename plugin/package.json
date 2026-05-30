@@ -31,6 +31,8 @@
     ".mcp.json",
     "bin",
     "commands",
+    "factories",
+    "prompts",
     "skills",
     "README.md"
   ],

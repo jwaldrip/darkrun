@@ -13,8 +13,9 @@ use std::fmt;
 
 use darkrun_api::{
     DirectionSelectRequest, OutputReviewRequest, PickerSelectRequest, QuestionAnswerRequest,
-    ReviewDecisionRequest, SessionPayload,
+    ReviewDecisionRequest, RunDetailPayload, RunListPayload, SessionPayload,
 };
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -55,6 +56,22 @@ impl ConnConfig {
             port,
             session_id,
         }
+    }
+
+    /// Read the launch config from the environment, reporting whether a session
+    /// was *explicitly* pinned via `DARKRUN_SESSION_ID`.
+    ///
+    /// The desktop app uses `pinned` to decide its opening surface: a pinned
+    /// session jumps straight to the live Review (the engine launched us pointed
+    /// at a run); an unpinned launch opens the run-browser home screen. The
+    /// returned [`ConnConfig`] still carries the [`DEFAULT_SESSION`] id so the
+    /// home screen has a base authority/port to fetch the run list from.
+    pub fn from_env_pinned() -> (Self, bool) {
+        let pinned = std::env::var("DARKRUN_SESSION_ID")
+            .ok()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        (Self::from_env(), pinned)
     }
 
     /// The `host:port` authority.
@@ -101,6 +118,26 @@ impl ConnConfig {
     /// objective-evidence proof.
     pub fn proof_path(&self, run: &str) -> String {
         format!("/api/proof/{run}")
+    }
+
+    /// The run-list GET path (`/api/runs`) — every non-archived run summary.
+    pub fn runs_path(&self) -> String {
+        "/api/runs".to_string()
+    }
+
+    /// The run-detail GET path (`/api/runs/:slug`).
+    pub fn run_detail_path(&self, slug: &str) -> String {
+        format!("/api/runs/{slug}")
+    }
+
+    /// Clone this config pointed at a different session id — used when the home
+    /// browser opens a specific run's live Review.
+    pub fn with_session(&self, session_id: impl Into<String>) -> Self {
+        ConnConfig {
+            host: self.host.clone(),
+            port: self.port,
+            session_id: session_id.into(),
+        }
     }
 }
 
@@ -236,6 +273,65 @@ pub async fn submit_output_review(
     post_json(&cfg.authority(), &cfg.visual_review_annotate_path(), req).await
 }
 
+/// GET the project's run list (`/api/runs`) and decode it into a
+/// [`RunListPayload`]. The desktop home screen calls this on launch when no
+/// session id is pinned, then renders the run browser.
+pub async fn fetch_runs(cfg: &ConnConfig) -> Result<RunListPayload, WireError> {
+    get_json(&cfg.authority(), &cfg.runs_path()).await
+}
+
+/// GET a single run's detail (`/api/runs/:slug`) and decode it into a
+/// [`RunDetailPayload`].
+pub async fn fetch_run_detail(
+    cfg: &ConnConfig,
+    slug: &str,
+) -> Result<RunDetailPayload, WireError> {
+    get_json(&cfg.authority(), &cfg.run_detail_path(slug)).await
+}
+
+/// Hand-rolled HTTP/1.1 JSON GET over loopback TCP. Mirrors [`post_json`]: write
+/// the request, read the whole (small) response, check the status, and decode
+/// the body into `T`. Used by the run-browser fetches.
+async fn get_json<T: DeserializeOwned>(authority: &str, path: &str) -> Result<T, WireError> {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\n\
+         Host: {authority}\r\n\
+         Accept: application/json\r\n\
+         Connection: close\r\n\
+         \r\n",
+    );
+
+    let mut stream = TcpStream::connect(&authority)
+        .await
+        .map_err(WireError::Connect)?;
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(WireError::Io)?;
+    stream.flush().await.map_err(WireError::Io)?;
+
+    let mut buf = Vec::with_capacity(2048);
+    stream.read_to_end(&mut buf).await.map_err(WireError::Io)?;
+
+    let status = parse_status_code(&buf)?;
+    if !(200..300).contains(&status) {
+        return Err(WireError::Status(status));
+    }
+    let body = split_body(&buf);
+    serde_json::from_slice::<T>(body).map_err(WireError::Encode)
+}
+
+/// Split an HTTP/1.1 response into its body — everything after the first blank
+/// line (`\r\n\r\n`). Falls back to the whole buffer if no header terminator is
+/// found (defensive; the engine always sends well-formed responses).
+fn split_body(buf: &[u8]) -> &[u8] {
+    const SEP: &[u8] = b"\r\n\r\n";
+    buf.windows(SEP.len())
+        .position(|w| w == SEP)
+        .map(|i| &buf[i + SEP.len()..])
+        .unwrap_or(buf)
+}
+
 /// Hand-rolled HTTP/1.1 JSON POST over loopback TCP, shared by every decision /
 /// answer / selection path. Serializes `req`, writes the request, reads the
 /// response, and surfaces a typed result on the status code.
@@ -321,6 +417,34 @@ mod tests {
             "/visual-review/s-42/annotate"
         );
         assert_eq!(cfg.proof_path("my-run"), "/api/proof/my-run");
+    }
+
+    #[test]
+    fn runs_browse_paths_and_with_session() {
+        let cfg = ConnConfig {
+            host: "127.0.0.1".into(),
+            port: 7878,
+            session_id: "current".into(),
+        };
+        assert_eq!(cfg.runs_path(), "/api/runs");
+        assert_eq!(cfg.run_detail_path("alpha"), "/api/runs/alpha");
+        // with_session swaps only the session id, keeping host/port.
+        let pinned = cfg.with_session("alpha");
+        assert_eq!(pinned.session_id, "alpha");
+        assert_eq!(pinned.authority(), "127.0.0.1:7878");
+        assert_eq!(pinned.ws_url(), "ws://127.0.0.1:7878/ws/session/alpha");
+    }
+
+    #[test]
+    fn split_body_extracts_payload_after_headers() {
+        let resp = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"runs\":[]}";
+        assert_eq!(split_body(resp), b"{\"runs\":[]}");
+    }
+
+    #[test]
+    fn split_body_falls_back_to_whole_buffer_without_separator() {
+        let resp = b"no-headers-here";
+        assert_eq!(split_body(resp), b"no-headers-here");
     }
 
     #[test]

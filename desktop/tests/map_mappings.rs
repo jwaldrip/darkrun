@@ -5,7 +5,8 @@
 
 use darkrun_api::common::{GateType, SessionStatus};
 use darkrun_api::session::RunPhase;
-use darkrun_desktop::map::{checkpoint_kind, label_tone, phase, status_tone};
+use darkrun_api::{RunSummary, StationProgress};
+use darkrun_desktop::map::{checkpoint_kind, label_tone, phase, run_card, status_tone};
 use darkrun_ui::components::factory::CheckpointKind;
 use darkrun_ui::kinds::{Phase, Tone};
 
@@ -205,4 +206,45 @@ fn label_tone_internal_space_not_trimmed_to_token() {
 #[test]
 fn label_tone_mixed_case_with_padding() {
     assert_eq!(label_tone("  ChAnGeS_ReQuEsTeD "), Tone::Danger);
+}
+
+// ---- run_card(): RunSummary -> RunCardData ----
+
+fn summary() -> RunSummary {
+    RunSummary {
+        slug: "rate-limit".into(),
+        title: "Rate limit the public API".into(),
+        factory: "software".into(),
+        active_station: "build".into(),
+        phase: Some("manufacture".into()),
+        status: "active".into(),
+        progress: StationProgress { completed: 3, total: 6 },
+        started_at: Some("2026-05-30T00:00:00Z".into()),
+    }
+}
+
+#[test]
+fn run_card_carries_identity_and_progress() {
+    let card = run_card(&summary());
+    assert_eq!(card.slug, "rate-limit");
+    assert_eq!(card.title, "Rate limit the public API");
+    assert_eq!(card.factory, "software");
+    assert_eq!(card.active_station, "build");
+    assert_eq!(card.status, "active");
+    assert_eq!(card.completed, 3);
+    assert_eq!(card.total, 6);
+}
+
+#[test]
+fn run_card_parses_known_phase_string() {
+    assert_eq!(run_card(&summary()).phase, Some(Phase::Manufacture));
+}
+
+#[test]
+fn run_card_unknown_or_absent_phase_is_none() {
+    let mut s = summary();
+    s.phase = None;
+    assert_eq!(run_card(&s).phase, None);
+    s.phase = Some("between-stations".into());
+    assert_eq!(run_card(&s).phase, None);
 }

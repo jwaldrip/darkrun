@@ -12,6 +12,7 @@ pub mod pipeline;
 pub mod primitives;
 pub mod proof_panel;
 pub mod role;
+pub mod run_list;
 pub mod session_views;
 pub mod station_flow;
 pub mod view_artifacts;

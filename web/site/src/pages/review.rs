@@ -1,11 +1,14 @@
-//! `/review` — a scaffold of the live review surface, wired to the real
-//! `darkrun-api` wire types.
+//! `/review` — how review works.
 //!
-//! The shipped engine streams a [`darkrun_api::ReviewCurrentPayload`] over the
-//! local WebSocket. This page does not yet connect to a running engine; it
-//! renders a representative payload built from the real API types so the layout
-//! and the type wiring are exercised. Connecting the live feed is the remaining
-//! work — see the note rendered on the page.
+//! This is **not** the live review surface, and it deliberately does not connect
+//! to a running engine. Review happens in the **darkrun desktop app**: a local,
+//! dark-brand window that streams the live session over `ws://127.0.0.1:PORT`
+//! and never takes over your browser. Remote / web review is a later thing.
+//!
+//! The page explains that split and shows a representative review layout (built
+//! from the real `darkrun-api` types) so the desktop app's surface is legible
+//! before you launch it. The `status_tone` mapping is shared with the rest of
+//! the site and kept here.
 
 use darkrun_api::review_current::{
     FeedbackSummary, ReviewCurrentPayload, ReviewCurrentStation, ReviewCurrentUnit,
@@ -14,30 +17,43 @@ use darkrun_ui::prelude::*;
 
 use crate::ui::SectionHead;
 
-/// `/review` — the review session scaffold.
+/// `/review` — the "how review works" explainer.
 #[component]
 pub fn Review() -> Element {
     let payload = sample_payload();
-    let phase = payload
-        .phase
-        .as_deref()
-        .and_then(Phase::from_name);
+    let phase = payload.phase.as_deref().and_then(Phase::from_name);
 
     rsx! {
         SectionHead {
-            kicker: "scaffold".to_string(),
-            title: "Review".to_string(),
+            kicker: "how review works".to_string(),
+            title: "Review runs in the desktop app".to_string(),
             lead: Some(
-                "The live review surface. Wired to the darkrun-api session types; the WebSocket \
-                 feed to a running engine is the remaining work."
+                "Review is a local surface. The darkrun desktop app opens a dark window, \
+                 connects to the engine on your machine, and streams the live session \u{2014} \
+                 it never takes over your browser."
                     .to_string(),
             ),
         }
 
-        ScaffoldNote {
-            text: "Rendering a representative ReviewCurrentPayload. Point this at \
-                   ws://127.0.0.1:PORT/ws/session/:id to go live."
-                .to_string(),
+        DesktopNote {}
+
+        div { style: "margin-top:28px;",
+            h2 {
+                style: format!(
+                    "font-family:{};font-size:18px;color:{};margin:0 0 6px;",
+                    tokens::FONT_SANS, tokens::TEXT,
+                ),
+                "What the desktop surface shows"
+            }
+            p {
+                style: format!(
+                    "font-family:{};font-size:14px;color:{};margin:0 0 18px;max-width:62ch;",
+                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                ),
+                "A representative review, rendered from the real session types. In the app \
+                 this is live: the station pipeline, the units and their criteria, declared \
+                 outputs, and an approve / request-changes checkpoint."
+            }
         }
 
         FactoryCard {
@@ -82,6 +98,52 @@ pub fn Review() -> Element {
     }
 }
 
+/// The note that frames where review actually happens: the local desktop app
+/// now, remote / web review later. Dark-brand, terse.
+#[component]
+pub fn DesktopNote() -> Element {
+    let wrap = format!(
+        "border:1px solid {border};border-left:3px solid {accent};border-radius:8px;\
+         padding:14px 16px;background:{overlay};",
+        border = tokens::BORDER,
+        accent = tokens::ACCENT,
+        overlay = tokens::SURFACE_OVERLAY,
+    );
+    let line = format!(
+        "font-family:{sans};font-size:14px;color:{text};margin:0;",
+        sans = tokens::FONT_SANS,
+        text = tokens::TEXT,
+    );
+    let sub = format!(
+        "font-family:{sans};font-size:13px;color:{muted};margin:8px 0 0;",
+        sans = tokens::FONT_SANS,
+        muted = tokens::TEXT_MUTED,
+    );
+    rsx! {
+        div { style: "{wrap}",
+            div { style: "display:flex;align-items:center;gap:8px;margin-bottom:8px;",
+                Badge { tone: Tone::Accent, filled: true, "desktop app" }
+                Badge { tone: Tone::Neutral, "remote review: coming later" }
+            }
+            p { style: "{line}",
+                "Run "
+                code {
+                    style: format!(
+                        "font-family:{};color:{};", tokens::FONT_MONO, tokens::ACCENT,
+                    ),
+                    "darkrun serve"
+                }
+                " on your machine, then open the desktop app. It lists your runs and opens \
+                 any one into its live review \u{2014} all over loopback, nothing leaves your box."
+            }
+            p { style: "{sub}",
+                "Reviewing from the web (or another machine) is on the roadmap, not shipped. \
+                 For now the browser is for reading the docs; the app is for driving the work."
+            }
+        }
+    }
+}
+
 /// The feedback summary, rendered as tone-coded badges from the real counts.
 ///
 /// Takes primitive counts rather than the `darkrun-api` struct directly because
@@ -105,7 +167,7 @@ fn FeedbackCounts(pending: u32, addressed: u32, closed: u32, rejected: u32) -> E
     }
 }
 
-/// A small banner marking a not-yet-live scaffold.
+/// A small banner marking a not-yet-live scaffold. Kept for reuse by `/browse`.
 #[component]
 pub fn ScaffoldNote(text: String) -> Element {
     let style = format!(

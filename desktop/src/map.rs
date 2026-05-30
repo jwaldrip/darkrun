@@ -16,6 +16,7 @@ use darkrun_ui::components::factory::CheckpointKind;
 use darkrun_ui::components::proof_panel::{
     AuditRow, BenchStat, ProofMetricKind, ProofView, VitalMetric,
 };
+use darkrun_ui::components::run_list::RunCardData;
 use darkrun_ui::components::session_views::{ArchetypeCard, OptionCard, PickerItem};
 use darkrun_ui::components::view_artifacts::ArtifactEntry;
 use darkrun_ui::kinds::{Phase, Tone};
@@ -35,6 +36,24 @@ pub fn phase(p: RunPhase) -> Phase {
         RunPhase::Audit => Phase::Audit,
         RunPhase::Reflect => Phase::Reflect,
         RunPhase::Checkpoint => Phase::Checkpoint,
+    }
+}
+
+/// Project a `darkrun-api` [`RunSummary`] into the UI [`RunCardData`] view-model
+/// the run browser renders. The wire `phase` is a display string (the
+/// `StationPhase` serde name); unknown / absent phases leave the pipeline strip
+/// all-pending. The status string passes straight through — the UI maps it onto
+/// a badge tone via `run_status_tone`.
+pub fn run_card(summary: &darkrun_api::RunSummary) -> RunCardData {
+    RunCardData {
+        slug: summary.slug.clone(),
+        title: summary.title.clone(),
+        factory: summary.factory.clone(),
+        active_station: summary.active_station.clone(),
+        phase: summary.phase.as_deref().and_then(Phase::from_name),
+        status: summary.status.clone(),
+        completed: summary.progress.completed,
+        total: summary.progress.total,
     }
 }
 

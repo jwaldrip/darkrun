@@ -1,6 +1,6 @@
 //! darkrun-content — the embedded factory corpus, its loader, and its validator.
 //!
-//! The `content/factories/<name>/` tree (markdown + YAML frontmatter) is
+//! The `plugin/factories/<name>/` tree (markdown + YAML frontmatter) is
 //! embedded into the binary at compile time via [`rust_embed`], so the single
 //! `darkrun` binary ships its factory definitions inline — no files beside the
 //! executable.

@@ -7,8 +7,10 @@
 //! - **`/factories`** renders the embedded factory corpus from `darkrun-content`.
 //! - **`/docs`** and the concept pages render embedded markdown via
 //!   `pulldown-cmark`.
-//! - **`/browse`** and **`/review`** are scaffolds wired to the real
-//!   `darkrun-api` wire types, pending a live engine connection.
+//! - **`/browse`** and **`/review`** explain that review is a *local* surface:
+//!   it runs in the darkrun desktop app over loopback and never takes over the
+//!   browser (remote / web review is a later thing). They reference the real
+//!   `darkrun-api` contract rather than connecting to an engine.
 //!
 //! The crate compiles to `wasm32-unknown-unknown` (the shipped target) and the
 //! native host (for the static-site generator).

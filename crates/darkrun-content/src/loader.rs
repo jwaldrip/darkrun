@@ -1,6 +1,6 @@
 //! The content loader: reads the embedded corpus into the [`Factory`] model.
 //!
-//! The `content/` tree is embedded into the binary at compile time via
+//! The `plugin/factories/` tree is embedded into the binary at compile time via
 //! [`rust-embed`], so the single `darkrun` binary ships its factory corpus with
 //! no external files. The loader walks the embedded tree, parses each
 //! frontmatter document with `darkrun-core`'s parser, and assembles the typed
@@ -15,9 +15,10 @@ use crate::model::{
     Factory, FactoryFrontmatter, Role, RoleFrontmatter, Station, StationFrontmatter,
 };
 
-/// The embedded `content/` tree (workspace-root relative).
+/// The embedded `plugin/factories/` tree (relative to this crate). Embedded
+/// path keys are factory-slug-relative, e.g. `software/FACTORY.md`.
 #[derive(RustEmbed)]
-#[folder = "$CARGO_MANIFEST_DIR/../../content"]
+#[folder = "$CARGO_MANIFEST_DIR/../../plugin/factories"]
 struct Content;
 
 /// Read an embedded file as UTF-8 text.
@@ -30,13 +31,12 @@ fn read_text(path: &str) -> Result<String> {
 
 /// List the slugs of every factory embedded in the corpus.
 ///
-/// A factory is any directory under `factories/` that contains a `FACTORY.md`.
+/// A factory is any top-level directory containing a `FACTORY.md`. Embedded
+/// keys are factory-slug-relative (e.g. `software/FACTORY.md`).
 pub fn list_factories() -> Vec<String> {
     let mut names: Vec<String> = Content::iter()
         .filter_map(|path| {
-            let path = path.as_ref();
-            let rest = path.strip_prefix("factories/")?;
-            let (slug, tail) = rest.split_once('/')?;
+            let (slug, tail) = path.as_ref().split_once('/')?;
             (tail == "FACTORY.md").then(|| slug.to_string())
         })
         .collect();
@@ -52,7 +52,7 @@ pub fn list_factories() -> Vec<String> {
 /// returned factory is *not* yet validated — call [`crate::validate::validate`]
 /// (or use [`load_validated`]) to enforce structural rules.
 pub fn load_factory(name: &str) -> Result<Factory> {
-    let factory_md = format!("factories/{name}/FACTORY.md");
+    let factory_md = format!("{name}/FACTORY.md");
     if Content::get(&factory_md).is_none() {
         return Err(ContentError::FactoryNotFound(name.to_string()));
     }
@@ -87,7 +87,7 @@ pub fn load_validated(name: &str) -> Result<Factory> {
 }
 
 fn load_station(factory: &str, station: &str) -> Result<Station> {
-    let base = format!("factories/{factory}/stations/{station}");
+    let base = format!("{factory}/stations/{station}");
     let (frontmatter, body): (StationFrontmatter, String) =
         frontmatter::parse(&read_text(&format!("{base}/STATION.md"))?)?;
 
@@ -117,14 +117,14 @@ fn load_roles(station_base: &str, subdir: &str, names: &[String]) -> Result<Vec<
 }
 
 /// Load each named run-level role from a factory-scope subdirectory
-/// (`factories/<factory>/<subdir>/<slug>.md`), preserving declaration order.
+/// (`<factory>/<subdir>/<slug>.md`), preserving declaration order.
 ///
 /// These are the factory-scope analog of [`load_roles`]: whole-Run reviewers
 /// and reflection dimensions live beside the stations, not inside one.
 fn load_factory_roles(factory: &str, subdir: &str, names: &[String]) -> Result<Vec<Role>> {
     let mut roles = Vec::with_capacity(names.len());
     for slug in names {
-        let path = format!("factories/{factory}/{subdir}/{slug}.md");
+        let path = format!("{factory}/{subdir}/{slug}.md");
         let (frontmatter, body): (RoleFrontmatter, String) =
             frontmatter::parse(&read_text(&path)?)?;
         roles.push(Role { frontmatter, body });
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn read_text_reports_missing_files() {
-        match read_text("factories/software/stations/ghost/STATION.md") {
+        match read_text("software/stations/ghost/STATION.md") {
             Err(ContentError::FileNotFound(p)) => assert!(p.contains("ghost")),
             other => panic!("expected FileNotFound, got {other:?}"),
         }
@@ -229,7 +229,7 @@ mod tests {
         // the missing path under the factory directory (not a station).
         match load_factory_roles("software", "reflections", &["ghost".to_string()]) {
             Err(ContentError::FileNotFound(p)) => {
-                assert!(p.contains("factories/software/reflections/ghost.md"), "{p}");
+                assert!(p.contains("software/reflections/ghost.md"), "{p}");
             }
             other => panic!("expected FileNotFound, got {other:?}"),
         }

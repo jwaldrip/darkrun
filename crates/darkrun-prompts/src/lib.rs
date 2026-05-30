@@ -1,7 +1,7 @@
 //! darkrun-prompts — the engine-driven prompt system.
 //!
 //! **Prompts are engine-driven data; skills are thin wrappers.** The real
-//! per-action instructions live as minijinja templates in `content/prompts/`,
+//! per-action instructions live as minijinja templates in `plugin/prompts/`,
 //! embedded into the binary. The manager picks a template key for each
 //! [`RunAction`] it emits, and this crate resolves and renders it with live
 //! context — honoring a **project-override cascade** so any prompt can be
