@@ -3,3 +3,6 @@
 .DS_Store
 *.tmp
 node_modules
+
+# Local agent worktrees (never commit)
+.claude/worktrees/
