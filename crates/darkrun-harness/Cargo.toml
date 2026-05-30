@@ -1,0 +1,11 @@
+[package]
+name = "darkrun-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Agent-harness capability registry — adapts darkrun to Claude Code, Cursor, Windsurf, Gemini CLI, OpenCode, and Kiro"
+
+[dependencies]
+serde.workspace = true

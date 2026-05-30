@@ -21,6 +21,7 @@ use rmcp::transport::io::stdio;
 use rmcp::ServiceExt;
 
 use darkrun_core::StateStore;
+use darkrun_harness::Harness;
 use darkrun_http::{AppState, Limits};
 
 use crate::tools::DarkrunServer;
@@ -53,15 +54,17 @@ fn resolve_addr() -> SocketAddr {
 /// Blocks until the MCP client disconnects. Durable state lives under
 /// `<repo_root>/.darkrun`; interactive sessions live only in the shared
 /// in-memory registry.
-pub async fn serve_stdio(repo_root: impl Into<PathBuf>) -> std::io::Result<()> {
-    serve_stdio_on(repo_root, resolve_addr()).await
+pub async fn serve_stdio(repo_root: impl Into<PathBuf>, harness: Harness) -> std::io::Result<()> {
+    serve_stdio_on(repo_root, resolve_addr(), harness).await
 }
 
 /// Like [`serve_stdio`], but binds the HTTP/WS server to an explicit `addr`.
-/// The MCP `instructions` announce the bound port to the agent.
+/// The MCP `instructions` announce the bound port to the agent. `harness`
+/// selects the capability set the server adapts its tools and prompts to.
 pub async fn serve_stdio_on(
     repo_root: impl Into<PathBuf>,
     addr: SocketAddr,
+    harness: Harness,
 ) -> std::io::Result<()> {
     let repo_root = repo_root.into();
 
@@ -81,9 +84,11 @@ pub async fn serve_stdio_on(
 
     // Announce the bound port so the desktop app (DARKRUN_PORT) can connect.
     eprintln!("darkrun: HTTP/WS review server listening on http://{addr}");
+    eprintln!("darkrun: harness = {}", harness.key());
 
     let server = DarkrunServer::with_sessions(repo_root, state.sessions.clone())
-        .with_announced_addr(addr);
+        .with_announced_addr(addr)
+        .with_harness(harness);
     let running = server
         .serve(stdio())
         .await

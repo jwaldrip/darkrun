@@ -93,6 +93,12 @@ struct McpArgs {
     /// DARKRUN_PORT; defaults to 127.0.0.1:4317 when neither is set.
     #[arg(long)]
     addr: Option<SocketAddr>,
+    /// The agent harness hosting this MCP server (claude-code, cursor,
+    /// windsurf, gemini-cli, opencode, kiro). Overrides DARKRUN_HARNESS;
+    /// defaults to claude-code. Selects which tools, instructions, and prompts
+    /// the server adapts to.
+    #[arg(long)]
+    harness: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -298,7 +304,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 None => std::env::current_dir()?,
             };
             match other {
-                Command::Mcp(args) => serve_mcp(repo_root, args.addr),
+                Command::Mcp(args) => serve_mcp(repo_root, args.addr, args.harness),
                 Command::Serve(args) => serve_http(repo_root, args.addr),
                 Command::Run(cmd) => run_command(&repo_root, cmd),
                 Command::Auth(cmd) => auth_command(cmd),
@@ -315,11 +321,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 /// Block on the stdio MCP server, which co-hosts the HTTP/WS review server
 /// in-process. With an explicit `--addr`, bind there; otherwise the server
 /// resolves DARKRUN_PORT (or the 127.0.0.1:4317 default).
-fn serve_mcp(repo_root: PathBuf, addr: Option<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
+fn serve_mcp(
+    repo_root: PathBuf,
+    addr: Option<SocketAddr>,
+    harness: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let harness = darkrun_harness::detect(harness.as_deref());
     let runtime = tokio::runtime::Runtime::new()?;
     match addr {
-        Some(addr) => runtime.block_on(darkrun_mcp::serve_stdio_on(repo_root, addr))?,
-        None => runtime.block_on(darkrun_mcp::serve_stdio(repo_root))?,
+        Some(addr) => runtime.block_on(darkrun_mcp::serve_stdio_on(repo_root, addr, harness))?,
+        None => runtime.block_on(darkrun_mcp::serve_stdio(repo_root, harness))?,
     }
     Ok(())
 }

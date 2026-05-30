@@ -1063,6 +1063,7 @@ dependencies = [
  "darkrun-content",
  "darkrun-core",
  "darkrun-git",
+ "darkrun-harness",
  "darkrun-http",
  "darkrun-mcp",
  "darkrun-vcs",
@@ -1143,6 +1144,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "darkrun-harness"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "darkrun-http"
 version = "0.1.0"
 dependencies = [
@@ -1168,6 +1176,7 @@ dependencies = [
  "chrono",
  "darkrun-api",
  "darkrun-core",
+ "darkrun-harness",
  "darkrun-http",
  "darkrun-prompts",
  "rmcp",

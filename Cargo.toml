@@ -27,5 +27,6 @@ darkrun-api = { path = "crates/darkrun-api" }
 darkrun-verify = { path = "crates/darkrun-verify" }
 darkrun-content = { path = "crates/darkrun-content" }
 darkrun-prompts = { path = "crates/darkrun-prompts" }
+darkrun-harness = { path = "crates/darkrun-harness" }
 darkrun-ui = { path = "crates/darkrun-ui" }
 darkrun-vcs = { path = "crates/darkrun-vcs" }

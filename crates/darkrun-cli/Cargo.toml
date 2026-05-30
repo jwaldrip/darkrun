@@ -17,6 +17,7 @@ darkrun-api.workspace = true
 darkrun-verify.workspace = true
 darkrun-content.workspace = true
 darkrun-vcs.workspace = true
+darkrun-harness.workspace = true
 serde.workspace = true
 darkrun-mcp = { path = "../darkrun-mcp" }
 darkrun-http = { path = "../darkrun-http" }
