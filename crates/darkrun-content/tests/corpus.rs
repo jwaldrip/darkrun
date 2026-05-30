@@ -40,7 +40,7 @@ const STATIONS: &[Expected] = &[
     Expected {
         name: "shape",
         explorers: &["architecture", "risk"],
-        workers: &["designer", "spiker", "pressure_tester", "resolver"],
+        workers: &["designer", "visual_designer", "spiker", "pressure_tester", "resolver"],
         reviewers: &["fit", "reversibility", "simplicity"],
         checkpoint: CheckpointKind::Ask,
         locked_artifact: "design.md",

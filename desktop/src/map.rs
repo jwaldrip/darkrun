@@ -7,9 +7,13 @@
 //! handful of conventional keys and degrade gracefully when one is absent.
 
 use darkrun_api::common::{GateType, SessionStatus};
-use darkrun_api::session::RunPhase;
+use darkrun_api::session::{
+    DirectionArchetype, DirectionPin, PickerOption, QuestionOption, RunPhase,
+};
 use darkrun_ui::components::factory::CheckpointKind;
+use darkrun_ui::components::session_views::{ArchetypeCard, OptionCard, PickerItem};
 use darkrun_ui::kinds::{Phase, Tone};
+use darkrun_ui::selection::PinPoint;
 use serde_json::Value;
 
 /// Map the wire [`RunPhase`] onto the UI [`Phase`].
@@ -130,6 +134,78 @@ pub fn unit_view(unit: &Value) -> UnitView {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Interactive-session payload mapping: wire option/archetype/pin types -> the
+// darkrun-ui prop data the QuestionView / DirectionView / PickerView consume.
+// ---------------------------------------------------------------------------
+
+/// Map a wire [`QuestionOption`] onto a UI [`OptionCard`].
+pub fn option_card(o: &QuestionOption) -> OptionCard {
+    OptionCard {
+        id: o.id.clone(),
+        label: o.label.clone(),
+        image_url: o.image_url.clone(),
+        description: o.description.clone(),
+    }
+}
+
+/// Map every option on a question payload into UI cards.
+pub fn option_cards(opts: &[QuestionOption]) -> Vec<OptionCard> {
+    opts.iter().map(option_card).collect()
+}
+
+/// Map a wire [`DirectionArchetype`] onto a UI [`ArchetypeCard`].
+pub fn archetype_card(a: &DirectionArchetype) -> ArchetypeCard {
+    ArchetypeCard {
+        id: a.id.clone(),
+        label: a.label.clone(),
+        image_url: a.image_url.clone(),
+        description: a.description.clone(),
+    }
+}
+
+/// Map every archetype on a direction payload into UI cards.
+pub fn archetype_cards(archs: &[DirectionArchetype]) -> Vec<ArchetypeCard> {
+    archs.iter().map(archetype_card).collect()
+}
+
+/// Map a wire [`PickerOption`] onto a UI [`PickerItem`]. `secondary` is a bool
+/// flag on the wire ("show all" grouping); it carries no display text, so it is
+/// not projected into the item's `secondary` slot.
+pub fn picker_item(o: &PickerOption) -> PickerItem {
+    PickerItem {
+        id: o.id.clone(),
+        label: o.label.clone(),
+        description: o.description.clone(),
+        secondary: None,
+    }
+}
+
+/// Map every option on a picker payload into UI items.
+pub fn picker_items(opts: &[PickerOption]) -> Vec<PickerItem> {
+    opts.iter().map(picker_item).collect()
+}
+
+/// Map a wire [`DirectionPin`] (already-normalized `0..1`) onto a UI
+/// [`PinPoint`]. The constructor re-clamps defensively.
+pub fn pin_point(p: &DirectionPin) -> PinPoint {
+    PinPoint::new(p.x, p.y, p.note.clone())
+}
+
+/// Map every pin on a direction's annotations into UI pin points.
+pub fn pin_points(pins: &[DirectionPin]) -> Vec<PinPoint> {
+    pins.iter().map(pin_point).collect()
+}
+
+/// Project a UI [`PinPoint`] back onto a wire [`DirectionPin`] for submission.
+pub fn pin_to_wire(p: &PinPoint) -> DirectionPin {
+    DirectionPin {
+        x: p.x,
+        y: p.y,
+        note: p.note.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +268,119 @@ mod tests {
             unit_view(&objects).criteria,
             vec!["API wired".to_string(), "Docs updated".to_string()]
         );
+    }
+
+    #[test]
+    fn option_card_carries_image_and_description() {
+        let o = QuestionOption {
+            id: "warm".into(),
+            label: "Warm palette".into(),
+            image_url: Some("https://img/warm.png".into()),
+            description: Some("amber + rust".into()),
+        };
+        let card = option_card(&o);
+        assert_eq!(card.id, "warm");
+        assert_eq!(card.label, "Warm palette");
+        assert_eq!(card.image_url.as_deref(), Some("https://img/warm.png"));
+        assert_eq!(card.description.as_deref(), Some("amber + rust"));
+    }
+
+    #[test]
+    fn option_card_without_image_is_placeholder_ready() {
+        let o = QuestionOption {
+            id: "plain".into(),
+            label: "Plain".into(),
+            image_url: None,
+            description: None,
+        };
+        let card = option_card(&o);
+        assert!(card.image_url.is_none());
+        assert!(card.description.is_none());
+    }
+
+    #[test]
+    fn option_cards_maps_all() {
+        let opts = vec![
+            QuestionOption {
+                id: "a".into(),
+                label: "A".into(),
+                image_url: None,
+                description: None,
+            },
+            QuestionOption {
+                id: "b".into(),
+                label: "B".into(),
+                image_url: Some("u".into()),
+                description: None,
+            },
+        ];
+        let cards = option_cards(&opts);
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].id, "a");
+        assert_eq!(cards[1].image_url.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn archetype_card_carries_required_fields() {
+        let a = DirectionArchetype {
+            id: "editorial".into(),
+            label: "Editorial".into(),
+            image_url: "https://img/ed.png".into(),
+            description: "serif, airy".into(),
+        };
+        let card = archetype_card(&a);
+        assert_eq!(card.id, "editorial");
+        assert_eq!(card.label, "Editorial");
+        assert_eq!(card.image_url, "https://img/ed.png");
+        assert_eq!(card.description, "serif, airy");
+    }
+
+    #[test]
+    fn picker_item_maps_label_and_description() {
+        let o = PickerOption {
+            id: "sw".into(),
+            label: "software-factory".into(),
+            description: Some("ship code".into()),
+            secondary: Some(true),
+        };
+        let item = picker_item(&o);
+        assert_eq!(item.id, "sw");
+        assert_eq!(item.label, "software-factory");
+        assert_eq!(item.description.as_deref(), Some("ship code"));
+        // The wire `secondary` bool is a grouping flag, not display text.
+        assert!(item.secondary.is_none());
+    }
+
+    #[test]
+    fn pin_point_round_trips_through_wire() {
+        let wire = DirectionPin { x: 0.25, y: 0.75, note: "tighten".into() };
+        let ui = pin_point(&wire);
+        assert_eq!(ui.x, 0.25);
+        assert_eq!(ui.y, 0.75);
+        assert_eq!(ui.note, "tighten");
+        let back = pin_to_wire(&ui);
+        assert_eq!(back.x, 0.25);
+        assert_eq!(back.y, 0.75);
+        assert_eq!(back.note, "tighten");
+    }
+
+    #[test]
+    fn pin_point_clamps_out_of_range_wire_values() {
+        // A malformed pin (out of 0..1) is clamped on import.
+        let wire = DirectionPin { x: 1.5, y: -0.2, note: "bad".into() };
+        let ui = pin_point(&wire);
+        assert_eq!(ui.x, 1.0);
+        assert_eq!(ui.y, 0.0);
+    }
+
+    #[test]
+    fn pin_points_maps_all() {
+        let pins = vec![
+            DirectionPin { x: 0.1, y: 0.2, note: "a".into() },
+            DirectionPin { x: 0.3, y: 0.4, note: "b".into() },
+        ];
+        let mapped = pin_points(&pins);
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped[1].note, "b");
     }
 }

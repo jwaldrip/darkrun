@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use darkrun_api::{
     ApproveAction, ApproveActionKind, DirectionArchetype, DirectionSessionPayload, GateType,
-    PickerKind, PickerOption, PickerSessionPayload, QuestionDef, QuestionSessionPayload,
+    PickerKind, PickerOption, PickerSessionPayload, QuestionOption, QuestionSessionPayload,
     ReviewSessionPayload, SessionPayload, SessionStatus, ViewMode, ViewSessionPayload, ViewStatus,
 };
 use darkrun_core::StateStore;
@@ -59,13 +59,23 @@ fn question(session_id: &str) -> SessionPayload {
         session_id: session_id.into(),
         status: SessionStatus::Pending,
         title: Some("Pick a path".into()),
+        prompt: "Which station?".into(),
         context: Some("some context".into()),
-        questions: vec![QuestionDef {
-            question: "Which station?".into(),
-            header: None,
-            options: vec!["frame".into(), "build".into()],
-            multi_select: Some(false),
-        }],
+        options: vec![
+            QuestionOption {
+                id: "frame".into(),
+                label: "Frame".into(),
+                image_url: Some("/mock/frame.png".into()),
+                description: None,
+            },
+            QuestionOption {
+                id: "build".into(),
+                label: "Build".into(),
+                image_url: None,
+                description: None,
+            },
+        ],
+        multi_select: false,
         ..Default::default()
     })
 }
@@ -76,13 +86,16 @@ fn direction(session_id: &str) -> SessionPayload {
         status: SessionStatus::Pending,
         title: Some("Choose a direction".into()),
         run_slug: Some("dir-run".into()),
+        prompt: "Pick a design direction".into(),
         context: None,
         archetypes: vec![DirectionArchetype {
-            name: "bold".into(),
+            id: "bold".into(),
+            label: "Bold".into(),
+            image_url: "/mock/bold.png".into(),
             description: "bold and loud".into(),
-            preview_html: "<div>bold</div>".into(),
         }],
-        selection: None,
+        chosen_archetype: None,
+        annotations: None,
     })
 }
 
@@ -627,7 +640,8 @@ async fn broadcast_frame_carries_full_variant_payload() {
     let json: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
     assert_eq!(json["session_type"], "question");
     assert_eq!(json["title"], "Pick a path");
-    assert_eq!(json["questions"][0]["question"], "Which station?");
+    assert_eq!(json["prompt"], "Which station?");
+    assert_eq!(json["options"][0]["id"], "frame");
 }
 
 // ════════════════════════════════════════════════════════════════════════════

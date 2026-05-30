@@ -9,6 +9,11 @@ pub enum McpError {
     #[error(transparent)]
     Core(#[from] CoreError),
 
+    /// A JSON (de)serialization fault — e.g. building a session payload value
+    /// to persist into `session.json`.
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
+
     /// The run named a factory this build does not know.
     #[error("unknown factory: {0}")]
     UnknownFactory(String),

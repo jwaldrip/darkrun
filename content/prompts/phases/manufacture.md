@@ -29,6 +29,18 @@ The Pass loop is adversarial on purpose: a single confident pass is exactly wher
 
 Run **only the `{{ worker }}` beat** this tick. When it returns, call `run_next`; the manager advances the loop or releases the next wave. A Unit is locked only after Resolve and its completion criteria pass.
 
+{% if user_facing %}
+## Visual work — get a design direction first
+
+This Unit has a **user-facing surface** (a screen, flow, component, or page). Before you build any UI, settle the look and feel *with the operator* — a visual choice is expensive to reverse once built, and it is the operator's to make:
+
+1. **Generate options.** Produce two to four candidate design directions for the surface — mockups / option images that render the layout, hierarchy, and tone of each. Honour the existing brand and design tokens; extend the system, don't reinvent it.
+2. **Ask for the decision.** Use `darkrun_question` to have the operator pick the winning mockup from the option images, or `darkrun_direction` to have them choose a design archetype and annotate it (pins, screenshots, comments).
+3. **Build to the chosen direction.** Treat the operator's pick — its image urls and annotations — as a locked visual contract. Implement that direction; don't re-litigate it mid-build.
+
+For non-UI work — internal logic, headless jobs, APIs — there is no surface to shape, so skip this entirely and run the beat as normal.
+{% endif %}
+
 ## Done when
 
 The `{{ worker }}` beat is complete for every Unit in this wave and its output is recorded. Then call `run_next`.

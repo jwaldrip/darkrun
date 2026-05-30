@@ -53,6 +53,7 @@ pub mod components;
 pub mod flow;
 pub mod graph;
 pub mod kinds;
+pub mod selection;
 pub mod tokens;
 
 /// The recommended glob import for consumers: every public component, the shared
@@ -70,6 +71,9 @@ pub mod prelude {
     pub use crate::components::pipeline::{strip_for, PhaseDot, StationPipeline};
     pub use crate::components::primitives::{Badge, Button, ButtonVariant, Card};
     pub use crate::components::role::{ArtifactCard, ExpandableRole, RoleKind};
+    pub use crate::components::session_views::{
+        ArchetypeCard, DirectionView, OptionCard, PickerItem, PickerView, QuestionView,
+    };
     pub use crate::components::station_flow::StationFlow;
     pub use crate::components::walkthrough::RunWalkthrough;
     pub use crate::components::wordmark::{Wordmark, WordmarkVariant};
@@ -85,5 +89,8 @@ pub mod prelude {
     };
     pub use crate::graph::view::{UnitGraph, UnitGraphNode};
     pub use crate::kinds::{Phase, Step, Tone};
+    pub use crate::selection::{
+        place_pin, PinPoint, SelectMode, SelectionModel,
+    };
     pub use crate::tokens;
 }

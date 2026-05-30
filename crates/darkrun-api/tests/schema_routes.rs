@@ -24,9 +24,9 @@ use darkrun_api::openapi::{self, API_VERSION};
 use darkrun_api::routes::{find, paths};
 use darkrun_api::{
     AdvanceResponse, ApproveAction, ApproveActionKind, AuthorType, ClosureReply,
-    DirectionAnnotations, DirectionArchetype, DirectionSelectRequest,
-    DirectionSelectResponse, DirectionSelection, DirectionSessionPayload,
-    DirectionUploadFile, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
+    DirectionAnnotations, DirectionArchetype, DirectionPin, DirectionSelectRequest,
+    DirectionSelectResponse, DirectionSessionPayload,
+    DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
     FeedbackAnchor, FeedbackCreateRequest, FeedbackCreateResponse,
     FeedbackDeleteResponse, FeedbackInlineAnchor, FeedbackItem, FeedbackIteration,
     FeedbackListResponse, FeedbackOrigin, FeedbackReply, FeedbackReplyCreateRequest,
@@ -36,7 +36,7 @@ use darkrun_api::{
     MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision, PickerKind,
     PickerOption, PickerSelectRequest, PickerSelectResponse, PickerSelection,
     PickerSessionPayload, Pin, ProgressMilestone, QuestionAnnotations,
-    QuestionAnswerItem, QuestionAnswerRequest, QuestionAnswerResponse, QuestionDef,
+    QuestionAnswer, QuestionAnswerRequest, QuestionAnswerResponse, QuestionOption,
     QuestionPin, QuestionScreenshotAnnotation, QuestionSessionPayload, ReviewAnnotations,
     ReviewCurrentPayload, ReviewCurrentStation, ReviewCurrentUnit, ReviewDecision,
     ReviewDecisionRequest, ReviewDecisionResponse, ReviewSessionPayload, RouteSpec,
@@ -1299,23 +1299,34 @@ fn question_payload_roundtrip() {
         session_id: "q".into(),
         status: SessionStatus::Answered,
         title: Some("Pick".into()),
+        prompt: "which?".into(),
         context: Some("ctx".into()),
-        questions: vec![QuestionDef {
-            question: "which?".into(),
-            header: Some("Section".into()),
-            options: vec!["a".into(), "b".into()],
-            multi_select: Some(true),
-        }],
-        answers: vec![darkrun_api::QuestionAnswer {
-            question: "which?".into(),
-            selected_options: vec!["a".into()],
-            other_text: None,
-        }],
+        options: vec![
+            QuestionOption {
+                id: "a".into(),
+                label: "A".into(),
+                image_url: Some("/mock/a.png".into()),
+                description: None,
+            },
+            QuestionOption {
+                id: "b".into(),
+                label: "B".into(),
+                image_url: None,
+                description: Some("the other one".into()),
+            },
+        ],
+        multi_select: true,
+        answer: Some(QuestionAnswer {
+            selected: vec!["a".into()],
+            text: None,
+        }),
         image_urls: vec!["/img/1.png".into()],
     };
     roundtrips_stably(&p);
     let j = serde_json::to_value(&p).unwrap();
-    assert_eq!(j["questions"][0]["options"], json!(["a", "b"]));
+    assert_eq!(j["options"][0]["id"], "a");
+    assert_eq!(j["options"][0]["image_url"], "/mock/a.png");
+    assert_eq!(j["answer"]["selected"], json!(["a"]));
     assert_eq!(j["status"], "answered");
 }
 
@@ -1326,22 +1337,27 @@ fn direction_payload_roundtrip() {
         status: SessionStatus::Pending,
         title: Some("Direction".into()),
         run_slug: Some("run".into()),
+        prompt: "pick a direction".into(),
         context: Some("pick a vibe".into()),
         archetypes: vec![DirectionArchetype {
-            name: "brutalist".into(),
+            id: "brutalist".into(),
+            label: "Brutalist".into(),
+            image_url: "/mock/brutalist.png".into(),
             description: "raw".into(),
-            preview_html: "<div/>".into(),
         }],
-        selection: Some(DirectionSelection {
-            archetype: "brutalist".into(),
-            comments: Some("yes".into()),
-            annotations: None,
+        chosen_archetype: Some("brutalist".into()),
+        annotations: Some(DirectionAnnotations {
+            pins: vec![],
+            screenshot: None,
+            comments: vec!["yes".into()],
         }),
     };
     roundtrips_stably(&p);
     let j = serde_json::to_value(&p).unwrap();
-    assert_eq!(j["archetypes"][0]["name"], "brutalist");
-    assert_eq!(j["selection"]["archetype"], "brutalist");
+    assert_eq!(j["archetypes"][0]["id"], "brutalist");
+    assert_eq!(j["archetypes"][0]["image_url"], "/mock/brutalist.png");
+    assert_eq!(j["chosen_archetype"], "brutalist");
+    assert_eq!(j["annotations"]["comments"][0], "yes");
 }
 
 #[test]
@@ -1721,12 +1737,8 @@ fn review_decision_response_roundtrip() {
 #[test]
 fn question_answer_request_roundtrip() {
     let req = QuestionAnswerRequest {
-        answers: vec![QuestionAnswerItem {
-            question: "q?".into(),
-            selected_options: vec!["a".into(), "b".into()],
-            other_text: Some("custom".into()),
-        }],
-        feedback: Some("ok".into()),
+        selected: vec!["a".into(), "b".into()],
+        text: Some("custom".into()),
         annotations: Some(QuestionAnnotations {
             comments: vec![],
             pins: vec![QuestionPin {
@@ -1743,16 +1755,43 @@ fn question_answer_request_roundtrip() {
         }),
     };
     let j = serde_json::to_value(&req).unwrap();
-    assert_eq!(j["answers"][0]["selected_options"], json!(["a", "b"]));
+    assert_eq!(j["selected"], json!(["a", "b"]));
+    assert_eq!(j["text"], "custom");
     assert_eq!(j["annotations"]["pins"][0]["image_index"], 1);
     roundtrips_stably(&req);
 }
 
 #[test]
+fn question_answer_request_projects_to_answer() {
+    let req = QuestionAnswerRequest {
+        selected: vec!["x".into()],
+        text: Some("note".into()),
+        annotations: None,
+    };
+    let answer = req.to_answer();
+    assert_eq!(answer.selected, vec!["x".to_string()]);
+    assert_eq!(answer.text.as_deref(), Some("note"));
+}
+
+#[test]
+fn question_answer_request_minimal_omits_empty() {
+    let req = QuestionAnswerRequest::default();
+    let j = serde_json::to_value(&req).unwrap();
+    assert_eq!(j, json!({}));
+}
+
+#[test]
 fn question_answer_response_roundtrip() {
-    let resp = QuestionAnswerResponse { ok: true };
+    let resp = QuestionAnswerResponse {
+        ok: true,
+        answer: QuestionAnswer {
+            selected: vec!["a".into()],
+            text: None,
+        },
+    };
     let j = serde_json::to_value(&resp).unwrap();
     assert_eq!(j["ok"], true);
+    assert_eq!(j["answer"]["selected"], json!(["a"]));
     roundtrips_stably(&resp);
 }
 
@@ -1777,8 +1816,13 @@ fn picker_select_response_roundtrip() {
 
 #[test]
 fn direction_select_response_roundtrip() {
-    let resp = DirectionSelectResponse { ok: true };
-    assert_eq!(serde_json::to_value(&resp).unwrap()["ok"], true);
+    let resp = DirectionSelectResponse {
+        ok: true,
+        archetype: "brutalist".into(),
+    };
+    let j = serde_json::to_value(&resp).unwrap();
+    assert_eq!(j["ok"], true);
+    assert_eq!(j["archetype"], "brutalist");
     roundtrips_stably(&resp);
 }
 
@@ -1837,129 +1881,63 @@ fn feedback_summary_default_is_all_zero() {
     assert_eq!(j, json!({"pending":0,"addressed":0,"closed":0,"rejected":0}));
 }
 
-// --- direction select request discriminated union ---
+// --- direction select request (the design-direction decision body) ---
 
 #[test]
-fn direction_select_request_select_arm() {
-    let req = DirectionSelectRequest::Select {
+fn direction_select_request_minimal() {
+    let req = DirectionSelectRequest {
         archetype: "brutalist".into(),
-        comments: Some("love it".into()),
         annotations: None,
     };
     let j = serde_json::to_value(&req).unwrap();
-    assert_eq!(j["mode"], "select");
     assert_eq!(j["archetype"], "brutalist");
+    assert!(j.get("annotations").is_none());
     let back: DirectionSelectRequest = serde_json::from_value(j).unwrap();
-    assert!(matches!(back, DirectionSelectRequest::Select { .. }));
+    assert_eq!(back.archetype, "brutalist");
 }
 
 #[test]
-fn direction_select_request_regenerate_arm() {
-    let req = DirectionSelectRequest::Regenerate {
-        keep: vec!["a".into(), "b".into()],
-        comments: None,
+fn direction_select_request_with_annotations() {
+    let req = DirectionSelectRequest {
+        archetype: "a".into(),
+        annotations: Some(DirectionAnnotations {
+            pins: vec![DirectionPin {
+                x: 0.25,
+                y: 0.75,
+                note: "tighten".into(),
+            }],
+            screenshot: Some("data:image/png;base64,AA".into()),
+            comments: vec!["nice".into()],
+        }),
     };
     let j = serde_json::to_value(&req).unwrap();
-    assert_eq!(j["mode"], "regenerate");
-    assert_eq!(j["keep"], json!(["a", "b"]));
+    assert_eq!(j["archetype"], "a");
+    assert_eq!(j["annotations"]["pins"][0]["note"], "tighten");
+    assert_eq!(j["annotations"]["screenshot"], "data:image/png;base64,AA");
+    roundtrips_stably(&req);
+}
+
+#[test]
+fn direction_select_request_parses_from_json() {
+    let j = json!({ "archetype": "bold" });
     let back: DirectionSelectRequest = serde_json::from_value(j).unwrap();
-    assert!(matches!(back, DirectionSelectRequest::Regenerate { .. }));
+    assert_eq!(back.archetype, "bold");
+    assert!(back.annotations.is_none());
 }
 
 #[test]
-fn direction_select_request_upload_arm() {
-    let req = DirectionSelectRequest::Upload {
-        files: vec![DirectionUploadFile {
-            filename: "a.png".into(),
-            data_url: "data:image/png;base64,AA".into(),
-            caption: Some("cap".into()),
-        }],
-        comments: None,
-    };
-    let j = serde_json::to_value(&req).unwrap();
-    assert_eq!(j["mode"], "upload");
-    assert_eq!(j["files"][0]["filename"], "a.png");
-    let back: DirectionSelectRequest = serde_json::from_value(j).unwrap();
-    assert!(matches!(back, DirectionSelectRequest::Upload { .. }));
-}
-
-#[test]
-fn direction_select_request_generate_arm() {
-    let req = DirectionSelectRequest::Generate {
-        comments: Some("go".into()),
-    };
-    let j = serde_json::to_value(&req).unwrap();
-    assert_eq!(j["mode"], "generate");
-    let back: DirectionSelectRequest = serde_json::from_value(j).unwrap();
-    assert!(matches!(back, DirectionSelectRequest::Generate { .. }));
-}
-
-#[test]
-fn direction_select_request_parses_upload_from_json() {
-    let j = json!({
-        "mode": "upload",
-        "files": [{ "filename": "a.png", "data_url": "data:image/png;base64,AA" }]
-    });
-    let back: DirectionSelectRequest = serde_json::from_value(j).unwrap();
-    match back {
-        DirectionSelectRequest::Upload { files, comments } => {
-            assert_eq!(files.len(), 1);
-            assert_eq!(files[0].filename, "a.png");
-            assert!(comments.is_none());
-        }
-        _ => panic!("expected upload"),
-    }
-}
-
-#[test]
-fn direction_select_request_rejects_unknown_mode() {
-    let j = json!({ "mode": "teleport", "archetype": "x" });
+fn direction_select_request_rejects_missing_archetype() {
+    let j = json!({ "annotations": {} });
     let r: Result<DirectionSelectRequest, _> = serde_json::from_value(j);
-    assert!(r.is_err());
+    assert!(r.is_err(), "archetype is required");
 }
 
 #[test]
-fn direction_select_request_rejects_missing_mode() {
-    let j = json!({ "archetype": "x" });
-    let r: Result<DirectionSelectRequest, _> = serde_json::from_value(j);
-    assert!(r.is_err());
-}
-
-#[test]
-fn direction_select_request_select_requires_archetype() {
-    let j = json!({ "mode": "select" });
-    let r: Result<DirectionSelectRequest, _> = serde_json::from_value(j);
-    assert!(r.is_err(), "select arm requires archetype");
-}
-
-#[test]
-fn direction_select_request_regenerate_requires_keep() {
-    let j = json!({ "mode": "regenerate" });
-    let r: Result<DirectionSelectRequest, _> = serde_json::from_value(j);
-    assert!(r.is_err(), "regenerate arm requires keep[]");
-}
-
-#[test]
-fn direction_select_request_all_arms_roundtrip() {
-    let reqs = vec![
-        DirectionSelectRequest::Select {
-            archetype: "a".into(),
-            comments: None,
-            annotations: Some(DirectionAnnotations::default()),
-        },
-        DirectionSelectRequest::Regenerate {
-            keep: vec![],
-            comments: Some("c".into()),
-        },
-        DirectionSelectRequest::Upload {
-            files: vec![],
-            comments: None,
-        },
-        DirectionSelectRequest::Generate { comments: None },
-    ];
-    for r in &reqs {
-        roundtrips_stably(r);
-    }
+fn direction_annotations_default_omits_all() {
+    let a = DirectionAnnotations::default();
+    let j = serde_json::to_value(&a).unwrap();
+    assert_eq!(j, json!({}));
+    roundtrips_stably(&a);
 }
 
 // --- numeric and boundary fields ---
@@ -2287,15 +2265,42 @@ fn approve_action_kind_schema_enumerates_nine() {
 }
 
 #[test]
-fn direction_select_request_schema_is_oneof_on_mode() {
+fn direction_select_request_schema_requires_archetype() {
     let s = schema_value!(DirectionSelectRequest);
-    let arms = s["oneOf"].as_array().unwrap();
-    assert_eq!(arms.len(), 4);
-    // Each arm requires "mode".
-    for arm in arms {
-        let req = arm["required"].as_array().unwrap();
-        assert!(req.iter().any(|v| v == "mode"));
+    assert_eq!(s["title"], "DirectionSelectRequest");
+    let req: Vec<String> = s["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert!(req.contains(&"archetype".to_string()), "archetype is required");
+    // annotations is optional (skip_serializing_if) -> not required.
+    assert!(!req.contains(&"annotations".to_string()));
+}
+
+#[test]
+fn direction_archetype_schema_requires_image_url() {
+    let s = schema_value!(DirectionArchetype);
+    let req: Vec<String> = s["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    for f in ["id", "label", "image_url", "description"] {
+        assert!(req.contains(&f.to_string()), "{f} should be required");
     }
+}
+
+#[test]
+fn question_session_payload_schema_has_options_and_multi_select() {
+    let s = schema_value!(QuestionSessionPayload);
+    let props = s["properties"].as_object().expect("properties");
+    assert!(props.contains_key("prompt"));
+    assert!(props.contains_key("options"));
+    assert!(props.contains_key("multi_select"));
+    assert!(props.contains_key("answer"));
 }
 
 #[test]

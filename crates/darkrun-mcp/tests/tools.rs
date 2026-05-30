@@ -14,9 +14,11 @@
 //! structured-action shape returned by the manager.
 
 use darkrun_mcp::tools::{
-    CheckpointDecideInput, FactoryRef, FeedbackCreateInput, FeedbackListInput, FeedbackMoveInput,
-    FeedbackRejectInput, FeedbackResolveInput, RunArchiveInput, RunListInput, RunRef,
-    RunStartInput, UnitCreateInput, UnitRef, UnitUpdateInput,
+    ArchetypeInput, CheckpointDecideInput, DirectionInput, FactoryRef, FeedbackCreateInput,
+    FeedbackListInput, FeedbackMoveInput, FeedbackRejectInput, FeedbackResolveInput,
+    PickerInput, PickerOptionInput, QuestionInput, QuestionOptionInput, RunArchiveInput,
+    RunListInput, RunRef, RunStartInput, SessionResultInput, UnitCreateInput, UnitRef,
+    UnitUpdateInput,
 };
 use darkrun_mcp::DarkrunServer;
 use rmcp::handler::server::wrapper::Parameters;
@@ -5202,4 +5204,468 @@ fn feedback_resolve_answered_then_settled_immutable() {
         }))
         .unwrap();
     assert!(is_err(&again));
+}
+
+// ── Visual-session tool helpers ────────────────────────────────────────────
+
+fn q_opt(id: &str, label: &str) -> QuestionOptionInput {
+    QuestionOptionInput {
+        id: id.into(),
+        label: label.into(),
+        image_url: None,
+        description: None,
+    }
+}
+
+fn arch_in(id: &str) -> ArchetypeInput {
+    ArchetypeInput {
+        id: id.into(),
+        label: format!("{id} label"),
+        image_url: format!("https://img/{id}.png"),
+        description: format!("{id} direction"),
+    }
+}
+
+fn p_opt(id: &str) -> PickerOptionInput {
+    PickerOptionInput {
+        id: id.into(),
+        label: format!("{id} label"),
+        description: None,
+        secondary: None,
+    }
+}
+
+/// A store rooted the same way `DarkrunServer::new(dir.path())` roots — used to
+/// simulate the HTTP handler writing the operator's answer back onto the
+/// session payload that the result tools then read.
+fn store_for(dir: &TempDir) -> darkrun_core::StateStore {
+    darkrun_core::StateStore::new(dir.path())
+}
+
+// ── darkrun_question ───────────────────────────────────────────────────────
+
+#[test]
+fn question_tool_creates_awaiting_session() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: Some("Pick a hero".into()),
+            prompt: "Which hero layout?".into(),
+            context: None,
+            options: vec![
+                QuestionOptionInput {
+                    id: "a".into(),
+                    label: "Option A".into(),
+                    image_url: Some("https://img/a.png".into()),
+                    description: Some("bold".into()),
+                },
+                q_opt("b", "Option B"),
+            ],
+            multi_select: true,
+            image_urls: vec!["https://ref/surface.png".into()],
+        }))
+        .unwrap();
+    assert!(is_ok(&res));
+    let v = body(&res);
+    assert_eq!(v["session_id"], "q-01");
+    assert_eq!(v["session_type"], "question");
+    assert_eq!(v["status"], "pending");
+    assert_eq!(v["awaiting_answer"], true);
+    assert_eq!(v["session_path"], "/api/session/q-01");
+    assert_eq!(v["ws_path"], "/ws/session/q-01");
+}
+
+#[test]
+fn question_tool_rejects_empty_prompt_and_options() {
+    let (_d, server) = started("r");
+    let no_prompt = server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "   ".into(),
+            context: None,
+            options: vec![q_opt("a", "A")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap();
+    assert!(is_err(&no_prompt));
+
+    let no_options = server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap();
+    assert!(is_err(&no_options));
+}
+
+#[test]
+fn question_tool_rejects_duplicate_option_ids() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![q_opt("a", "A"), q_opt("a", "A2")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap();
+    assert!(is_err(&res));
+    assert!(err_message(&res).contains("duplicate"));
+}
+
+#[test]
+fn question_result_tool_surfaces_submitted_answer() {
+    let (d, server) = started("r");
+    server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![q_opt("a", "A"), q_opt("b", "B")],
+            multi_select: true,
+            image_urls: vec![],
+        }))
+        .unwrap();
+
+    // Before an answer, the result reads back pending with no answer.
+    let pending = server
+        .darkrun_question_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "q-01".into(),
+        }))
+        .unwrap();
+    assert_eq!(body(&pending)["status"], "pending");
+    assert!(body(&pending)["answer"].is_null());
+
+    // Simulate the HTTP handler recording the operator's answer.
+    let store = store_for(&d);
+    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
+    if let Some(darkrun_api::SessionPayload::Question(q)) = reg.sessions.get_mut("q-01") {
+        q.answer = Some(darkrun_api::QuestionAnswer {
+            selected: vec!["a".into(), "b".into()],
+            text: Some("both".into()),
+        });
+        q.status = darkrun_api::SessionStatus::Answered;
+    }
+    reg.save(&store, "r").unwrap();
+
+    let answered = server
+        .darkrun_question_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "q-01".into(),
+        }))
+        .unwrap();
+    let v = body(&answered);
+    assert_eq!(v["status"], "answered");
+    assert_eq!(v["answer"]["selected"][0], "a");
+    assert_eq!(v["answer"]["selected"][1], "b");
+    assert_eq!(v["answer"]["text"], "both");
+}
+
+#[test]
+fn question_result_tool_errors_on_missing_session() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_question_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "q-99".into(),
+        }))
+        .unwrap();
+    assert!(is_err(&res));
+}
+
+// ── darkrun_direction ──────────────────────────────────────────────────────
+
+#[test]
+fn direction_tool_creates_awaiting_session() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_direction(Parameters(DirectionInput {
+            slug: "r".into(),
+            title: Some("Direction".into()),
+            prompt: "Pick a direction".into(),
+            context: Some("ctx".into()),
+            archetypes: vec![arch_in("brutalist"), arch_in("editorial")],
+        }))
+        .unwrap();
+    assert!(is_ok(&res));
+    let v = body(&res);
+    assert_eq!(v["session_id"], "d-01");
+    assert_eq!(v["session_type"], "direction");
+    assert_eq!(v["awaiting_answer"], true);
+}
+
+#[test]
+fn direction_tool_rejects_incomplete_archetypes() {
+    let (_d, server) = started("r");
+    // missing image_url
+    let mut bad = arch_in("a");
+    bad.image_url = "".into();
+    let res = server
+        .darkrun_direction(Parameters(DirectionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            archetypes: vec![bad],
+        }))
+        .unwrap();
+    assert!(is_err(&res));
+
+    // no archetypes
+    let res = server
+        .darkrun_direction(Parameters(DirectionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            archetypes: vec![],
+        }))
+        .unwrap();
+    assert!(is_err(&res));
+}
+
+#[test]
+fn direction_result_tool_surfaces_choice_and_annotations() {
+    let (d, server) = started("r");
+    server
+        .darkrun_direction(Parameters(DirectionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            archetypes: vec![arch_in("a"), arch_in("b")],
+        }))
+        .unwrap();
+
+    let store = store_for(&d);
+    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
+    if let Some(darkrun_api::SessionPayload::Direction(dr)) = reg.sessions.get_mut("d-01") {
+        dr.chosen_archetype = Some("b".into());
+        dr.annotations = Some(darkrun_api::DirectionAnnotations {
+            pins: vec![darkrun_api::DirectionPin {
+                x: 0.5,
+                y: 0.25,
+                note: "tighten".into(),
+            }],
+            screenshot: Some("data:image/png;base64,AAAA".into()),
+            comments: vec!["nice".into()],
+        });
+        dr.status = darkrun_api::SessionStatus::Decided;
+    }
+    reg.save(&store, "r").unwrap();
+
+    let res = server
+        .darkrun_direction_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "d-01".into(),
+        }))
+        .unwrap();
+    let v = body(&res);
+    assert_eq!(v["status"], "decided");
+    assert_eq!(v["chosen_archetype"], "b");
+    assert_eq!(v["annotations"]["pins"][0]["note"], "tighten");
+    assert_eq!(v["annotations"]["comments"][0], "nice");
+}
+
+// ── darkrun_picker ─────────────────────────────────────────────────────────
+
+#[test]
+fn picker_tool_creates_awaiting_session() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "factory".into(),
+            title: "Pick a factory".into(),
+            prompt: "which?".into(),
+            options: vec![p_opt("software"), p_opt("design")],
+        }))
+        .unwrap();
+    assert!(is_ok(&res));
+    let v = body(&res);
+    assert_eq!(v["session_id"], "p-01");
+    assert_eq!(v["session_type"], "picker");
+}
+
+#[test]
+fn picker_tool_rejects_invalid_kind() {
+    let (_d, server) = started("r");
+    let res = server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "telepathy".into(),
+            title: "t".into(),
+            prompt: "p".into(),
+            options: vec![p_opt("a")],
+        }))
+        .unwrap();
+    assert!(is_err(&res));
+    assert!(err_message(&res).contains("invalid picker kind"));
+}
+
+#[test]
+fn picker_tool_rejects_empty_title_and_options() {
+    let (_d, server) = started("r");
+    let bad_title = server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "mode".into(),
+            title: " ".into(),
+            prompt: "p".into(),
+            options: vec![p_opt("a")],
+        }))
+        .unwrap();
+    assert!(is_err(&bad_title));
+
+    let no_opts = server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "mode".into(),
+            title: "t".into(),
+            prompt: "p".into(),
+            options: vec![],
+        }))
+        .unwrap();
+    assert!(is_err(&no_opts));
+}
+
+#[test]
+fn picker_result_tool_surfaces_selection() {
+    let (d, server) = started("r");
+    server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "station".into(),
+            title: "t".into(),
+            prompt: "p".into(),
+            options: vec![p_opt("frame"), p_opt("shape")],
+        }))
+        .unwrap();
+
+    let store = store_for(&d);
+    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
+    if let Some(darkrun_api::SessionPayload::Picker(p)) = reg.sessions.get_mut("p-01") {
+        p.selection = Some(darkrun_api::PickerSelection { id: "shape".into() });
+        p.status = darkrun_api::SessionStatus::Decided;
+    }
+    reg.save(&store, "r").unwrap();
+
+    let res = server
+        .darkrun_picker_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "p-01".into(),
+        }))
+        .unwrap();
+    let v = body(&res);
+    assert_eq!(v["status"], "decided");
+    assert_eq!(v["selection"]["id"], "shape");
+}
+
+// ── cross-cutting ──────────────────────────────────────────────────────────
+
+#[test]
+fn visual_sessions_coexist_on_one_run_with_unique_ids() {
+    let (_d, server) = started("r");
+    let q = body(&server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![q_opt("a", "A")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap());
+    let q2 = body(&server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![q_opt("a", "A")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap());
+    let dn = body(&server
+        .darkrun_direction(Parameters(DirectionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            archetypes: vec![arch_in("a")],
+        }))
+        .unwrap());
+    let pk = body(&server
+        .darkrun_picker(Parameters(PickerInput {
+            slug: "r".into(),
+            kind: "confirm".into(),
+            title: "t".into(),
+            prompt: "p".into(),
+            options: vec![p_opt("yes")],
+        }))
+        .unwrap());
+
+    assert_eq!(q["session_id"], "q-01");
+    assert_eq!(q2["session_id"], "q-02");
+    assert_eq!(dn["session_id"], "d-01");
+    assert_eq!(pk["session_id"], "p-01");
+
+    // All four still resolvable independently.
+    assert!(is_ok(&server
+        .darkrun_question_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "q-02".into(),
+        }))
+        .unwrap()));
+    assert!(is_ok(&server
+        .darkrun_direction_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "d-01".into(),
+        }))
+        .unwrap()));
+    assert!(is_ok(&server
+        .darkrun_picker_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "p-01".into(),
+        }))
+        .unwrap()));
+}
+
+#[test]
+fn result_tool_rejects_wrong_session_kind() {
+    let (_d, server) = started("r");
+    server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "p".into(),
+            context: None,
+            options: vec![q_opt("a", "A")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap();
+    // q-01 is a question; reading it as a picker fails.
+    let res = server
+        .darkrun_picker_result(Parameters(SessionResultInput {
+            slug: "r".into(),
+            session_id: "q-01".into(),
+        }))
+        .unwrap();
+    assert!(is_err(&res));
 }

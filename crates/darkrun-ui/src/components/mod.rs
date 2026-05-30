@@ -10,6 +10,7 @@ pub mod phase_machine;
 pub mod pipeline;
 pub mod primitives;
 pub mod role;
+pub mod session_views;
 pub mod station_flow;
 pub mod walkthrough;
 pub mod wordmark;

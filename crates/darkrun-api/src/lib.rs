@@ -32,8 +32,7 @@ pub use common::{
     ValidationError, ValidationIssue,
 };
 pub use direction::{
-    DirectionAnnotations, DirectionSelectRequest, DirectionSelectResponse,
-    DirectionUploadFile, PickerSelectRequest, PickerSelectResponse,
+    DirectionSelectRequest, DirectionSelectResponse, PickerSelectRequest, PickerSelectResponse,
 };
 pub use feedback::{
     ClosureReply, FeedbackAnchor, FeedbackCreateRequest, FeedbackCreateResponse,
@@ -41,7 +40,7 @@ pub use feedback::{
     FeedbackListResponse, FeedbackReplyCreateRequest, FeedbackReplyCreateResponse,
     FeedbackScope, FeedbackUpdateRequest, FeedbackUpdateResponse, IterationResult,
 };
-pub use question::{QuestionAnswerItem, QuestionAnswerRequest, QuestionAnswerResponse};
+pub use question::{QuestionAnswerRequest, QuestionAnswerResponse};
 pub use review::{ReviewDecision, ReviewDecisionRequest, ReviewDecisionResponse};
 pub use review_current::{
     FeedbackSummary, ReviewCurrentPayload, ReviewCurrentStation, ReviewCurrentUnit,
@@ -51,11 +50,11 @@ pub use runs::{
     RunDetailPayload, RunDetailStation, RunDetailUnit, RunListPayload, RunSummary, StationProgress,
 };
 pub use session::{
-    ApproveAction, ApproveActionKind, DirectionArchetype, DirectionSelection,
+    ApproveAction, ApproveActionKind, DirectionAnnotations, DirectionArchetype, DirectionPin,
     DirectionSessionPayload, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
     KnowledgeFile, MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision,
     PickerKind, PickerOption, PickerSelection, PickerSessionPayload, PreviousReviewSnapshot,
-    ProgressMilestone, QuestionAnswer, QuestionDef, QuestionSessionPayload,
+    ProgressMilestone, QuestionAnswer, QuestionOption, QuestionSessionPayload,
     ReviewSessionPayload, RunCurrentState, RunPhase, SealStatus, SessionPayload,
     StationArtifact, StationStateInfo, UnitOutputPreview, UnitOutputType, ViewMode,
     ViewSessionPayload, ViewStatus,
@@ -187,22 +186,19 @@ mod tests {
     }
 
     #[test]
-    fn direction_select_request_is_discriminated_on_mode() {
-        let select = DirectionSelectRequest::Select {
+    fn direction_select_request_carries_archetype_and_annotations() {
+        let select = DirectionSelectRequest {
             archetype: "brutalist".into(),
-            comments: Some("love it".into()),
             annotations: None,
         };
         let json = serde_json::to_value(&select).unwrap();
-        assert_eq!(json["mode"], "select");
         assert_eq!(json["archetype"], "brutalist");
+        assert!(json.get("annotations").is_none());
 
-        let upload = serde_json::json!({
-            "mode": "upload",
-            "files": [{ "filename": "a.png", "data_url": "data:image/png;base64,AA" }]
-        });
-        let back: DirectionSelectRequest = serde_json::from_value(upload).unwrap();
-        assert!(matches!(back, DirectionSelectRequest::Upload { .. }));
+        // Missing archetype is rejected.
+        let bad = serde_json::json!({ "annotations": {} });
+        let parsed: Result<DirectionSelectRequest, _> = serde_json::from_value(bad);
+        assert!(parsed.is_err(), "archetype is required");
     }
 
     #[test]

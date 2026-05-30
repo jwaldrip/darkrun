@@ -33,9 +33,14 @@
 //!   `darkrun_feedback_move`.
 //! - **Checkpoint:** `darkrun_checkpoint_decide`.
 //! - **Factories:** `darkrun_factory_list`, `darkrun_factory_detail`.
+//! - **Visual sessions:** `darkrun_question`, `darkrun_direction`,
+//!   `darkrun_picker` (emit a mid-run operator prompt) plus
+//!   `darkrun_question_result`, `darkrun_direction_result`,
+//!   `darkrun_picker_result` (read the operator's answer/selection back).
 //!
 //! [`server::serve_stdio`] serves the surface over stdio. The typed helpers
-//! behind the tools live in [`units`], [`feedback`], [`runs`], and [`drift`].
+//! behind the tools live in [`units`], [`feedback`], [`runs`], [`drift`], and
+//! [`sessions`].
 
 pub mod change;
 pub mod drift;
@@ -45,6 +50,7 @@ pub mod feedback;
 pub mod position;
 pub mod runs;
 pub mod server;
+pub mod sessions;
 pub mod tools;
 pub mod units;
 
@@ -57,5 +63,10 @@ pub use position::{
 };
 pub use runs::RunSummary;
 pub use server::serve_stdio;
+pub use sessions::{
+    create_direction, create_picker, create_question, direction_result, picker_result,
+    question_result, ArchetypeSpec, AwaitingSession, PickerOptionSpec, QuestionOptionSpec,
+    SessionRegistry,
+};
 pub use tools::DarkrunServer;
 pub use units::UnitUpdate;

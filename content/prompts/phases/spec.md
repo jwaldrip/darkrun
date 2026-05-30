@@ -32,6 +32,12 @@ Reconcile these against what the explorers found — extend, split, or tighten t
 There are no Units yet. You are creating them.
 {% endif %}
 
+{% if user_facing %}
+### User-facing surfaces
+
+This work touches a **user-facing surface**. For every Unit that renders a screen, flow, component, or page, mark it as visual so Shape's design step knows to act: its UI must not be built until the operator has chosen a design direction (via `darkrun_question` / `darkrun_direction`). Make the surface and its acceptance criteria explicit here; non-visual Units carry no such requirement.
+{% endif %}
+
 ## Done when
 
 The spec names the risk, lists Units with testable completion criteria and dependencies, and marks what's out of scope. Write it to the station's spec artifact, then call `run_next`.

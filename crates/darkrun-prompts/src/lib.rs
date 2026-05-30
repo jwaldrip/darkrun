@@ -419,6 +419,83 @@ mod tests {
         }
     }
 
+    // ── Visual design direction (user-facing work) ──────────────────────────
+
+    /// When `user_facing` is set, the manufacture phase must instruct the agent to
+    /// generate design options and get the operator's visual decision via the
+    /// `darkrun_question` / `darkrun_direction` tools before building any UI.
+    #[test]
+    fn manufacture_asks_for_a_design_direction_on_user_facing_work() {
+        let root = empty_root();
+        let out = render(
+            "phases/manufacture",
+            root.path(),
+            &json!({
+                "run": "r", "station": "shape", "worker": "make",
+                "units": ["u1"], "user_facing": true,
+            }),
+        )
+        .unwrap();
+        let lower = out.to_lowercase();
+        assert!(lower.contains("design direction"), "should name a design direction:\n{out}");
+        assert!(out.contains("darkrun_question"), "should reference darkrun_question:\n{out}");
+        assert!(out.contains("darkrun_direction"), "should reference darkrun_direction:\n{out}");
+        assert!(
+            lower.contains("mockup") || lower.contains("option"),
+            "should tell the agent to generate options:\n{out}"
+        );
+    }
+
+    /// Non-UI work skips the visual-design step entirely — the design-direction
+    /// guidance only renders when `user_facing` is truthy.
+    #[test]
+    fn manufacture_skips_design_direction_when_not_user_facing() {
+        let root = empty_root();
+        let out = render(
+            "phases/manufacture",
+            root.path(),
+            &json!({ "run": "r", "station": "build", "worker": "make", "units": ["u1"] }),
+        )
+        .unwrap();
+        assert!(
+            !out.contains("darkrun_question") && !out.contains("darkrun_direction"),
+            "non-UI work must not see the visual-decision tools:\n{out}"
+        );
+        // The core Pass loop is still intact.
+        for beat in ["make", "challenge", "resolve"] {
+            assert!(out.contains(beat), "manufacture missing beat `{beat}`:\n{out}");
+        }
+    }
+
+    /// The spec phase flags user-facing surfaces so Shape's visual step knows to
+    /// act — but only when `user_facing` is set.
+    #[test]
+    fn spec_flags_user_facing_surfaces_conditionally() {
+        let root = empty_root();
+        let ctx_ui = json!({
+            "run": "r", "station": "specify", "kills": "ambiguity",
+            "explorers": ["contract"], "user_facing": true,
+        });
+        let ui = render("phases/spec", root.path(), &ctx_ui).unwrap();
+        assert!(
+            ui.to_lowercase().contains("user-facing surface"),
+            "UI specs flag the surface:\n{ui}"
+        );
+        assert!(ui.contains("darkrun_question") || ui.contains("darkrun_direction"));
+
+        let plain = render(
+            "phases/spec",
+            root.path(),
+            &json!({ "run": "r", "station": "specify", "kills": "ambiguity",
+                     "explorers": ["contract"] }),
+        )
+        .unwrap();
+        assert!(
+            !plain.contains("darkrun_question") && !plain.contains("darkrun_direction"),
+            "non-UI specs carry no design-direction requirement:\n{plain}"
+        );
+    }
+
     /// Regression: the checkpoint template must not claim the station "passed
     /// tests" — Tests is folded into Audit, and the phase before Checkpoint is
     /// Reflect. The pre-gate summary should name reflect, not tests.

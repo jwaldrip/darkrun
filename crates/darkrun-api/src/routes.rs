@@ -148,14 +148,14 @@ pub const ROUTES: &[RouteSpec] = &[
         method: HttpMethod::Post,
         path_template: "/question/{sessionId}/answer",
         operation_id: "postQuestionAnswer",
-        summary: "Submit answers to a multi-question session.",
+        summary: "Submit the answer (selected option ids + optional text) to a visual question.",
         tag: "question",
     },
     RouteSpec {
         method: HttpMethod::Post,
         path_template: "/direction/{sessionId}/select",
         operation_id: "postDirectionSelect",
-        summary: "Select, regenerate, upload, or request a design direction.",
+        summary: "Choose a design archetype and annotate it (the design direction decision).",
         tag: "direction",
     },
     RouteSpec {

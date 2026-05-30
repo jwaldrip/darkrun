@@ -24,6 +24,7 @@ use darkrun_core::StateStore;
 
 use crate::factory::{list_factories, resolve_factory};
 use crate::position::{checkpoint_decide, run_start, run_tick};
+use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
 use crate::{feedback, runs, units};
 
 /// The darkrun MCP server: an manager bound to a repo root.
@@ -256,6 +257,126 @@ pub struct RunArchiveInput {
 pub struct FactoryRef {
     /// The factory name (e.g. `software`).
     pub factory: String,
+}
+
+// ── Visual-session tool input schemas ───────────────────────────────────
+
+/// One selectable option in a `darkrun_question` — an optionally-image-backed
+/// design choice the operator can pick.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct QuestionOptionInput {
+    /// Canonical option id echoed back in the answer's `selected[]`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Optional generated-image URL (a mockup / design option to pick among).
+    #[serde(default)]
+    pub image_url: Option<String>,
+    /// Optional longer description rendered under the label.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// Input for `darkrun_question` — emit a VISUAL QUESTION the operator answers.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct QuestionInput {
+    /// The run slug the session belongs to.
+    pub slug: String,
+    /// Optional title rendered above the prompt.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The question prompt (required).
+    pub prompt: String,
+    /// Optional markdown context preamble.
+    #[serde(default)]
+    pub context: Option<String>,
+    /// The selectable options (at least one required).
+    pub options: Vec<QuestionOptionInput>,
+    /// Whether more than one option may be selected. Defaults to false.
+    #[serde(default)]
+    pub multi_select: bool,
+    /// Reference image URLs the question annotates (distinct from per-option
+    /// images).
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+}
+
+/// One design archetype card in a `darkrun_direction` — an image-backed design
+/// direction the operator chooses + annotates.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ArchetypeInput {
+    /// Canonical archetype id echoed back as `chosen_archetype`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Generated preview-image URL (required).
+    pub image_url: String,
+    /// Description of the design direction this archetype represents.
+    pub description: String,
+}
+
+/// Input for `darkrun_direction` — emit a DESIGN DIRECTION session.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct DirectionInput {
+    /// The run slug the session belongs to.
+    pub slug: String,
+    /// Optional title rendered above the prompt.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The prompt rendered above the archetype cards (required).
+    pub prompt: String,
+    /// Optional markdown preamble.
+    #[serde(default)]
+    pub context: Option<String>,
+    /// The design archetypes to choose between (at least one required).
+    pub archetypes: Vec<ArchetypeInput>,
+}
+
+/// One selectable option in a `darkrun_picker`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct PickerOptionInput {
+    /// Canonical id echoed back on selection.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Whether the option hides behind a "show all" expansion.
+    #[serde(default)]
+    pub secondary: Option<bool>,
+}
+
+/// Input for `darkrun_picker` — emit a blocking selection among options.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct PickerInput {
+    /// The run slug the session belongs to.
+    pub slug: String,
+    /// The selection kind: `factory`/`mode`/`station`/`confirm`/`url_input`.
+    pub kind: String,
+    /// Title (required).
+    pub title: String,
+    /// Prompt text (required).
+    pub prompt: String,
+    /// Selectable options (at least one required).
+    pub options: Vec<PickerOptionInput>,
+}
+
+/// Input for the `darkrun_*_result` readers — read back a visual session's
+/// submitted answer/selection.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SessionResultInput {
+    /// The run slug the session belongs to.
+    pub slug: String,
+    /// The session id minted when the session was created.
+    pub session_id: String,
 }
 
 fn parse_status_arg(raw: &str) -> Option<Status> {
@@ -650,6 +771,172 @@ impl DarkrunServer {
                 "reviewers": s.reviewers,
             })).collect::<Vec<_>>(),
         }))
+    }
+
+    // ── Visual sessions ──────────────────────────────────────────────────
+
+    /// Emit a VISUAL QUESTION: pose the operator a prompt with a list of
+    /// (optionally image-backed) options to pick among. Registers a pending
+    /// question session the desktop app serves, and returns the session id +
+    /// an "awaiting answer" handle. Read the answer back with
+    /// `darkrun_question_result`.
+    #[tool(
+        name = "darkrun_question",
+        description = "Ask the operator a visual multi/single-select question with image options; returns the awaiting session id."
+    )]
+    pub fn darkrun_question(
+        &self,
+        Parameters(input): Parameters<QuestionInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        let options = input
+            .options
+            .into_iter()
+            .map(|o| QuestionOptionSpec {
+                id: o.id,
+                label: o.label,
+                image_url: o.image_url,
+                description: o.description,
+            })
+            .collect();
+        match sessions::create_question(
+            &store,
+            &input.slug,
+            input.title,
+            &input.prompt,
+            input.context,
+            options,
+            input.multi_select,
+            input.image_urls,
+        ) {
+            Ok(awaiting) => ok_json(&awaiting),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Read back the operator's answer to a question session: the selected
+    /// option ids, any free text, and the current session status.
+    #[tool(
+        name = "darkrun_question_result",
+        description = "Read back a question session's submitted answer (selected ids + text) and status."
+    )]
+    pub fn darkrun_question_result(
+        &self,
+        Parameters(input): Parameters<SessionResultInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match sessions::question_result(&store, &input.slug, &input.session_id) {
+            Ok(q) => ok_json(&q),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Emit a DESIGN DIRECTION: present design archetypes (each an image-backed
+    /// direction) for the operator to choose + annotate. Registers a pending
+    /// direction session and returns the awaiting handle. Read the choice back
+    /// with `darkrun_direction_result`.
+    #[tool(
+        name = "darkrun_direction",
+        description = "Ask the operator for a design direction: pick + annotate one of several image-backed archetypes."
+    )]
+    pub fn darkrun_direction(
+        &self,
+        Parameters(input): Parameters<DirectionInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        let archetypes = input
+            .archetypes
+            .into_iter()
+            .map(|a| ArchetypeSpec {
+                id: a.id,
+                label: a.label,
+                image_url: a.image_url,
+                description: a.description,
+            })
+            .collect();
+        match sessions::create_direction(
+            &store,
+            &input.slug,
+            input.title,
+            &input.prompt,
+            input.context,
+            archetypes,
+        ) {
+            Ok(awaiting) => ok_json(&awaiting),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Read back the operator's design direction: the chosen archetype id,
+    /// annotations (pins / screenshot / comments), and the session status.
+    #[tool(
+        name = "darkrun_direction_result",
+        description = "Read back a direction session's chosen archetype + annotations and status."
+    )]
+    pub fn darkrun_direction_result(
+        &self,
+        Parameters(input): Parameters<SessionResultInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match sessions::direction_result(&store, &input.slug, &input.session_id) {
+            Ok(d) => ok_json(&d),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Emit a blocking PICKER: have the operator choose among labelled options.
+    /// Registers a pending picker session and returns the awaiting handle. Read
+    /// the selection back with `darkrun_picker_result`.
+    #[tool(
+        name = "darkrun_picker",
+        description = "Ask the operator to choose among options (factory/mode/station/confirm/url_input); returns the awaiting session id."
+    )]
+    pub fn darkrun_picker(
+        &self,
+        Parameters(input): Parameters<PickerInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let kind = match sessions::parse_picker_kind(&input.kind) {
+            Some(k) => k,
+            None => return Ok(err_text(format!("invalid picker kind: {}", input.kind))),
+        };
+        let store = self.store();
+        let options = input
+            .options
+            .into_iter()
+            .map(|o| PickerOptionSpec {
+                id: o.id,
+                label: o.label,
+                description: o.description,
+                secondary: o.secondary,
+            })
+            .collect();
+        match sessions::create_picker(
+            &store,
+            &input.slug,
+            kind,
+            &input.title,
+            &input.prompt,
+            options,
+        ) {
+            Ok(awaiting) => ok_json(&awaiting),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Read back the operator's picker selection and the session status.
+    #[tool(
+        name = "darkrun_picker_result",
+        description = "Read back a picker session's selected option id and status."
+    )]
+    pub fn darkrun_picker_result(
+        &self,
+        Parameters(input): Parameters<SessionResultInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match sessions::picker_result(&store, &input.slug, &input.session_id) {
+            Ok(p) => ok_json(&p),
+            Err(e) => Ok(err_text(e)),
+        }
     }
 }
 

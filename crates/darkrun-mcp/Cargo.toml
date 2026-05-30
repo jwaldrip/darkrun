@@ -9,6 +9,7 @@ description = "darkrun MCP server + manager — drives a Run through the factory
 
 [dependencies]
 darkrun-core.workspace = true
+darkrun-api.workspace = true
 darkrun-prompts.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,3 +21,4 @@ rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "schem
 
 [dev-dependencies]
 tempfile = "3"
+darkrun-api.workspace = true

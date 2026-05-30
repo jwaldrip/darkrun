@@ -105,6 +105,9 @@ pub fn build_router(app: AppState) -> Router {
             head(handlers::session_heartbeat),
         )
         .route("/review/{id}/decide", post(handlers::review_decide))
+        .route("/question/{id}/answer", post(handlers::question_answer))
+        .route("/direction/{id}/select", post(handlers::direction_select))
+        .route("/picker/{id}/select", post(handlers::picker_select))
         .route("/api/advance/{id}", post(handlers::advance))
         .route(
             "/api/feedback/{run}/{station}",

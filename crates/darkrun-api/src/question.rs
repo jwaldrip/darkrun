@@ -1,36 +1,43 @@
 //! Question-answer endpoint — `POST /question/:id/answer`.
 //!
-//! The wire schema for submitting answers to a multi-question session, plus the
-//! success envelope.
+//! The wire schema for submitting an answer to a VISUAL QUESTION session: the
+//! ids of the selected options plus an optional free-text note, plus the
+//! success envelope echoing the recorded answer back.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::common::QuestionAnnotations;
-
-/// A single question's answer in a multi-question submission.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct QuestionAnswerItem {
-    /// The question prompt (echoed back).
-    pub question: String,
-    /// The options the user selected.
-    pub selected_options: Vec<String>,
-    /// Free-text "other" input, when the question allows it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub other_text: Option<String>,
-}
+use crate::session::QuestionAnswer;
 
 /// Request body for `POST /question/:id/answer`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+///
+/// A visual question is a single prompt with a list of options; the answer is
+/// the set of selected option ids (one for single-select, many for
+/// multi-select) plus an optional free-text elaboration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct QuestionAnswerRequest {
-    /// The answers, one per question.
-    pub answers: Vec<QuestionAnswerItem>,
-    /// Optional overall free-text feedback.
+    /// The option ids the operator selected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<String>,
+    /// Optional free-text elaboration / "other" input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub feedback: Option<String>,
-    /// Optional annotation bundle.
+    pub text: Option<String>,
+    /// Optional annotation bundle (pins / screenshots over the reference
+    /// images).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<QuestionAnnotations>,
+}
+
+impl QuestionAnswerRequest {
+    /// Project the request into the stored [`QuestionAnswer`] shape carried on
+    /// the session payload.
+    pub fn to_answer(&self) -> QuestionAnswer {
+        QuestionAnswer {
+            selected: self.selected.clone(),
+            text: self.text.clone(),
+        }
+    }
 }
 
 /// Response body for `POST /question/:id/answer`.
@@ -38,4 +45,6 @@ pub struct QuestionAnswerRequest {
 pub struct QuestionAnswerResponse {
     /// Always `true` on success.
     pub ok: bool,
+    /// The recorded answer, echoed back.
+    pub answer: QuestionAnswer,
 }

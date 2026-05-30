@@ -14,9 +14,9 @@
 use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
 use darkrun_api::{
-    ApproveAction, ApproveActionKind, DirectionSessionPayload, GateType, PickerKind, PickerOption,
-    PickerSessionPayload, QuestionDef, QuestionSessionPayload, ReviewSessionPayload, SessionPayload,
-    SessionStatus, ViewMode, ViewSessionPayload, ViewStatus,
+    ApproveAction, ApproveActionKind, DirectionArchetype, DirectionSessionPayload, GateType,
+    PickerKind, PickerOption, PickerSessionPayload, QuestionOption, QuestionSessionPayload,
+    ReviewSessionPayload, SessionPayload, SessionStatus, ViewMode, ViewSessionPayload, ViewStatus,
 };
 use darkrun_core::StateStore;
 use darkrun_http::{build_router, AppState, Limits};
@@ -69,14 +69,24 @@ fn question(session_id: &str) -> SessionPayload {
         session_id: session_id.into(),
         status: SessionStatus::Pending,
         title: Some("Pick a direction".into()),
+        prompt: "Which?".into(),
         context: Some("Some context".into()),
-        questions: vec![QuestionDef {
-            question: "Which?".into(),
-            header: None,
-            options: vec!["A".into(), "B".into()],
-            multi_select: Some(false),
-        }],
-        answers: vec![],
+        options: vec![
+            QuestionOption {
+                id: "A".into(),
+                label: "A".into(),
+                image_url: Some("/mock/a.png".into()),
+                description: None,
+            },
+            QuestionOption {
+                id: "B".into(),
+                label: "B".into(),
+                image_url: Some("/mock/b.png".into()),
+                description: None,
+            },
+        ],
+        multi_select: false,
+        answer: None,
         image_urls: vec![],
     })
 }
@@ -87,9 +97,16 @@ fn direction(session_id: &str) -> SessionPayload {
         status: SessionStatus::Pending,
         title: Some("Design".into()),
         run_slug: Some("run-d".into()),
+        prompt: "Pick a direction".into(),
         context: None,
-        archetypes: vec![],
-        selection: None,
+        archetypes: vec![DirectionArchetype {
+            id: "bold".into(),
+            label: "Bold".into(),
+            image_url: "/mock/bold.png".into(),
+            description: "bold and loud".into(),
+        }],
+        chosen_archetype: None,
+        annotations: None,
     })
 }
 
@@ -372,8 +389,9 @@ async fn session_question_payload_shape() {
     assert_eq!(json["session_type"], "question");
     assert_eq!(json["session_id"], "q-1");
     assert_eq!(json["title"], "Pick a direction");
-    assert_eq!(json["questions"][0]["question"], "Which?");
-    assert_eq!(json["questions"][0]["options"][1], "B");
+    assert_eq!(json["prompt"], "Which?");
+    assert_eq!(json["options"][1]["id"], "B");
+    assert_eq!(json["options"][1]["image_url"], "/mock/b.png");
 }
 
 #[tokio::test]

@@ -60,7 +60,7 @@ const STATIONS: &[Expected] = &[
     Expected {
         name: "shape",
         explorers: &["architecture", "risk"],
-        workers: &["designer", "spiker", "pressure_tester", "resolver"],
+        workers: &["designer", "visual_designer", "spiker", "pressure_tester", "resolver"],
         reviewers: &["fit", "reversibility", "simplicity"],
         checkpoint: CheckpointKind::Ask,
         locked_artifact: "design.md",
@@ -438,7 +438,7 @@ fn specify_workers_in_order() {
 fn shape_workers_in_order() {
     assert_eq!(
         slugs(&factory().station("shape").unwrap().workers),
-        vec!["designer", "spiker", "pressure_tester", "resolver"]
+        vec!["designer", "visual_designer", "spiker", "pressure_tester", "resolver"]
     );
 }
 
@@ -478,14 +478,23 @@ fn frame_specify_prove_harden_have_three_workers() {
 }
 
 #[test]
-fn shape_and_build_have_four_workers() {
-    for name in ["shape", "build"] {
-        assert_eq!(
-            factory().station(name).unwrap().workers.len(),
-            4,
-            "{name} has an extra worker beat"
-        );
-    }
+fn build_has_four_workers() {
+    assert_eq!(
+        factory().station("build").unwrap().workers.len(),
+        4,
+        "build has an extra worker beat"
+    );
+}
+
+#[test]
+fn shape_has_five_workers() {
+    // Shape adds a VisualDesigner beat between the Designer and the Spiker for the
+    // visual/UX facet of user-facing work — five beats in all.
+    assert_eq!(
+        factory().station("shape").unwrap().workers.len(),
+        5,
+        "shape carries an extra visual-design worker beat"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -983,6 +992,98 @@ fn shape_spiker_describes_a_throwaway_proof() {
 }
 
 #[test]
+fn shape_has_a_visual_designer_worker() {
+    let f = factory();
+    let shape = f.station("shape").unwrap();
+    assert!(
+        shape.workers.iter().any(|w| w.name() == "visual_designer"),
+        "Shape carries a VisualDesigner beat for the visual/UX facet"
+    );
+}
+
+#[test]
+fn shape_visual_designer_sits_between_designer_and_spiker() {
+    // The visual beat is a Make-phase facet: it runs after the structural Designer
+    // and before the Spiker, so the structure is drafted but no UI is built until
+    // the operator has chosen a direction.
+    let f = factory();
+    let w = slugs(&f.station("shape").unwrap().workers);
+    let designer = w.iter().position(|x| *x == "designer").unwrap();
+    let visual = w.iter().position(|x| *x == "visual_designer").unwrap();
+    let spiker = w.iter().position(|x| *x == "spiker").unwrap();
+    assert!(designer < visual, "VisualDesigner runs after the Designer");
+    assert!(visual < spiker, "VisualDesigner runs before the Spiker");
+}
+
+#[test]
+fn shape_visual_designer_directs_generating_options() {
+    let f = factory();
+    let shape = f.station("shape").unwrap();
+    let vd = shape
+        .workers
+        .iter()
+        .find(|w| w.name() == "visual_designer")
+        .unwrap();
+    let body = vd.body.to_lowercase();
+    assert!(
+        body.contains("mockup") || body.contains("option") || body.contains("image"),
+        "the VisualDesigner generates design options / mockups / images"
+    );
+}
+
+#[test]
+fn shape_visual_designer_uses_the_visual_decision_tools() {
+    let f = factory();
+    let shape = f.station("shape").unwrap();
+    let vd = shape
+        .workers
+        .iter()
+        .find(|w| w.name() == "visual_designer")
+        .unwrap();
+    let body = vd.body.to_lowercase();
+    assert!(
+        body.contains("darkrun_question"),
+        "VisualDesigner uses darkrun_question to pick among options"
+    );
+    assert!(
+        body.contains("darkrun_direction"),
+        "VisualDesigner uses darkrun_direction for a design direction"
+    );
+}
+
+#[test]
+fn shape_visual_designer_conditions_on_user_facing_work() {
+    // The visual beat must say it is skipped for non-UI / headless / API work so
+    // it does not impose a design step where there is no surface.
+    let f = factory();
+    let shape = f.station("shape").unwrap();
+    let vd = shape
+        .workers
+        .iter()
+        .find(|w| w.name() == "visual_designer")
+        .unwrap();
+    let body = vd.body.to_lowercase();
+    assert!(
+        body.contains("user-facing") || body.contains("user facing"),
+        "VisualDesigner frames itself around user-facing work"
+    );
+    assert!(
+        body.contains("skip") || body.contains("non-ui") || body.contains("headless"),
+        "VisualDesigner skips non-UI work"
+    );
+}
+
+#[test]
+fn shape_station_body_documents_the_visual_designer_beat() {
+    let f = factory();
+    let body = f.station("shape").unwrap().body.to_lowercase();
+    assert!(
+        body.contains("visualdesigner") || body.contains("visual"),
+        "Shape's pass-loop prose should describe the visual-design beat"
+    );
+}
+
+#[test]
 fn workers_first_beat_relates_to_station_purpose() {
     // The Make beat of each station tends to share a stem with the station name
     // or its core verb. Assert framer<->frame and spec_writer<->spec.
@@ -1206,9 +1307,9 @@ fn total_role_count_across_factory() {
         .iter()
         .map(|s| s.explorers.len() + s.workers.len() + s.reviewers.len())
         .sum();
-    // frame 2+3+2=7, specify 2+3+2=7, shape 2+4+3=9, build 2+4+2=8,
-    // prove 2+3+2=7, harden 2+3+2=7  => 45
-    assert_eq!(total, 45);
+    // frame 2+3+2=7, specify 2+3+2=7, shape 2+5+3=10, build 2+4+2=8,
+    // prove 2+3+2=7, harden 2+3+2=7  => 46
+    assert_eq!(total, 46);
 }
 
 #[test]

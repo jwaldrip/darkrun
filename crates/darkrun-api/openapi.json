@@ -33,154 +33,76 @@
         "type": "object"
       },
       "DirectionSelectRequest": {
-        "description": "Request body for `POST /direction/:id/select` — discriminated on `mode`.",
-        "oneOf": [
-          {
-            "description": "Final selection — the user picked one archetype.",
-            "properties": {
-              "annotations": {
-                "anyOf": [
-                  {
-                    "$ref": "#/definitions/DirectionAnnotations"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Optional annotations."
+        "description": "Request body for `POST /direction/:id/select` — the operator's design decision: which archetype they chose plus optional annotations.",
+        "properties": {
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/DirectionAnnotations"
               },
-              "archetype": {
-                "description": "The chosen archetype name.",
-                "type": "string"
-              },
-              "comments": {
-                "description": "Optional free-text comments.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "mode": {
-                "enum": [
-                  "select"
-                ],
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "required": [
-              "archetype",
-              "mode"
             ],
-            "type": "object"
+            "description": "Annotations on the chosen direction — pins, screenshot ref, comments."
           },
-          {
-            "description": "Regenerate request — the user wants more / different variants.",
-            "properties": {
-              "comments": {
-                "description": "Optional steering notes.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "keep": {
-                "description": "Archetype names to preserve.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "mode": {
-                "enum": [
-                  "regenerate"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "keep",
-              "mode"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "Upload submission — finished designs supplied directly.",
-            "properties": {
-              "comments": {
-                "description": "Optional overall notes.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "files": {
-                "description": "The uploaded files.",
-                "items": {
-                  "$ref": "#/definitions/DirectionUploadFile"
-                },
-                "type": "array"
-              },
-              "mode": {
-                "enum": [
-                  "upload"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "files",
-              "mode"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "Intake signal — nothing to upload; generate variants.",
-            "properties": {
-              "comments": {
-                "description": "Optional steering notes for the first generation.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "mode": {
-                "enum": [
-                  "generate"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "mode"
-            ],
-            "type": "object"
+          "archetype": {
+            "description": "The id of the chosen archetype (must match one of the session's `archetypes[].id`).",
+            "type": "string"
           }
+        },
+        "required": [
+          "archetype"
         ],
-        "title": "DirectionSelectRequest"
+        "title": "DirectionSelectRequest",
+        "type": "object"
       },
       "DirectionSelectResponse": {
         "description": "Response body for `POST /direction/:id/select`.",
         "properties": {
+          "archetype": {
+            "description": "The chosen archetype id, echoed back.",
+            "type": "string"
+          },
           "ok": {
             "description": "Always `true` on success.",
             "type": "boolean"
           }
         },
         "required": [
+          "archetype",
           "ok"
         ],
         "title": "DirectionSelectResponse",
         "type": "object"
       },
       "DirectionSessionPayload": {
-        "description": "The direction-session payload (`session_type = \"direction\"`).",
+        "description": "The direction-session payload (`session_type = \"direction\"`) — a DESIGN DIRECTION the agent asks for: a prompt plus design archetypes (each an image-backed direction), the chosen archetype id, and annotations.",
         "properties": {
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/DirectionAnnotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Annotations attached to the chosen direction."
+          },
           "archetypes": {
-            "description": "Archetype cards to choose between.",
+            "description": "The design archetypes to choose between.",
             "items": {
               "$ref": "#/definitions/DirectionArchetype"
             },
             "type": "array"
+          },
+          "chosen_archetype": {
+            "description": "The id of the archetype the operator chose, once decided.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "context": {
             "description": "Optional markdown preamble above the archetype cards.",
@@ -189,23 +111,16 @@
               "null"
             ]
           },
+          "prompt": {
+            "description": "The prompt rendered above the archetype cards.",
+            "type": "string"
+          },
           "run_slug": {
             "description": "The run slug.",
             "type": [
               "string",
               "null"
             ]
-          },
-          "selection": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/DirectionSelection"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The saved selection, if any."
           },
           "session_id": {
             "description": "The session id.",
@@ -795,7 +710,7 @@
         "type": "object"
       },
       "QuestionAnswerRequest": {
-        "description": "Request body for `POST /question/:id/answer`.",
+        "description": "Request body for `POST /question/:id/answer`.\n\nA visual question is a single prompt with a list of options; the answer is the set of selected option ids (one for single-select, many for multi-select) plus an optional free-text elaboration.",
         "properties": {
           "annotations": {
             "anyOf": [
@@ -806,52 +721,62 @@
                 "type": "null"
               }
             ],
-            "description": "Optional annotation bundle."
+            "description": "Optional annotation bundle (pins / screenshots over the reference images)."
           },
-          "answers": {
-            "description": "The answers, one per question.",
+          "selected": {
+            "description": "The option ids the operator selected.",
             "items": {
-              "$ref": "#/definitions/QuestionAnswerItem"
+              "type": "string"
             },
             "type": "array"
           },
-          "feedback": {
-            "description": "Optional overall free-text feedback.",
+          "text": {
+            "description": "Optional free-text elaboration / \"other\" input.",
             "type": [
               "string",
               "null"
             ]
           }
         },
-        "required": [
-          "answers"
-        ],
         "title": "QuestionAnswerRequest",
         "type": "object"
       },
       "QuestionAnswerResponse": {
         "description": "Response body for `POST /question/:id/answer`.",
         "properties": {
+          "answer": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/QuestionAnswer"
+              }
+            ],
+            "description": "The recorded answer, echoed back."
+          },
           "ok": {
             "description": "Always `true` on success.",
             "type": "boolean"
           }
         },
         "required": [
+          "answer",
           "ok"
         ],
         "title": "QuestionAnswerResponse",
         "type": "object"
       },
       "QuestionSessionPayload": {
-        "description": "The question-session payload (`session_type = \"question\"`).",
+        "description": "The question-session payload (`session_type = \"question\"`) — a VISUAL QUESTION the agent poses mid-run: a prompt plus a list of options (each an optionally-image-backed choice) the operator picks among.",
         "properties": {
-          "answers": {
-            "description": "Recorded answers, once submitted.",
-            "items": {
-              "$ref": "#/definitions/QuestionAnswer"
-            },
-            "type": "array"
+          "answer": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/QuestionAnswer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The recorded answer, once submitted."
           },
           "context": {
             "description": "Optional markdown context preamble.",
@@ -861,18 +786,27 @@
             ]
           },
           "image_urls": {
-            "description": "Reference image URLs the questions annotate.",
+            "description": "Reference image URLs the question annotates (e.g. the surface under discussion), distinct from per-option images.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
-          "questions": {
-            "description": "The questions to answer.",
+          "multi_select": {
+            "default": false,
+            "description": "Whether more than one option may be selected.",
+            "type": "boolean"
+          },
+          "options": {
+            "description": "The selectable options (image-backed design choices, or plain choices).",
             "items": {
-              "$ref": "#/definitions/QuestionDef"
+              "$ref": "#/definitions/QuestionOption"
             },
             "type": "array"
+          },
+          "prompt": {
+            "description": "The question prompt rendered above the options.",
+            "type": "string"
           },
           "session_id": {
             "description": "The session id.",
@@ -1983,12 +1917,16 @@
           {
             "description": "A multi-question prompt.",
             "properties": {
-              "answers": {
-                "description": "Recorded answers, once submitted.",
-                "items": {
-                  "$ref": "#/definitions/QuestionAnswer"
-                },
-                "type": "array"
+              "answer": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/QuestionAnswer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The recorded answer, once submitted."
               },
               "context": {
                 "description": "Optional markdown context preamble.",
@@ -1998,18 +1936,27 @@
                 ]
               },
               "image_urls": {
-                "description": "Reference image URLs the questions annotate.",
+                "description": "Reference image URLs the question annotates (e.g. the surface under discussion), distinct from per-option images.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
               },
-              "questions": {
-                "description": "The questions to answer.",
+              "multi_select": {
+                "default": false,
+                "description": "Whether more than one option may be selected.",
+                "type": "boolean"
+              },
+              "options": {
+                "description": "The selectable options (image-backed design choices, or plain choices).",
                 "items": {
-                  "$ref": "#/definitions/QuestionDef"
+                  "$ref": "#/definitions/QuestionOption"
                 },
                 "type": "array"
+              },
+              "prompt": {
+                "description": "The question prompt rendered above the options.",
+                "type": "string"
               },
               "session_id": {
                 "description": "The session id.",
@@ -2047,12 +1994,30 @@
           {
             "description": "A design-direction selection.",
             "properties": {
+              "annotations": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/DirectionAnnotations"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Annotations attached to the chosen direction."
+              },
               "archetypes": {
-                "description": "Archetype cards to choose between.",
+                "description": "The design archetypes to choose between.",
                 "items": {
                   "$ref": "#/definitions/DirectionArchetype"
                 },
                 "type": "array"
+              },
+              "chosen_archetype": {
+                "description": "The id of the archetype the operator chose, once decided.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "context": {
                 "description": "Optional markdown preamble above the archetype cards.",
@@ -2061,23 +2026,16 @@
                   "null"
                 ]
               },
+              "prompt": {
+                "description": "The prompt rendered above the archetype cards.",
+                "type": "string"
+              },
               "run_slug": {
                 "description": "The run slug.",
                 "type": [
                   "string",
                   "null"
                 ]
-              },
-              "selection": {
-                "anyOf": [
-                  {
-                    "$ref": "#/definitions/DirectionSelection"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The saved selection, if any."
               },
               "session_id": {
                 "description": "The session id.",
@@ -2532,7 +2490,7 @@
             "description": "Success"
           }
         },
-        "summary": "Select, regenerate, upload, or request a design direction.",
+        "summary": "Choose a design archetype and annotate it (the design direction decision).",
         "tags": [
           "direction"
         ]
@@ -2574,7 +2532,7 @@
             "description": "Success"
           }
         },
-        "summary": "Submit answers to a multi-question session.",
+        "summary": "Submit the answer (selected option ids + optional text) to a visual question.",
         "tags": [
           "question"
         ]

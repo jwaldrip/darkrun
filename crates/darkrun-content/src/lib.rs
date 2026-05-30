@@ -92,19 +92,41 @@ mod tests {
     }
 
     #[test]
-    fn shape_station_has_spiker_and_four_workers() {
+    fn shape_station_has_visual_designer_spiker_and_five_workers() {
         let factory = load_factory("software").expect("load");
         let shape = factory.station("shape").expect("shape station");
 
-        // Shape's pass-loop is Designer -> Spiker -> PressureTester -> Resolver.
+        // Shape's pass-loop is Designer -> VisualDesigner -> Spiker ->
+        // PressureTester -> Resolver. The VisualDesigner beat owns the visual/UX
+        // facet for user-facing work.
         let workers: Vec<&str> = shape.workers.iter().map(Role::name).collect();
         assert_eq!(
             workers,
-            vec!["designer", "spiker", "pressure_tester", "resolver"]
+            vec![
+                "designer",
+                "visual_designer",
+                "spiker",
+                "pressure_tester",
+                "resolver"
+            ]
         );
         // The Spiker builds a throwaway proof of risky assumptions.
-        let spiker = &shape.workers[1];
+        let spiker = shape
+            .workers
+            .iter()
+            .find(|w| w.name() == "spiker")
+            .expect("spiker present");
         assert!(spiker.body.to_lowercase().contains("throwaway"));
+
+        // The VisualDesigner directs the operator to generate options and use the
+        // visual-decision tools before any UI is built.
+        let visual = shape
+            .workers
+            .iter()
+            .find(|w| w.name() == "visual_designer")
+            .expect("visual_designer present");
+        let body = visual.body.to_lowercase();
+        assert!(body.contains("darkrun_question") || body.contains("darkrun_direction"));
     }
 
     #[test]

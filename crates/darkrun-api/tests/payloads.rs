@@ -13,16 +13,13 @@
 use std::collections::BTreeMap;
 
 use darkrun_api::common::{GateType, ReviewAnnotations, SessionStatus, SessionType};
-use darkrun_api::direction::{
-    DirectionAnnotations, DirectionSelectRequest, DirectionUploadFile,
-};
+use darkrun_api::direction::{DirectionSelectRequest, PickerSelectRequest};
 use darkrun_api::session::{
-    ApproveAction, ApproveActionKind, DirectionArchetype, DirectionPin,
-    DirectionScreenshotAnnotation, DirectionSelection, DirectionSelectionAnnotations,
+    ApproveAction, ApproveActionKind, DirectionAnnotations, DirectionArchetype, DirectionPin,
     DirectionSessionPayload, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
     KnowledgeFile, MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision,
     PickerKind, PickerOption, PickerSelection, PickerSessionPayload, PreviousReviewSnapshot,
-    ProgressMilestone, QuestionAnswer, QuestionDef, QuestionSessionPayload,
+    ProgressMilestone, QuestionAnswer, QuestionOption, QuestionSessionPayload,
     ReviewSessionPayload, RunCurrentState, RunPhase, SealStatus, SessionPayload,
     StationArtifact, StationStateInfo, UnitOutputPreview, UnitOutputType, ViewMode,
     ViewSessionPayload, ViewStatus,
@@ -1836,70 +1833,67 @@ fn question_payload_default_minimal() {
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["session_id"], "");
     assert_eq!(json["status"], "pending");
-    for k in ["title", "context", "questions", "answers", "image_urls"] {
+    // multi_select is a plain bool that defaults to false and always serializes.
+    assert_eq!(json["multi_select"], false);
+    for k in ["title", "prompt", "context", "options", "answer", "image_urls"] {
         assert!(json.get(k).is_none(), "{k} omitted by default");
     }
 }
 
 #[test]
-fn question_def_minimal_and_full() {
-    let minimal = QuestionDef {
-        question: "Pick one".into(),
-        header: None,
-        options: vec!["a".into(), "b".into()],
-        multi_select: None,
+fn question_option_minimal_and_full() {
+    let minimal = QuestionOption {
+        id: "a".into(),
+        label: "Option A".into(),
+        image_url: None,
+        description: None,
     };
     let json = serde_json::to_value(&minimal).unwrap();
-    assert!(json.get("header").is_none());
-    assert!(json.get("multi_select").is_none());
-    assert_eq!(json["options"], json!(["a", "b"]));
+    assert!(json.get("image_url").is_none());
+    assert!(json.get("description").is_none());
+    assert_eq!(json["id"], "a");
+    assert_eq!(json["label"], "Option A");
     assert_stable(&minimal);
 
-    let full = QuestionDef {
-        question: "Pick many".into(),
-        header: Some("Section A".into()),
-        options: vec!["x".into()],
-        multi_select: Some(true),
+    let full = QuestionOption {
+        id: "b".into(),
+        label: "Option B".into(),
+        image_url: Some("/mockups/b.png".into()),
+        description: Some("the bold one".into()),
     };
     let json2 = serde_json::to_value(&full).unwrap();
-    assert_eq!(json2["header"], "Section A");
-    assert_eq!(json2["multi_select"], true);
+    assert_eq!(json2["image_url"], "/mockups/b.png");
+    assert_eq!(json2["description"], "the bold one");
     assert_stable(&full);
 }
 
 #[test]
-fn question_def_empty_options_still_serializes() {
-    // options has no skip attr — empty vec serializes as [].
-    let q = QuestionDef {
-        question: "free text".into(),
-        header: None,
-        options: vec![],
-        multi_select: None,
+fn question_answer_minimal_and_text() {
+    let minimal = QuestionAnswer {
+        selected: vec!["a".into()],
+        text: None,
     };
-    let json = serde_json::to_value(&q).unwrap();
-    assert_eq!(json["options"], json!([]));
+    let json = serde_json::to_value(&minimal).unwrap();
+    assert!(json.get("text").is_none());
+    assert_eq!(json["selected"], json!(["a"]));
+    assert_stable(&minimal);
+
+    let with_text = QuestionAnswer {
+        selected: vec![],
+        text: Some("custom".into()),
+    };
+    let json2 = serde_json::to_value(&with_text).unwrap();
+    assert_eq!(json2["text"], "custom");
+    // empty selected vec is omitted.
+    assert!(json2.get("selected").is_none());
+    assert_stable(&with_text);
 }
 
 #[test]
-fn question_answer_minimal_and_other_text() {
-    let minimal = QuestionAnswer {
-        question: "Q?".into(),
-        selected_options: vec!["a".into()],
-        other_text: None,
-    };
-    let json = serde_json::to_value(&minimal).unwrap();
-    assert!(json.get("other_text").is_none());
-    assert_stable(&minimal);
-
-    let with_other = QuestionAnswer {
-        question: "Q?".into(),
-        selected_options: vec![],
-        other_text: Some("custom".into()),
-    };
-    let json2 = serde_json::to_value(&with_other).unwrap();
-    assert_eq!(json2["other_text"], "custom");
-    assert_eq!(json2["selected_options"], json!([]));
-    assert_stable(&with_other);
+fn question_answer_default_is_empty() {
+    let a = QuestionAnswer::default();
+    let json = serde_json::to_value(&a).unwrap();
+    assert_eq!(json, json!({}));
 }
 
 #[test]
@@ -1908,26 +1902,58 @@ fn question_payload_full_roundtrips() {
         session_id: "q".into(),
         status: SessionStatus::Answered,
         title: Some("Onboarding".into()),
+        prompt: "Which mockup feels right?".into(),
         context: Some("## context".into()),
-        questions: vec![QuestionDef {
-            question: "Color?".into(),
-            header: Some("Brand".into()),
-            options: vec!["red".into(), "blue".into()],
-            multi_select: Some(false),
-        }],
-        answers: vec![QuestionAnswer {
-            question: "Color?".into(),
-            selected_options: vec!["red".into()],
-            other_text: None,
-        }],
+        options: vec![
+            QuestionOption {
+                id: "red".into(),
+                label: "Crimson".into(),
+                image_url: Some("/mock/red.png".into()),
+                description: Some("bold + warm".into()),
+            },
+            QuestionOption {
+                id: "blue".into(),
+                label: "Cobalt".into(),
+                image_url: Some("/mock/blue.png".into()),
+                description: None,
+            },
+        ],
+        multi_select: false,
+        answer: Some(QuestionAnswer {
+            selected: vec!["red".into()],
+            text: Some("love the warmth".into()),
+        }),
         image_urls: vec!["/img/1.png".into(), "/img/2.png".into()],
     });
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["session_type"], "question");
     assert_eq!(json["status"], "answered");
-    assert_eq!(json["questions"][0]["question"], "Color?");
-    assert_eq!(json["answers"][0]["selected_options"][0], "red");
+    assert_eq!(json["prompt"], "Which mockup feels right?");
+    assert_eq!(json["options"][0]["id"], "red");
+    assert_eq!(json["options"][0]["image_url"], "/mock/red.png");
+    assert_eq!(json["multi_select"], false);
+    assert_eq!(json["answer"]["selected"][0], "red");
+    assert_eq!(json["answer"]["text"], "love the warmth");
     assert_eq!(json["image_urls"].as_array().unwrap().len(), 2);
+    assert_stable(&p);
+}
+
+#[test]
+fn question_payload_multi_select_true() {
+    let p = QuestionSessionPayload {
+        session_id: "q".into(),
+        prompt: "Pick all that apply".into(),
+        multi_select: true,
+        options: vec![QuestionOption {
+            id: "x".into(),
+            label: "X".into(),
+            image_url: None,
+            description: None,
+        }],
+        ..Default::default()
+    };
+    let json = serde_json::to_value(&p).unwrap();
+    assert_eq!(json["multi_select"], true);
     assert_stable(&p);
 }
 
@@ -1952,7 +1978,15 @@ fn direction_payload_default_minimal() {
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["session_id"], "");
     assert_eq!(json["status"], "pending");
-    for k in ["title", "run_slug", "context", "archetypes", "selection"] {
+    for k in [
+        "title",
+        "run_slug",
+        "prompt",
+        "context",
+        "archetypes",
+        "chosen_archetype",
+        "annotations",
+    ] {
         assert!(json.get(k).is_none(), "{k} omitted by default");
     }
 }
@@ -1960,57 +1994,69 @@ fn direction_payload_default_minimal() {
 #[test]
 fn direction_archetype_roundtrips() {
     let a = DirectionArchetype {
-        name: "Brutalist".into(),
+        id: "brutalist".into(),
+        label: "Brutalist".into(),
+        image_url: "/mock/brutalist.png".into(),
         description: "raw concrete".into(),
-        preview_html: "<div>hi</div>".into(),
     };
     let json = serde_json::to_value(&a).unwrap();
-    assert_eq!(json["name"], "Brutalist");
-    assert_eq!(json["preview_html"], "<div>hi</div>");
+    assert_eq!(json["id"], "brutalist");
+    assert_eq!(json["label"], "Brutalist");
+    assert_eq!(json["image_url"], "/mock/brutalist.png");
+    assert_eq!(json["description"], "raw concrete");
     assert_stable(&a);
 }
 
 #[test]
-fn direction_selection_minimal_and_annotated() {
-    let minimal = DirectionSelection {
-        archetype: "Brutalist".into(),
-        comments: None,
-        annotations: None,
-    };
-    let json = serde_json::to_value(&minimal).unwrap();
-    assert!(json.get("comments").is_none());
-    assert!(json.get("annotations").is_none());
-    assert_stable(&minimal);
-
-    let annotated = DirectionSelection {
-        archetype: "Brutalist".into(),
-        comments: Some("love it".into()),
-        annotations: Some(DirectionSelectionAnnotations {
-            pins: vec![DirectionPin {
-                x: 1.0,
-                y: 2.0,
-                text: "here".into(),
-            }],
-            screenshots: vec![DirectionScreenshotAnnotation {
-                comment: "see this".into(),
-                screenshot_data_url: "data:image/png;base64,AA".into(),
-            }],
-        }),
-    };
-    let json2 = serde_json::to_value(&annotated).unwrap();
-    assert_eq!(json2["comments"], "love it");
-    assert_eq!(json2["annotations"]["pins"][0]["x"], 1.0);
-    assert_eq!(json2["annotations"]["screenshots"][0]["comment"], "see this");
-    assert_stable(&annotated);
+fn direction_archetype_requires_all_fields() {
+    // No skip attrs — every field is mandatory.
+    let parsed: Result<DirectionArchetype, _> = serde_json::from_value(json!({
+        "id": "x",
+        "label": "X",
+        "description": "d"
+        // missing image_url
+    }));
+    assert!(parsed.is_err(), "image_url is required");
 }
 
 #[test]
-fn direction_selection_annotations_empty_vecs_omitted() {
-    let a = DirectionSelectionAnnotations::default();
-    let json = serde_json::to_value(&a).unwrap();
+fn direction_annotations_minimal_and_full() {
+    let minimal = DirectionAnnotations::default();
+    let json = serde_json::to_value(&minimal).unwrap();
     assert!(json.get("pins").is_none());
-    assert!(json.get("screenshots").is_none());
+    assert!(json.get("screenshot").is_none());
+    assert!(json.get("comments").is_none());
     assert_eq!(json, json!({}));
+
+    let full = DirectionAnnotations {
+        pins: vec![DirectionPin {
+            x: 0.5,
+            y: 0.25,
+            note: "tighten the header".into(),
+        }],
+        screenshot: Some("data:image/png;base64,AA".into()),
+        comments: vec!["love the palette".into(), "loosen the grid".into()],
+    };
+    let json2 = serde_json::to_value(&full).unwrap();
+    assert_eq!(json2["pins"][0]["x"], 0.5);
+    assert_eq!(json2["pins"][0]["note"], "tighten the header");
+    assert_eq!(json2["screenshot"], "data:image/png;base64,AA");
+    assert_eq!(json2["comments"].as_array().unwrap().len(), 2);
+    assert_stable(&full);
+}
+
+#[test]
+fn direction_pin_uses_note_field() {
+    let pin = DirectionPin {
+        x: 0.1,
+        y: 0.2,
+        note: "here".into(),
+    };
+    let json = serde_json::to_value(&pin).unwrap();
+    assert_eq!(json["note"], "here");
+    // The legacy `text` key is gone.
+    assert!(json.get("text").is_none());
+    assert_stable(&pin);
 }
 
 #[test]
@@ -2020,29 +2066,41 @@ fn direction_payload_full_roundtrips() {
         status: SessionStatus::Decided,
         title: Some("Pick a vibe".into()),
         run_slug: Some("run".into()),
+        prompt: "Which design direction?".into(),
         context: Some("## options".into()),
         archetypes: vec![
             DirectionArchetype {
-                name: "A".into(),
+                id: "a".into(),
+                label: "A".into(),
+                image_url: "/mock/a.png".into(),
                 description: "da".into(),
-                preview_html: "<a/>".into(),
             },
             DirectionArchetype {
-                name: "B".into(),
+                id: "b".into(),
+                label: "B".into(),
+                image_url: "/mock/b.png".into(),
                 description: "db".into(),
-                preview_html: "<b/>".into(),
             },
         ],
-        selection: Some(DirectionSelection {
-            archetype: "A".into(),
-            comments: Some("good".into()),
-            annotations: None,
+        chosen_archetype: Some("a".into()),
+        annotations: Some(DirectionAnnotations {
+            pins: vec![DirectionPin {
+                x: 0.5,
+                y: 0.5,
+                note: "more of this".into(),
+            }],
+            screenshot: None,
+            comments: vec!["good".into()],
         }),
     });
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["session_type"], "direction");
+    assert_eq!(json["prompt"], "Which design direction?");
     assert_eq!(json["archetypes"].as_array().unwrap().len(), 2);
-    assert_eq!(json["selection"]["archetype"], "A");
+    assert_eq!(json["archetypes"][0]["image_url"], "/mock/a.png");
+    assert_eq!(json["chosen_archetype"], "a");
+    assert_eq!(json["annotations"]["pins"][0]["note"], "more of this");
+    assert_eq!(json["annotations"]["comments"][0], "good");
     assert_stable(&p);
 }
 
@@ -2306,146 +2364,69 @@ fn view_payload_run_slug_is_mandatory() {
 }
 
 // -----------------------------------------------------------------------------
-// DirectionSelectRequest — the `mode`-discriminated request union
+// DirectionSelectRequest / PickerSelectRequest — the decision request bodies
 // -----------------------------------------------------------------------------
 
 #[test]
-fn direction_select_request_select_arm() {
-    let r = DirectionSelectRequest::Select {
+fn direction_select_request_minimal() {
+    let r = DirectionSelectRequest {
         archetype: "brutalist".into(),
-        comments: Some("love it".into()),
         annotations: None,
     };
     let json = serde_json::to_value(&r).unwrap();
-    assert_eq!(json["mode"], "select");
     assert_eq!(json["archetype"], "brutalist");
-    assert_eq!(json["comments"], "love it");
     assert!(json.get("annotations").is_none());
     assert_stable(&r);
 }
 
 #[test]
-fn direction_select_request_regenerate_arm() {
-    let r = DirectionSelectRequest::Regenerate {
-        keep: vec!["a".into(), "b".into()],
-        comments: None,
-    };
-    let json = serde_json::to_value(&r).unwrap();
-    assert_eq!(json["mode"], "regenerate");
-    assert_eq!(json["keep"], json!(["a", "b"]));
-    assert!(json.get("comments").is_none());
-    assert_stable(&r);
-}
-
-#[test]
-fn direction_select_request_upload_arm() {
-    let r = DirectionSelectRequest::Upload {
-        files: vec![DirectionUploadFile {
-            filename: "a.png".into(),
-            data_url: "data:image/png;base64,AA".into(),
-            caption: Some("hero".into()),
-        }],
-        comments: Some("finished designs".into()),
-    };
-    let json = serde_json::to_value(&r).unwrap();
-    assert_eq!(json["mode"], "upload");
-    assert_eq!(json["files"][0]["filename"], "a.png");
-    assert_eq!(json["files"][0]["caption"], "hero");
-    assert_stable(&r);
-}
-
-#[test]
-fn direction_select_request_generate_arm() {
-    let r = DirectionSelectRequest::Generate {
-        comments: Some("steer toward dark".into()),
-    };
-    let json = serde_json::to_value(&r).unwrap();
-    assert_eq!(json["mode"], "generate");
-    assert_eq!(json["comments"], "steer toward dark");
-    assert_stable(&r);
-}
-
-#[test]
-fn direction_select_request_deserializes_each_mode() {
-    let select: DirectionSelectRequest =
-        serde_json::from_value(json!({ "mode": "select", "archetype": "x" })).unwrap();
-    assert!(matches!(select, DirectionSelectRequest::Select { .. }));
-
-    let regen: DirectionSelectRequest =
-        serde_json::from_value(json!({ "mode": "regenerate", "keep": [] })).unwrap();
-    assert!(matches!(regen, DirectionSelectRequest::Regenerate { .. }));
-
-    let upload: DirectionSelectRequest = serde_json::from_value(json!({
-        "mode": "upload",
-        "files": [{ "filename": "a.png", "data_url": "data:image/png;base64,AA" }]
-    }))
-    .unwrap();
-    assert!(matches!(upload, DirectionSelectRequest::Upload { .. }));
-
-    let generate: DirectionSelectRequest =
-        serde_json::from_value(json!({ "mode": "generate" })).unwrap();
-    assert!(matches!(generate, DirectionSelectRequest::Generate { .. }));
-}
-
-#[test]
-fn direction_select_request_unknown_mode_rejected() {
-    let parsed: Result<DirectionSelectRequest, _> =
-        serde_json::from_value(json!({ "mode": "teleport" }));
-    assert!(parsed.is_err());
-}
-
-#[test]
-fn direction_select_request_missing_mode_rejected() {
-    let parsed: Result<DirectionSelectRequest, _> =
-        serde_json::from_value(json!({ "archetype": "x" }));
-    assert!(parsed.is_err());
-}
-
-#[test]
-fn direction_select_request_select_missing_archetype_rejected() {
-    let parsed: Result<DirectionSelectRequest, _> =
-        serde_json::from_value(json!({ "mode": "select" }));
-    assert!(parsed.is_err(), "select requires archetype");
-}
-
-#[test]
-fn direction_select_request_regenerate_missing_keep_rejected() {
-    let parsed: Result<DirectionSelectRequest, _> =
-        serde_json::from_value(json!({ "mode": "regenerate" }));
-    assert!(parsed.is_err(), "regenerate requires keep");
-}
-
-#[test]
-fn direction_select_request_upload_with_annotations_in_select() {
-    let r = DirectionSelectRequest::Select {
+fn direction_select_request_with_annotations() {
+    let r = DirectionSelectRequest {
         archetype: "x".into(),
-        comments: None,
         annotations: Some(DirectionAnnotations {
             pins: vec![DirectionPin {
                 x: 0.1,
                 y: 0.2,
-                text: "note".into(),
+                note: "note".into(),
             }],
-            screenshots: vec![],
+            screenshot: Some("data:image/png;base64,AA".into()),
+            comments: vec!["nice".into()],
         }),
     };
     let json = serde_json::to_value(&r).unwrap();
-    assert_eq!(json["annotations"]["pins"][0]["text"], "note");
-    // empty screenshots vec is omitted inside DirectionAnnotations.
-    assert!(json["annotations"].get("screenshots").is_none());
+    assert_eq!(json["archetype"], "x");
+    assert_eq!(json["annotations"]["pins"][0]["note"], "note");
+    assert_eq!(json["annotations"]["screenshot"], "data:image/png;base64,AA");
     assert_stable(&r);
 }
 
 #[test]
-fn direction_upload_file_caption_optional() {
-    let f = DirectionUploadFile {
-        filename: "x.png".into(),
-        data_url: "data:image/png;base64,AA".into(),
-        caption: None,
-    };
-    let json = serde_json::to_value(&f).unwrap();
-    assert!(json.get("caption").is_none());
-    assert_stable(&f);
+fn direction_select_request_deserializes_from_text() {
+    let r: DirectionSelectRequest =
+        serde_json::from_value(json!({ "archetype": "bold" })).unwrap();
+    assert_eq!(r.archetype, "bold");
+    assert!(r.annotations.is_none());
+}
+
+#[test]
+fn direction_select_request_missing_archetype_rejected() {
+    let parsed: Result<DirectionSelectRequest, _> =
+        serde_json::from_value(json!({ "annotations": {} }));
+    assert!(parsed.is_err(), "archetype is required");
+}
+
+#[test]
+fn picker_select_request_roundtrips() {
+    let r = PickerSelectRequest { id: "software".into() };
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["id"], "software");
+    assert_stable(&r);
+}
+
+#[test]
+fn picker_select_request_missing_id_rejected() {
+    let parsed: Result<PickerSelectRequest, _> = serde_json::from_value(json!({}));
+    assert!(parsed.is_err(), "id is required");
 }
 
 // -----------------------------------------------------------------------------
@@ -2552,7 +2533,7 @@ fn direction_pin_negative_and_large_floats() {
         let pin = DirectionPin {
             x,
             y,
-            text: "p".into(),
+            note: "p".into(),
         };
         assert_stable(&pin);
     }

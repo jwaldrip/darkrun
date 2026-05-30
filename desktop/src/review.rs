@@ -14,8 +14,14 @@
 //! (question / direction / picker / view) show a compact placeholder so an
 //! unexpected payload never blanks the screen.
 
-use darkrun_api::session::{OutputArtifact, ReviewSessionPayload};
-use darkrun_api::{ReviewDecisionRequest, SessionPayload};
+use darkrun_api::session::{
+    DirectionAnnotations, DirectionSessionPayload, OutputArtifact, PickerSessionPayload,
+    QuestionSessionPayload, ReviewSessionPayload,
+};
+use darkrun_api::{
+    DirectionSelectRequest, PickerSelectRequest, QuestionAnswerRequest, ReviewDecisionRequest,
+    SessionPayload,
+};
 use darkrun_ui::prelude::*;
 
 use crate::map;
@@ -84,6 +90,9 @@ pub fn ReviewApp(cfg: ConnConfig) -> Element {
             }
             match payload.read().clone() {
                 Some(SessionPayload::Review(review)) => review_body(cfg.clone(), review, decision),
+                Some(SessionPayload::Question(q)) => question_session(cfg.clone(), q),
+                Some(SessionPayload::Direction(d)) => direction_session(cfg.clone(), d),
+                Some(SessionPayload::Picker(p)) => picker_session(cfg.clone(), p),
                 Some(other) => rsx! {
                     Card {
                         Badge { tone: Tone::Neutral, "session: {other.session_type()}" }
@@ -358,6 +367,334 @@ fn DecisionStatus(decision: Decision, gate_open: bool) -> Element {
     };
     rsx! {
         Badge { tone, "{text}" }
+    }
+}
+
+// ===========================================================================
+// Interactive sessions: question / direction / picker.
+//
+// Each wire payload is decoded off the same WS feed as a review. The wire types
+// do not derive `PartialEq` (a Dioxus prop requirement), so a thin plain
+// function extracts the `PartialEq` view-model data + scalars and hands them to a
+// real `#[component]` that owns the local selection/annotation signals and POSTs
+// the result back over the existing decision path.
+// ===========================================================================
+
+/// The submit-state machine shared by every interactive session, mirroring the
+/// review [`Decision`] but generic over what was submitted.
+#[derive(Debug, Clone, PartialEq)]
+enum Submit {
+    /// Nothing submitted yet.
+    Idle,
+    /// A POST is in flight.
+    Sending,
+    /// The engine accepted the submission (carries a short summary).
+    Sent(String),
+    /// The POST failed (carries the reason).
+    Failed(String),
+}
+
+/// A small status line reflecting the last interactive-session submission.
+#[component]
+fn SubmitStatus(state: Submit) -> Element {
+    let (tone, text) = match &state {
+        Submit::Idle => return rsx! {},
+        Submit::Sending => (Tone::Info, "submitting…".to_string()),
+        Submit::Sent(s) => (Tone::Ok, s.clone()),
+        Submit::Failed(e) => (Tone::Danger, format!("failed: {e}")),
+    };
+    rsx! {
+        div { style: "margin-top:10px;",
+            Badge { tone, "{text}" }
+        }
+    }
+}
+
+/// Extract the question payload's `PartialEq` data and render the session.
+fn question_session(cfg: ConnConfig, q: QuestionSessionPayload) -> Element {
+    let answered = matches!(
+        q.status,
+        darkrun_api::common::SessionStatus::Answered
+            | darkrun_api::common::SessionStatus::Approved
+    );
+    let seed = q.answer.as_ref().map(|a| a.selected.clone()).unwrap_or_default();
+    rsx! {
+        QuestionSession {
+            cfg,
+            prompt: q.prompt.clone(),
+            context: q.context.clone(),
+            title: q.title.clone(),
+            options: map::option_cards(&q.options),
+            multi_select: q.multi_select,
+            image_urls: q.image_urls.clone(),
+            seed_selected: seed,
+            answered,
+        }
+    }
+}
+
+/// The live visual-question session: owns the selection model and submits the
+/// chosen option ids to `/question/:id/answer`.
+#[component]
+fn QuestionSession(
+    cfg: ConnConfig,
+    prompt: String,
+    context: Option<String>,
+    title: Option<String>,
+    options: Vec<OptionCard>,
+    multi_select: bool,
+    image_urls: Vec<String>,
+    seed_selected: Vec<String>,
+    answered: bool,
+) -> Element {
+    let mode = SelectMode::from_multi(multi_select);
+    let mut selected = use_signal(|| {
+        SelectionModel::from_selected(mode, seed_selected.clone())
+            .selected()
+            .to_vec()
+    });
+    let submit = use_signal(|| Submit::Idle);
+
+    let toggle = move |id: String| {
+        let mut model = SelectionModel::from_selected(mode, selected.read().clone());
+        model.toggle(&id);
+        selected.set(model.selected().to_vec());
+    };
+
+    let do_submit = {
+        let cfg = cfg.clone();
+        move |_| {
+            let cfg = cfg.clone();
+            let mut submit = submit;
+            let chosen = selected.read().clone();
+            spawn(async move {
+                submit.set(Submit::Sending);
+                let req = QuestionAnswerRequest {
+                    selected: chosen.clone(),
+                    text: None,
+                    annotations: None,
+                };
+                match wire::submit_question_answer(&cfg, &req).await {
+                    Ok(()) => submit.set(Submit::Sent(format!(
+                        "answer recorded ({} selected)",
+                        chosen.len()
+                    ))),
+                    Err(e) => submit.set(Submit::Failed(e.to_string())),
+                }
+            });
+        }
+    };
+
+    let sending = matches!(*submit.read(), Submit::Sending);
+    rsx! {
+        QuestionView {
+            prompt,
+            context,
+            title,
+            options,
+            multi_select,
+            image_urls,
+            selected: selected.read().clone(),
+            answered: answered || sending,
+            on_toggle: toggle,
+            on_submit: do_submit,
+        }
+        SubmitStatus { state: submit.read().clone() }
+    }
+}
+
+/// Extract the direction payload's `PartialEq` data and render the session.
+fn direction_session(cfg: ConnConfig, d: DirectionSessionPayload) -> Element {
+    let decided = matches!(
+        d.status,
+        darkrun_api::common::SessionStatus::Decided
+            | darkrun_api::common::SessionStatus::Approved
+    );
+    let seed_pins = d
+        .annotations
+        .as_ref()
+        .map(|a| map::pin_points(&a.pins))
+        .unwrap_or_default();
+    let seed_comments = d
+        .annotations
+        .as_ref()
+        .map(|a| a.comments.clone())
+        .unwrap_or_default();
+    rsx! {
+        DirectionSession {
+            cfg,
+            prompt: d.prompt.clone(),
+            context: d.context.clone(),
+            title: d.title.clone(),
+            archetypes: map::archetype_cards(&d.archetypes),
+            seed_chosen: d.chosen_archetype.clone(),
+            seed_pins,
+            seed_comments,
+            decided,
+        }
+    }
+}
+
+/// The live design-direction session: owns the chosen archetype, the pin set,
+/// and the comment list; submits the decision to `/direction/:id/select`.
+#[component]
+fn DirectionSession(
+    cfg: ConnConfig,
+    prompt: String,
+    context: Option<String>,
+    title: Option<String>,
+    archetypes: Vec<ArchetypeCard>,
+    seed_chosen: Option<String>,
+    seed_pins: Vec<PinPoint>,
+    seed_comments: Vec<String>,
+    decided: bool,
+) -> Element {
+    let mut chosen = use_signal(|| seed_chosen.clone());
+    let mut pins = use_signal(|| seed_pins.clone());
+    let mut comments = use_signal(|| seed_comments.clone());
+    let submit = use_signal(|| Submit::Idle);
+
+    let choose = move |id: String| {
+        // Switching archetypes resets annotations — pins are relative to the
+        // chosen preview, so they would be meaningless on a different image.
+        let same = chosen.read().as_deref() == Some(id.as_str());
+        chosen.set(Some(id));
+        if !same {
+            pins.set(Vec::new());
+        }
+    };
+
+    let place = move |(x, y, w, h): (f64, f64, f64, f64)| {
+        // The stage forwards the click offset; when it cannot resolve its own
+        // box it passes (0,0) dims, in which case the offset is already the
+        // normalized value. Either way `place_pin` clamps into 0..1.
+        let pt = if w > 0.0 && h > 0.0 {
+            place_pin(x, y, w, h, format!("pin {}", pins.read().len() + 1))
+        } else {
+            PinPoint::new(x, y, format!("pin {}", pins.read().len() + 1))
+        };
+        pins.write().push(pt);
+    };
+
+    let comment = move |text: String| {
+        comments.write().push(text);
+    };
+
+    let do_submit = {
+        let cfg = cfg.clone();
+        move |_| {
+            let cfg = cfg.clone();
+            let mut submit = submit;
+            let archetype = chosen.read().clone();
+            let pin_list: Vec<_> = pins.read().iter().map(map::pin_to_wire).collect();
+            let comment_list = comments.read().clone();
+            let Some(archetype) = archetype else {
+                submit.set(Submit::Failed("choose an archetype first".to_string()));
+                return;
+            };
+            spawn(async move {
+                submit.set(Submit::Sending);
+                let annotations = if pin_list.is_empty() && comment_list.is_empty() {
+                    None
+                } else {
+                    Some(DirectionAnnotations {
+                        pins: pin_list,
+                        screenshot: None,
+                        comments: comment_list,
+                    })
+                };
+                let req = DirectionSelectRequest { archetype: archetype.clone(), annotations };
+                match wire::submit_direction_select(&cfg, &req).await {
+                    Ok(()) => submit.set(Submit::Sent(format!("direction recorded: {archetype}"))),
+                    Err(e) => submit.set(Submit::Failed(e.to_string())),
+                }
+            });
+        }
+    };
+
+    let sending = matches!(*submit.read(), Submit::Sending);
+    rsx! {
+        DirectionView {
+            prompt,
+            context,
+            title,
+            archetypes,
+            chosen: chosen.read().clone(),
+            pins: pins.read().clone(),
+            comments: comments.read().clone(),
+            decided: decided || sending,
+            on_choose: choose,
+            on_place_pin: place,
+            on_comment: comment,
+            on_submit: do_submit,
+        }
+        SubmitStatus { state: submit.read().clone() }
+    }
+}
+
+/// Extract the picker payload's `PartialEq` data and render the session.
+fn picker_session(cfg: ConnConfig, p: PickerSessionPayload) -> Element {
+    let decided = p.selection.is_some()
+        || matches!(
+            p.status,
+            darkrun_api::common::SessionStatus::Decided
+                | darkrun_api::common::SessionStatus::Approved
+        );
+    let seed = p.selection.as_ref().map(|s| s.id.clone());
+    rsx! {
+        PickerSession {
+            cfg,
+            title: Some(p.title.clone()),
+            prompt: p.prompt.clone(),
+            options: map::picker_items(&p.options),
+            seed_selected: seed,
+            decided,
+        }
+    }
+}
+
+/// The live picker session: owns the single selection and submits it to
+/// `/picker/:id/select`.
+#[component]
+fn PickerSession(
+    cfg: ConnConfig,
+    title: Option<String>,
+    prompt: String,
+    options: Vec<PickerItem>,
+    seed_selected: Option<String>,
+    decided: bool,
+) -> Element {
+    let mut selected = use_signal(|| seed_selected.clone());
+    let submit = use_signal(|| Submit::Idle);
+
+    let select = {
+        let cfg = cfg.clone();
+        move |id: String| {
+            let cfg = cfg.clone();
+            let mut submit = submit;
+            selected.set(Some(id.clone()));
+            spawn(async move {
+                submit.set(Submit::Sending);
+                let req = PickerSelectRequest { id: id.clone() };
+                match wire::submit_picker_select(&cfg, &req).await {
+                    Ok(()) => submit.set(Submit::Sent(format!("selected: {id}"))),
+                    Err(e) => submit.set(Submit::Failed(e.to_string())),
+                }
+            });
+        }
+    };
+
+    let sending = matches!(*submit.read(), Submit::Sending);
+    rsx! {
+        PickerView {
+            title,
+            prompt,
+            options,
+            selected: selected.read().clone(),
+            decided: decided || sending,
+            on_select: select,
+        }
+        SubmitStatus { state: submit.read().clone() }
     }
 }
 

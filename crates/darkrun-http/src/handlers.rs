@@ -20,10 +20,11 @@ use axum::{
     Json,
 };
 use darkrun_api::{
-    FeedbackCreateRequest, FeedbackCreateResponse, FeedbackDeleteResponse, FeedbackItem,
-    FeedbackListResponse, FeedbackReplyCreateRequest, FeedbackReplyCreateResponse, FeedbackStatus,
-    FeedbackUpdateRequest, FeedbackUpdateResponse, ReviewDecision, ReviewDecisionRequest,
-    ReviewDecisionResponse, SessionPayload, SessionStatus,
+    DirectionSelectRequest, DirectionSelectResponse, FeedbackCreateRequest, FeedbackCreateResponse,
+    FeedbackDeleteResponse, FeedbackItem, FeedbackListResponse, FeedbackReplyCreateRequest,
+    FeedbackReplyCreateResponse, FeedbackStatus, FeedbackUpdateRequest, FeedbackUpdateResponse,
+    PickerSelectRequest, PickerSelectResponse, QuestionAnswerRequest, QuestionAnswerResponse,
+    ReviewDecision, ReviewDecisionRequest, ReviewDecisionResponse, SessionPayload, SessionStatus,
 };
 use serde_json::json;
 
@@ -119,6 +120,114 @@ pub async fn advance(State(state): State<AppState>, Path(id): Path<String>) -> R
         state.sessions.upsert(SessionPayload::Review(review));
     }
     (StatusCode::OK, Json(json!({ "ok": true, "advanced": true }))).into_response()
+}
+
+/// `POST /question/:id/answer` — record the operator's answer to a VISUAL
+/// QUESTION session.
+///
+/// Stores the selected option ids (and optional free text) onto the session's
+/// `answer` field, flips the session to `answered`, and pushes the resolved
+/// payload to any WebSocket subscriber. `404` when the session is unknown,
+/// `409` when the session under that id is not a question session.
+pub async fn question_answer(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<QuestionAnswerRequest>,
+) -> Response {
+    let Some(payload) = state.sessions.get(&id) else {
+        return not_found("session", &id);
+    };
+    let SessionPayload::Question(mut question) = payload else {
+        return conflict("session is not a question session", &id);
+    };
+
+    let answer = req.to_answer();
+    question.answer = Some(answer.clone());
+    question.status = SessionStatus::Answered;
+    state.sessions.upsert(SessionPayload::Question(question));
+
+    (
+        StatusCode::OK,
+        Json(QuestionAnswerResponse { ok: true, answer }),
+    )
+        .into_response()
+}
+
+/// `POST /direction/:id/select` — record the operator's design DIRECTION: the
+/// chosen archetype id plus optional annotations.
+///
+/// Validates the chosen archetype against the session's `archetypes[].id`
+/// (`422` when it names an unknown archetype), records the choice + annotations,
+/// flips the session to `decided`, and pushes the update. `404`/`409` mirror
+/// the question handler.
+pub async fn direction_select(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DirectionSelectRequest>,
+) -> Response {
+    let Some(payload) = state.sessions.get(&id) else {
+        return not_found("session", &id);
+    };
+    let SessionPayload::Direction(mut direction) = payload else {
+        return conflict("session is not a direction session", &id);
+    };
+
+    // The chosen archetype must exist among the offered ones (when any were
+    // offered). An empty archetype list means the decision is unconstrained.
+    if !direction.archetypes.is_empty()
+        && !direction.archetypes.iter().any(|a| a.id == req.archetype)
+    {
+        return unprocessable("unknown archetype id", &req.archetype);
+    }
+
+    direction.chosen_archetype = Some(req.archetype.clone());
+    direction.annotations = req.annotations;
+    direction.status = SessionStatus::Decided;
+    state.sessions.upsert(SessionPayload::Direction(direction));
+
+    (
+        StatusCode::OK,
+        Json(DirectionSelectResponse {
+            ok: true,
+            archetype: req.archetype,
+        }),
+    )
+        .into_response()
+}
+
+/// `POST /picker/:id/select` — choose an option in a blocking picker session.
+///
+/// Validates the option id against the session's `options[].id` (`422` on an
+/// unknown id), records the selection, flips the session to `decided`, and
+/// pushes the update. `404`/`409` mirror the other session handlers.
+pub async fn picker_select(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<PickerSelectRequest>,
+) -> Response {
+    let Some(payload) = state.sessions.get(&id) else {
+        return not_found("session", &id);
+    };
+    let SessionPayload::Picker(mut picker) = payload else {
+        return conflict("session is not a picker session", &id);
+    };
+
+    if !picker.options.iter().any(|o| o.id == req.id) {
+        return unprocessable("unknown option id", &req.id);
+    }
+
+    picker.selection = Some(darkrun_api::PickerSelection { id: req.id.clone() });
+    picker.status = SessionStatus::Decided;
+    state.sessions.upsert(SessionPayload::Picker(picker));
+
+    (
+        StatusCode::OK,
+        Json(PickerSelectResponse {
+            ok: true,
+            id: req.id,
+        }),
+    )
+        .into_response()
 }
 
 /// `GET /api/feedback/:run/:station` — list feedback items for a run's station.
@@ -372,6 +481,25 @@ fn not_found(kind: &str, id: &str) -> Response {
 /// Build a uniform `400` JSON envelope.
 fn bad_request(msg: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
+}
+
+/// Build a uniform `409` JSON envelope for a session-type mismatch.
+fn conflict(msg: &str, id: &str) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({ "error": msg, "session_id": id })),
+    )
+        .into_response()
+}
+
+/// Build a uniform `422` JSON envelope for a semantically-invalid selection
+/// (e.g. an archetype/option id that doesn't exist on the session).
+fn unprocessable(msg: &str, value: &str) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "error": msg, "value": value })),
+    )
+        .into_response()
 }
 
 /// Build a uniform `500` JSON envelope.

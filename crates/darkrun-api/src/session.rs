@@ -496,34 +496,38 @@ pub struct ReviewSessionPayload {
     pub last_await_ended_at: Option<String>,
 }
 
-/// A single question in a question session.
+/// One selectable option in a visual question — a single choice the operator
+/// can pick, optionally backed by a generated image and a description.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct QuestionDef {
-    /// The question text.
-    pub question: String,
-    /// Optional section header.
+pub struct QuestionOption {
+    /// Canonical id echoed back in the answer's `selected[]`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Optional generated-image URL (a mockup / design option to pick among).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header: Option<String>,
-    /// Selectable options.
-    pub options: Vec<String>,
-    /// Whether multiple options may be selected.
+    pub image_url: Option<String>,
+    /// Optional longer description rendered under the label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub multi_select: Option<bool>,
+    pub description: Option<String>,
 }
 
-/// A recorded answer to one question.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The operator's answer to a visual question — the chosen option ids plus an
+/// optional free-text note.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct QuestionAnswer {
-    /// The question prompt (echoed back).
-    pub question: String,
-    /// The options the user selected.
-    pub selected_options: Vec<String>,
-    /// Free-text "other" input, when allowed.
+    /// The option ids the operator selected (one for single-select, many for
+    /// multi-select).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<String>,
+    /// Optional free-text elaboration / "other" input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub other_text: Option<String>,
+    pub text: Option<String>,
 }
 
-/// The question-session payload (`session_type = "question"`).
+/// The question-session payload (`session_type = "question"`) — a VISUAL
+/// QUESTION the agent poses mid-run: a prompt plus a list of options (each an
+/// optionally-image-backed choice) the operator picks among.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct QuestionSessionPayload {
     /// The session id.
@@ -533,76 +537,72 @@ pub struct QuestionSessionPayload {
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The question prompt rendered above the options.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
     /// Optional markdown context preamble.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-    /// The questions to answer.
+    /// The selectable options (image-backed design choices, or plain choices).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub questions: Vec<QuestionDef>,
-    /// Recorded answers, once submitted.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub answers: Vec<QuestionAnswer>,
-    /// Reference image URLs the questions annotate.
+    pub options: Vec<QuestionOption>,
+    /// Whether more than one option may be selected.
+    #[serde(default)]
+    pub multi_select: bool,
+    /// The recorded answer, once submitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<QuestionAnswer>,
+    /// Reference image URLs the question annotates (e.g. the surface under
+    /// discussion), distinct from per-option images.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub image_urls: Vec<String>,
 }
 
-/// One direction archetype card.
+/// One design ARCHETYPE card in a direction session — a named design direction,
+/// always backed by a generated preview image.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DirectionArchetype {
-    /// Archetype name.
-    pub name: String,
-    /// Archetype description.
+    /// Canonical id echoed back as `chosen_archetype`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Generated preview-image URL for this archetype.
+    pub image_url: String,
+    /// Description of the design direction this archetype represents.
     pub description: String,
-    /// Preview HTML snippet.
-    pub preview_html: String,
 }
 
-/// A pin dropped on a direction preview.
+/// A pin dropped on a direction preview at a relative coordinate.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DirectionPin {
-    /// X coordinate.
+    /// X coordinate (0..1 relative to the preview width).
     pub x: f64,
-    /// Y coordinate.
+    /// Y coordinate (0..1 relative to the preview height).
     pub y: f64,
-    /// Pin text.
-    pub text: String,
+    /// The note attached to the pin.
+    pub note: String,
 }
 
-/// A screenshot annotation captured against a direction selection.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct DirectionScreenshotAnnotation {
-    /// Reviewer's note.
-    pub comment: String,
-    /// `data:image/png;base64,...` URL of the captured surface.
-    pub screenshot_data_url: String,
-}
-
-/// Annotations attached to a direction selection.
+/// Annotations the operator attaches when giving a design direction — pins on
+/// the chosen archetype, an optional captured-screenshot reference, and a list
+/// of free-text comments.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-pub struct DirectionSelectionAnnotations {
-    /// Pin annotations.
+pub struct DirectionAnnotations {
+    /// Pin annotations on the preview.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pins: Vec<DirectionPin>,
-    /// Screenshot annotation passes.
+    /// Optional reference to a captured screenshot — a `data:image/...;base64`
+    /// URL or a server-relative artifact path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<String>,
+    /// Free-text comments on the direction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub screenshots: Vec<DirectionScreenshotAnnotation>,
+    pub comments: Vec<String>,
 }
 
-/// A saved design-direction selection.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct DirectionSelection {
-    /// The chosen archetype name.
-    pub archetype: String,
-    /// Optional comments.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comments: Option<String>,
-    /// Optional annotations.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<DirectionSelectionAnnotations>,
-}
-
-/// The direction-session payload (`session_type = "direction"`).
+/// The direction-session payload (`session_type = "direction"`) — a DESIGN
+/// DIRECTION the agent asks for: a prompt plus design archetypes (each an
+/// image-backed direction), the chosen archetype id, and annotations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DirectionSessionPayload {
     /// The session id.
@@ -615,15 +615,21 @@ pub struct DirectionSessionPayload {
     /// The run slug.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_slug: Option<String>,
+    /// The prompt rendered above the archetype cards.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
     /// Optional markdown preamble above the archetype cards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-    /// Archetype cards to choose between.
+    /// The design archetypes to choose between.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub archetypes: Vec<DirectionArchetype>,
-    /// The saved selection, if any.
+    /// The id of the archetype the operator chose, once decided.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selection: Option<DirectionSelection>,
+    pub chosen_archetype: Option<String>,
+    /// Annotations attached to the chosen direction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<DirectionAnnotations>,
 }
 
 /// The kind of selection a picker session blocks on.

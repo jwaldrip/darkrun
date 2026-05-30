@@ -11,7 +11,11 @@
 
 use std::fmt;
 
-use darkrun_api::{ReviewDecisionRequest, SessionPayload};
+use darkrun_api::{
+    DirectionSelectRequest, PickerSelectRequest, QuestionAnswerRequest, ReviewDecisionRequest,
+    SessionPayload,
+};
+use serde::Serialize;
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -70,6 +74,21 @@ impl ConnConfig {
     /// The decision POST path (`/review/:id/decide`).
     pub fn decide_path(&self) -> String {
         format!("/review/{}/decide", self.session_id)
+    }
+
+    /// The question-answer POST path (`/question/:id/answer`).
+    pub fn question_answer_path(&self) -> String {
+        format!("/question/{}/answer", self.session_id)
+    }
+
+    /// The direction-select POST path (`/direction/:id/select`).
+    pub fn direction_select_path(&self) -> String {
+        format!("/direction/{}/select", self.session_id)
+    }
+
+    /// The picker-select POST path (`/picker/:id/select`).
+    pub fn picker_select_path(&self) -> String {
+        format!("/picker/{}/select", self.session_id)
     }
 }
 
@@ -169,9 +188,42 @@ pub async fn submit_decision(
     cfg: &ConnConfig,
     req: &ReviewDecisionRequest,
 ) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.decide_path(), req).await
+}
+
+/// POST the answer to a visual-question session (`/question/:id/answer`).
+pub async fn submit_question_answer(
+    cfg: &ConnConfig,
+    req: &QuestionAnswerRequest,
+) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.question_answer_path(), req).await
+}
+
+/// POST the design-direction decision (`/direction/:id/select`).
+pub async fn submit_direction_select(
+    cfg: &ConnConfig,
+    req: &DirectionSelectRequest,
+) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.direction_select_path(), req).await
+}
+
+/// POST the picker selection (`/picker/:id/select`).
+pub async fn submit_picker_select(
+    cfg: &ConnConfig,
+    req: &PickerSelectRequest,
+) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.picker_select_path(), req).await
+}
+
+/// Hand-rolled HTTP/1.1 JSON POST over loopback TCP, shared by every decision /
+/// answer / selection path. Serializes `req`, writes the request, reads the
+/// response, and surfaces a typed result on the status code.
+async fn post_json<T: Serialize>(
+    authority: &str,
+    path: &str,
+    req: &T,
+) -> Result<(), WireError> {
     let body = serde_json::to_vec(req).map_err(WireError::Encode)?;
-    let authority = cfg.authority();
-    let path = cfg.decide_path();
 
     let request = format!(
         "POST {path} HTTP/1.1\r\n\
@@ -231,6 +283,18 @@ mod tests {
         assert_eq!(cfg.ws_url(), "ws://127.0.0.1:7878/ws/session/abc");
         assert_eq!(cfg.decide_path(), "/review/abc/decide");
         assert_eq!(cfg.authority(), "127.0.0.1:7878");
+    }
+
+    #[test]
+    fn session_submit_paths_match_routes() {
+        let cfg = ConnConfig {
+            host: "127.0.0.1".into(),
+            port: 7878,
+            session_id: "s-42".into(),
+        };
+        assert_eq!(cfg.question_answer_path(), "/question/s-42/answer");
+        assert_eq!(cfg.direction_select_path(), "/direction/s-42/select");
+        assert_eq!(cfg.picker_select_path(), "/picker/s-42/select");
     }
 
     #[test]
