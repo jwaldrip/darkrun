@@ -1180,6 +1180,7 @@ dependencies = [
  "darkrun-http",
  "darkrun-prompts",
  "rmcp",
+ "rust-embed",
  "schemars 0.8.22",
  "serde",
  "serde_json",

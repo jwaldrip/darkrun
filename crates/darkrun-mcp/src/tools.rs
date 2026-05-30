@@ -1165,6 +1165,50 @@ impl ServerHandler for DarkrunServer {
         })
     }
 
+    /// Bridge the shipped skills as MCP prompts, for harnesses that consume the
+    /// prompts capability but don't load `SKILL.md` natively (everyone but
+    /// Claude Code). Claude Code uses its native skills, so it gets none here.
+    async fn list_prompts(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> std::result::Result<rmcp::model::ListPromptsResult, ErrorData> {
+        if self.caps.harness.is_claude_code() || !self.caps.mcp_prompts {
+            return Ok(rmcp::model::ListPromptsResult::default());
+        }
+        let prompts = crate::skill_bridge::skill_prompts()
+            .into_iter()
+            .map(|p| rmcp::model::Prompt::new(p.name, Some(p.description), None))
+            .collect();
+        let mut result = rmcp::model::ListPromptsResult::default();
+        result.prompts = prompts;
+        Ok(result)
+    }
+
+    /// Return a bridged skill prompt's body as a user message.
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> std::result::Result<rmcp::model::GetPromptResult, ErrorData> {
+        match crate::skill_bridge::skill_prompt(&request.name) {
+            Some(p) => {
+                let mut result = rmcp::model::GetPromptResult::new(vec![
+                    rmcp::model::PromptMessage::new_text(
+                        rmcp::model::PromptMessageRole::User,
+                        p.body,
+                    ),
+                ]);
+                result.description = Some(p.description);
+                Ok(result)
+            }
+            None => Err(ErrorData::invalid_params(
+                format!("unknown prompt: {}", request.name),
+                None,
+            )),
+        }
+    }
+
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         let mut instructions = String::from(
@@ -1184,7 +1228,17 @@ impl ServerHandler for DarkrunServer {
             ));
         }
         info.instructions = Some(instructions);
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        // Advertise prompts to harnesses that surface the bridged skills (every
+        // harness but Claude Code, which loads SKILL.md natively). The builder is
+        // a typestate, so each branch builds its own concrete capability set.
+        info.capabilities = if self.caps.mcp_prompts && !self.caps.harness.is_claude_code() {
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build()
+        } else {
+            ServerCapabilities::builder().enable_tools().build()
+        };
         info
     }
 }

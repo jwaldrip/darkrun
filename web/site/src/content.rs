@@ -64,6 +64,12 @@ pub const DOCS: &[Doc] = &[
         summary: "Drive a run from its checkpoints.",
         markdown: include_str!("../content/docs/review.md"),
     },
+    Doc {
+        slug: "other-harnesses",
+        title: "Other harnesses",
+        summary: "Run darkrun in Cursor, Gemini, Codex, and more.",
+        markdown: include_str!("../content/docs/other-harnesses.md"),
+    },
 ];
 
 /// The concept pages (methodology, glossary, lifecycles).

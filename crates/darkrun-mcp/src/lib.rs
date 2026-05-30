@@ -58,6 +58,7 @@ pub mod proof;
 pub mod runs;
 pub mod server;
 pub mod sessions;
+pub mod skill_bridge;
 pub mod tools;
 pub mod units;
 
