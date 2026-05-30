@@ -94,7 +94,8 @@ pub fn RunWalkthrough(
         "display:flex;flex-direction:column;gap:14px;font-family:{sans};",
         sans = tokens::FONT_SANS,
     );
-    let stage = "display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;";
+    // Stacked: the station walker on top (full width), the phase machine below.
+    let stage = "display:flex;flex-direction:column;gap:18px;align-items:stretch;";
     let narration_style = format!(
         "font-family:{mono};font-size:13px;color:{text};background:{surface};\
          border:1px solid {border};border-left:3px solid {accent};border-radius:8px;\
@@ -116,11 +117,13 @@ pub fn RunWalkthrough(
         div { class: "dr-run-walkthrough", "data-tick": "{at}", "data-controlled": "{controlled}", style: "{panel}",
             // The two synchronized views: the pipeline and the phase ring.
             div { style: "{stage}",
-                div { style: "flex:1;min-width:280px;",
-                    StationFlow { stations: stations.clone(), active: Some(active_station) }
+                // Station walker on top — full width, content centered.
+                div { style: "width:100%;",
+                    StationFlow { stations: stations.clone(), active: Some(active_station), full_width: true }
                 }
-                div {
-                    PhaseMachine { active: Some(active_phase), active_beat, size: 280.0 }
+                // Phase machine below — full width, ring centered.
+                div { style: "width:100%;",
+                    PhaseMachine { active: Some(active_phase), active_beat, size: 300.0, full_width: true }
                 }
             }
 

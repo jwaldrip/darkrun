@@ -35,6 +35,10 @@ pub fn StationFlow(
     /// Fired with the station slug when a node is clicked.
     #[props(default)]
     on_select: Option<EventHandler<String>>,
+    /// Stretch the SVG to fill its container width (content stays centered via the
+    /// viewBox) instead of capping at natural size.
+    #[props(default = false)]
+    full_width: bool,
 ) -> Element {
     let opts = FlowOptions::default();
     let layout = layout_flow(&stations, active, &opts);
@@ -42,9 +46,10 @@ pub fn StationFlow(
     let mut hovered = use_signal(|| Option::<usize>::None);
 
     let view_box = format!("0 0 {} {}", layout.width, layout.height);
+    let width_rule = if full_width { "width:100%" } else { "max-width:100%" };
     let svg_style = format!(
         "background:{surface};border:1px solid {border};border-radius:10px;\
-         display:block;max-width:100%;height:auto;font-family:{mono};",
+         display:block;{width_rule};height:auto;font-family:{mono};margin:0 auto;",
         surface = tokens::SURFACE_RAISED,
         border = tokens::BORDER,
         mono = tokens::FONT_MONO,

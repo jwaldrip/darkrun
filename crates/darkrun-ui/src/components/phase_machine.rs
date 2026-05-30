@@ -24,6 +24,10 @@ pub fn PhaseMachine(
     /// When set, the active Pass beat is highlighted inside the Manufacture node.
     #[props(default)]
     active_beat: Option<PassBeat>,
+    /// Stretch the SVG to fill its container width (aspect preserved) instead of
+    /// capping at its natural size.
+    #[props(default = false)]
+    full_width: bool,
 ) -> Element {
     let cx = size / 2.0;
     let cy = size / 2.0;
@@ -37,15 +41,20 @@ pub fn PhaseMachine(
     // the longest label ("Checkpoint"/"Manufacture"), with extra on the right
     // for the strip. width/height grow with it; `max-width:100%` keeps it fitting
     // the card.
-    let pad_l = size * 0.42;
-    let pad_r = size * 0.66;
+    // Symmetric horizontal padding so the ring stays centered (cx = size/2 is the
+    // viewBox center); generous enough for the longest labels AND the right-side
+    // make/challenge/resolve strip.
+    let pad_x = size * 0.52;
     let pad_y = size * 0.13;
-    let vb_w = size + pad_l + pad_r;
+    let vb_w = size + pad_x * 2.0;
     let vb_h = size + pad_y * 2.0;
-    let view_box = format!("{:.1} {:.1} {:.1} {:.1}", -pad_l, -pad_y, vb_w, vb_h);
+    let view_box = format!("{:.1} {:.1} {:.1} {:.1}", -pad_x, -pad_y, vb_w, vb_h);
+    // `width:100%` fills the container (content stays centered via the viewBox's
+    // default preserveAspectRatio); `max-width:100%` keeps natural size otherwise.
+    let width_rule = if full_width { "width:100%" } else { "max-width:100%" };
     let svg_style = format!(
         "background:{surface};border:1px solid {border};border-radius:10px;\
-         display:block;max-width:100%;height:auto;font-family:{mono};",
+         display:block;{width_rule};height:auto;font-family:{mono};margin:0 auto;",
         surface = tokens::SURFACE_RAISED,
         border = tokens::BORDER,
         mono = tokens::FONT_MONO,
