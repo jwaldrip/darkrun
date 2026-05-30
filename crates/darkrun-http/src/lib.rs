@@ -159,7 +159,20 @@ pub async fn serve_with_limits(
     limits: Limits,
 ) -> std::io::Result<()> {
     let app_state = AppState::new(store, limits);
-    let router = build_router(app_state);
+    serve_with_state(addr, app_state).await
+}
+
+/// Serve a pre-built [`AppState`] on `addr`.
+///
+/// The registry-sharing entry point: an embedder (the in-process `darkrun mcp`
+/// host) builds ONE [`AppState`] — cloning its [`SessionRegistry`] /
+/// [`ProofRegistry`] into its own MCP tool handlers first — and hands the same
+/// state here. Because the registries are clonable shared handles, a session
+/// the manager upserts is immediately visible to these HTTP/WS handlers without
+/// any on-disk bridge.
+pub async fn serve_with_state(addr: SocketAddr, state: AppState) -> std::io::Result<()> {
+    let limits = state.limits;
+    let router = build_router(state);
     serve_router(addr, router, limits).await
 }
 

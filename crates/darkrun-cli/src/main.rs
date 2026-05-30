@@ -2,8 +2,8 @@
 //!
 //! Assembles the engine crates behind a single `darkrun` binary:
 //!
-//! - `darkrun mcp`              — serve the manager over stdio (MCP).
-//! - `darkrun serve`           — serve the HTTP/WebSocket review server (axum).
+//! - `darkrun mcp`              — serve the manager over stdio (MCP), co-hosting the HTTP/WS review server in-process.
+//! - `darkrun serve`           — serve the HTTP/WebSocket review server (axum) standalone (remote/headless case).
 //! - `darkrun run start <desc>` — seed a new run at the factory's first station.
 //! - `darkrun run next [slug]` — tick the manager and print the next action.
 //! - `darkrun run show [slug]` — print a run's current state + derived position.
@@ -49,8 +49,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Start the stdio MCP server (the manager).
-    Mcp,
+    /// Start the stdio MCP server (the manager), co-hosting the HTTP/WS review
+    /// server in-process on a shared in-memory session registry.
+    Mcp(McpArgs),
     /// Start the axum HTTP + WebSocket review server.
     Serve(ServeArgs),
     /// Drive a run through the factory.
@@ -84,6 +85,14 @@ struct ServeArgs {
     /// Address to bind, e.g. 127.0.0.1:4317.
     #[arg(long, default_value = "127.0.0.1:4317")]
     addr: SocketAddr,
+}
+
+#[derive(Debug, Args)]
+struct McpArgs {
+    /// Address the in-process HTTP/WS review server binds. Overrides
+    /// DARKRUN_PORT; defaults to 127.0.0.1:4317 when neither is set.
+    #[arg(long)]
+    addr: Option<SocketAddr>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -289,7 +298,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 None => std::env::current_dir()?,
             };
             match other {
-                Command::Mcp => serve_mcp(repo_root),
+                Command::Mcp(args) => serve_mcp(repo_root, args.addr),
                 Command::Serve(args) => serve_http(repo_root, args.addr),
                 Command::Run(cmd) => run_command(&repo_root, cmd),
                 Command::Auth(cmd) => auth_command(cmd),
@@ -303,10 +312,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Block on the stdio MCP server.
-fn serve_mcp(repo_root: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+/// Block on the stdio MCP server, which co-hosts the HTTP/WS review server
+/// in-process. With an explicit `--addr`, bind there; otherwise the server
+/// resolves DARKRUN_PORT (or the 127.0.0.1:4317 default).
+fn serve_mcp(repo_root: PathBuf, addr: Option<SocketAddr>) -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(darkrun_mcp::serve_stdio(repo_root))?;
+    match addr {
+        Some(addr) => runtime.block_on(darkrun_mcp::serve_stdio_on(repo_root, addr))?,
+        None => runtime.block_on(darkrun_mcp::serve_stdio(repo_root))?,
+    }
     Ok(())
 }
 

@@ -22,24 +22,66 @@ use serde::{Deserialize, Serialize};
 use darkrun_core::domain::{FeedbackStatus, Status};
 use darkrun_core::StateStore;
 
+use darkrun_http::SessionRegistry;
+
 use crate::factory::{list_factories, resolve_factory};
 use crate::position::{checkpoint_decide, run_start, run_tick};
 use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
 use crate::{feedback, proof, runs, units};
 
-/// The darkrun MCP server: an manager bound to a repo root.
+/// The darkrun MCP server: a manager bound to a repo root, holding the shared
+/// in-memory [`SessionRegistry`] that the in-process HTTP/WS server also serves
+/// from.
+///
+/// Durable run state (run.md, state.json, units/, feedback/, proof.json) lives
+/// on disk via [`StateStore`]; the EPHEMERAL interactive sessions
+/// (question/direction/picker payloads) live only in `sessions` — never on disk.
+/// Because the registry is a clonable shared handle, a session a tool handler
+/// upserts is immediately visible to the HTTP handlers connected to the bound
+/// port.
 #[derive(Clone)]
 pub struct DarkrunServer {
     repo_root: Arc<PathBuf>,
+    sessions: SessionRegistry,
+    /// The HTTP/WS port announced to the agent in `instructions`, when the
+    /// server co-hosts the in-process HTTP server. `None` for bare unit tests.
+    announced_addr: Option<std::net::SocketAddr>,
 }
 
 impl DarkrunServer {
-    /// Build a server rooted at `repo_root` (state lives under
-    /// `<repo_root>/.darkrun`).
+    /// Build a server rooted at `repo_root` with a fresh in-memory session
+    /// registry (state lives under `<repo_root>/.darkrun`).
+    ///
+    /// Used by callers that do not co-host the HTTP server (e.g. unit tests).
+    /// The in-process `darkrun mcp` host instead builds one shared registry and
+    /// passes it via [`DarkrunServer::with_sessions`] so the HTTP/WS server and
+    /// the MCP tools observe the same sessions.
     pub fn new(repo_root: impl Into<PathBuf>) -> Self {
+        Self::with_sessions(repo_root, SessionRegistry::new())
+    }
+
+    /// Build a server rooted at `repo_root` sharing the given in-memory session
+    /// registry with the in-process HTTP/WS server.
+    pub fn with_sessions(repo_root: impl Into<PathBuf>, sessions: SessionRegistry) -> Self {
         Self {
             repo_root: Arc::new(repo_root.into()),
+            sessions,
+            announced_addr: None,
         }
+    }
+
+    /// Record the in-process HTTP/WS bind address so it is announced to the
+    /// agent in the MCP server `instructions`.
+    pub fn with_announced_addr(mut self, addr: std::net::SocketAddr) -> Self {
+        self.announced_addr = Some(addr);
+        self
+    }
+
+    /// The shared in-memory session registry this server upserts into — the same
+    /// handle the in-process HTTP/WS server serves from. Lets an embedder (or a
+    /// test simulating the HTTP answer handler) observe/mutate live sessions.
+    pub fn sessions(&self) -> &SessionRegistry {
+        &self.sessions
     }
 
     fn store(&self) -> StateStore {
@@ -906,7 +948,6 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<QuestionInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let store = self.store();
         let options = input
             .options
             .into_iter()
@@ -918,7 +959,7 @@ impl DarkrunServer {
             })
             .collect();
         match sessions::create_question(
-            &store,
+            &self.sessions,
             &input.slug,
             input.title,
             &input.prompt,
@@ -942,8 +983,7 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<SessionResultInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let store = self.store();
-        match sessions::question_result(&store, &input.slug, &input.session_id) {
+        match sessions::question_result(&self.sessions, &input.slug, &input.session_id) {
             Ok(q) => ok_json(&q),
             Err(e) => Ok(err_text(e)),
         }
@@ -961,7 +1001,6 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<DirectionInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let store = self.store();
         let archetypes = input
             .archetypes
             .into_iter()
@@ -973,7 +1012,7 @@ impl DarkrunServer {
             })
             .collect();
         match sessions::create_direction(
-            &store,
+            &self.sessions,
             &input.slug,
             input.title,
             &input.prompt,
@@ -995,8 +1034,7 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<SessionResultInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let store = self.store();
-        match sessions::direction_result(&store, &input.slug, &input.session_id) {
+        match sessions::direction_result(&self.sessions, &input.slug, &input.session_id) {
             Ok(d) => ok_json(&d),
             Err(e) => Ok(err_text(e)),
         }
@@ -1017,7 +1055,6 @@ impl DarkrunServer {
             Some(k) => k,
             None => return Ok(err_text(format!("invalid picker kind: {}", input.kind))),
         };
-        let store = self.store();
         let options = input
             .options
             .into_iter()
@@ -1029,7 +1066,7 @@ impl DarkrunServer {
             })
             .collect();
         match sessions::create_picker(
-            &store,
+            &self.sessions,
             &input.slug,
             kind,
             &input.title,
@@ -1050,8 +1087,7 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<SessionResultInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let store = self.store();
-        match sessions::picker_result(&store, &input.slug, &input.session_id) {
+        match sessions::picker_result(&self.sessions, &input.slug, &input.session_id) {
             Ok(p) => ok_json(&p),
             Err(e) => Ok(err_text(e)),
         }
@@ -1062,14 +1098,23 @@ impl DarkrunServer {
 impl ServerHandler for DarkrunServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
-        info.instructions = Some(
+        let mut instructions = String::from(
             "darkrun manager. Call darkrun_run_start to begin a Run, then \
              darkrun_run_next repeatedly to walk its factory stations. Each tick returns \
              a structured next-action instruction — perform it (write artifacts, \
              decompose units, complete passes), then re-tick. Use \
-             darkrun_checkpoint_decide to resolve a station's gate."
-                .to_string(),
+             darkrun_checkpoint_decide to resolve a station's gate.",
         );
+        if let Some(addr) = self.announced_addr {
+            instructions.push_str(&format!(
+                " The interactive review server (HTTP/WS) is hosted in-process on \
+                 http://{addr} — the desktop app reads DARKRUN_PORT={} to connect. \
+                 Visual sessions raised via darkrun_question/direction/picker are \
+                 served live from there.",
+                addr.port()
+            ));
+        }
+        info.instructions = Some(instructions);
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }

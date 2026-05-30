@@ -1533,134 +1533,6 @@ fn state_malformed_json_errors() {
     assert!(matches!(store.read_state("r").unwrap_err(), CoreError::Json(_)));
 }
 
-// ─── session.json ───────────────────────────────────────────────────────────
-
-#[test]
-fn read_session_none_when_absent() {
-    let (_t, store) = store();
-    store.write_run(&run("r", Status::Active)).expect("w");
-    assert!(store.read_session("r").expect("read").is_none());
-}
-
-#[test]
-fn read_session_none_when_run_absent() {
-    let (_t, store) = store();
-    assert!(store.read_session("ghost").expect("read").is_none());
-}
-
-#[test]
-fn session_roundtrip_object() {
-    let (_t, store) = store();
-    let v = serde_json::json!({ "id": "s1", "phase": "manufacture" });
-    store.write_session("r", &v).expect("w");
-    let loaded = store.read_session("r").expect("read").expect("some");
-    assert_eq!(loaded["id"], "s1");
-    assert_eq!(loaded["phase"], "manufacture");
-}
-
-#[test]
-fn session_roundtrip_nested() {
-    let (_t, store) = store();
-    let v = serde_json::json!({ "a": { "b": { "c": [1, 2, 3] } } });
-    store.write_session("r", &v).expect("w");
-    let loaded = store.read_session("r").expect("read").expect("some");
-    assert_eq!(loaded["a"]["b"]["c"][2], 3);
-}
-
-#[test]
-fn session_roundtrip_array() {
-    let (_t, store) = store();
-    let v = serde_json::json!([1, "two", true, null]);
-    store.write_session("r", &v).expect("w");
-    let loaded = store.read_session("r").expect("read").expect("some");
-    assert!(loaded.is_array());
-    assert_eq!(loaded[1], "two");
-    assert_eq!(loaded[2], true);
-    assert!(loaded[3].is_null());
-}
-
-#[test]
-fn session_roundtrip_scalar_string() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!("just a string")).expect("w");
-    assert_eq!(store.read_session("r").expect("read").expect("some"), serde_json::json!("just a string"));
-}
-
-#[test]
-fn session_roundtrip_scalar_number() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!(42)).expect("w");
-    assert_eq!(store.read_session("r").expect("read").expect("some"), serde_json::json!(42));
-}
-
-#[test]
-fn session_roundtrip_null() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::Value::Null).expect("w");
-    let loaded = store.read_session("r").expect("read").expect("some");
-    assert!(loaded.is_null());
-}
-
-#[test]
-fn session_roundtrip_empty_object() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!({})).expect("w");
-    let loaded = store.read_session("r").expect("read").expect("some");
-    assert!(loaded.as_object().expect("obj").is_empty());
-}
-
-#[test]
-fn session_creates_run_dir() {
-    let (_t, store) = store();
-    assert!(!store.run_dir("r").exists());
-    store.write_session("r", &serde_json::json!({})).expect("w");
-    assert!(store.run_dir("r").join("session.json").exists());
-}
-
-#[test]
-fn session_overwrites() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!({ "v": 1 })).expect("w1");
-    store.write_session("r", &serde_json::json!({ "v": 2 })).expect("w2");
-    assert_eq!(store.read_session("r").expect("read").expect("some")["v"], 2);
-}
-
-#[test]
-fn session_unicode_values_preserved() {
-    let (_t, store) = store();
-    let v = serde_json::json!({ "title": "café — naïve 日本語" });
-    store.write_session("r", &v).expect("w");
-    assert_eq!(
-        store.read_session("r").expect("read").expect("some")["title"],
-        "café — naïve 日本語"
-    );
-}
-
-#[test]
-fn session_written_as_pretty_json() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!({ "a": 1, "b": 2 })).expect("w");
-    let raw = fs::read_to_string(store.run_dir("r").join("session.json")).expect("read");
-    assert!(raw.contains('\n'));
-}
-
-#[test]
-fn session_malformed_json_errors() {
-    let (_t, store) = store();
-    fs::create_dir_all(store.run_dir("r")).expect("mkdir");
-    fs::write(store.run_dir("r").join("session.json"), "{ broken").expect("w");
-    assert!(matches!(store.read_session("r").unwrap_err(), CoreError::Json(_)));
-}
-
-#[test]
-fn session_and_state_independent() {
-    let (_t, store) = store();
-    store.write_session("r", &serde_json::json!({ "s": true })).expect("w");
-    // state.json absent even though session present.
-    assert!(store.read_state("r").expect("read").is_none());
-    assert!(store.read_session("r").expect("read").is_some());
-}
-
 // ─── feedback ───────────────────────────────────────────────────────────────
 
 #[test]
@@ -1915,7 +1787,7 @@ fn unicode_run_inference() {
 #[test]
 fn full_run_lifecycle_persisted() {
     let (_t, store) = store();
-    // Write a run plus its units, state, session, and feedback.
+    // Write a run plus its units, state, and feedback.
     store.write_run(&run("r", Status::Active)).expect("w");
     store.write_unit("r", &unit("u1", Status::Completed, &[])).expect("w");
     store.write_unit("r", &unit("u2", Status::Active, &["u1"])).expect("w");
@@ -1924,13 +1796,11 @@ fn full_run_lifecycle_persisted() {
         active_station: "build".into(),
         stations: BTreeMap::new(),
     }).expect("w");
-    store.write_session("r", &serde_json::json!({ "active": true })).expect("w");
     store.write_feedback_raw("r", "fb", "---\nid: fb\n---\nfix this\n").expect("w");
 
     assert_eq!(store.list_runs().expect("list"), vec!["r"]);
     assert_eq!(store.read_units("r").expect("read").len(), 2);
     assert_eq!(store.read_state("r").expect("read").expect("some").active_station, "build");
-    assert!(store.read_session("r").expect("read").is_some());
     assert_eq!(store.read_feedback_raw("r").expect("read").len(), 1);
 }
 

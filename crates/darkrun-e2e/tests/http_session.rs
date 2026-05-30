@@ -1752,3 +1752,116 @@ canonicalize_tests! {
     canon_random => ("xyzzy", ReviewDecision::ChangesRequested),
     canon_yes => ("yes", ReviewDecision::ChangesRequested),
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// MCP -> in-memory registry -> HTTP, with NO on-disk session bridge.
+//
+// These are the replacement for the old `session.json` durability tests: a
+// visual session created through the darkrun-mcp tool helper lands in the SAME
+// in-memory `SessionRegistry` the in-process HTTP server serves from, so a
+// `GET /api/session/:id` returns it immediately — and nothing is written to
+// `.darkrun/<run>/session.json`.
+// ════════════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn mcp_question_is_served_by_http_without_disk() {
+    use darkrun_mcp::{create_question, QuestionOptionSpec};
+
+    let h = Http::start("r");
+
+    // The manager raises a visual question into the shared registry — exactly
+    // what the `darkrun_question` MCP tool does. No StateStore touched.
+    let awaiting = create_question(
+        &h.sessions,
+        &h.slug,
+        Some("Pick a hero".into()),
+        "Which hero layout?",
+        None,
+        vec![
+            QuestionOptionSpec {
+                id: "a".into(),
+                label: "Option A".into(),
+                image_url: Some("https://img/a.png".into()),
+                description: None,
+            },
+            QuestionOptionSpec {
+                id: "b".into(),
+                label: "Option B".into(),
+                image_url: None,
+                description: None,
+            },
+        ],
+        false,
+        vec![],
+    )
+    .expect("create_question");
+    assert_eq!(awaiting.session_id, "q-01");
+    assert_eq!(awaiting.session_path, "/api/session/q-01");
+
+    // The in-process HTTP server serves it straight out of shared memory.
+    let payload = read_session(h.send(get("/api/session/q-01")).await).await;
+    match payload {
+        SessionPayload::Question(q) => {
+            assert_eq!(q.prompt, "Which hero layout?");
+            assert_eq!(q.options.len(), 2);
+            assert_eq!(q.status, SessionStatus::Pending);
+        }
+        other => panic!("expected question, got {}", other.session_type()),
+    }
+
+    // And the durable run dir holds NO session.json — sessions are ephemeral.
+    let session_json = h.state.store.run_dir(&h.slug).join("session.json");
+    assert!(
+        !session_json.exists(),
+        "interactive sessions must never be persisted to disk"
+    );
+}
+
+#[tokio::test]
+async fn mcp_picker_answer_round_trips_through_http_in_memory() {
+    use darkrun_mcp::{create_picker, picker_result, PickerOptionSpec};
+    use darkrun_mcp::sessions::parse_picker_kind;
+
+    let h = Http::start("r");
+    let kind = parse_picker_kind("mode").expect("kind");
+    create_picker(
+        &h.sessions,
+        &h.slug,
+        kind,
+        "Pick a mode",
+        "Which mode?",
+        vec![
+            PickerOptionSpec {
+                id: "fast".into(),
+                label: "Fast".into(),
+                description: None,
+                secondary: None,
+            },
+            PickerOptionSpec {
+                id: "thorough".into(),
+                label: "Thorough".into(),
+                description: None,
+                secondary: None,
+            },
+        ],
+    )
+    .expect("create_picker");
+
+    // The operator selects over HTTP; the manager reads the answer back from the
+    // same in-memory registry — no disk in the loop.
+    let resp = h
+        .send(post_json("/picker/p-01/select", &json!({ "id": "thorough" })))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let picker = picker_result(&h.sessions, &h.slug, "p-01").expect("picker_result");
+    assert_eq!(picker.selection.expect("selection").id, "thorough");
+    assert_eq!(picker.status, SessionStatus::Decided);
+
+    assert!(!h
+        .state
+        .store
+        .run_dir(&h.slug)
+        .join("session.json")
+        .exists());
+}

@@ -42,9 +42,11 @@
 //!   `darkrun_question_result`, `darkrun_direction_result`,
 //!   `darkrun_picker_result` (read the operator's answer/selection back).
 //!
-//! [`server::serve_stdio`] serves the surface over stdio. The typed helpers
-//! behind the tools live in [`units`], [`feedback`], [`runs`], [`drift`],
-//! [`proof`], and [`sessions`].
+//! [`server::serve_stdio`] serves the surface over stdio AND co-hosts the
+//! [`darkrun_http`] HTTP/WS review server in-process, sharing one in-memory
+//! [`sessions::SessionRegistry`] so interactive sessions reach the desktop app
+//! with no on-disk bridge. The typed helpers behind the tools live in [`units`],
+//! [`feedback`], [`runs`], [`drift`], [`proof`], and [`sessions`].
 
 pub mod change;
 pub mod drift;
@@ -70,7 +72,7 @@ pub use proof::{
     attach_proof, get_proof, get_surface, route_for, set_surface, SurfaceResult,
 };
 pub use runs::RunSummary;
-pub use server::serve_stdio;
+pub use server::{serve_stdio, serve_stdio_on, DEFAULT_ADDR};
 pub use sessions::{
     create_direction, create_picker, create_question, direction_result, picker_result,
     question_result, ArchetypeSpec, AwaitingSession, PickerOptionSpec, QuestionOptionSpec,

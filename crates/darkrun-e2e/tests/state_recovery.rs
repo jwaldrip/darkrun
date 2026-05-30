@@ -1299,30 +1299,6 @@ fn reopen_units_and_feedback_coexist_after_restart() {
 }
 
 #[test]
-fn reopen_session_json_survives() {
-    let d = Durable::start("sess");
-    let payload = serde_json::json!({ "session_id": "s1", "status": "pending" });
-    d.reopen().write_session("sess", &payload).unwrap();
-    let back = d.reopen().read_session("sess").unwrap().unwrap();
-    assert_eq!(back["session_id"], "s1");
-}
-
-#[test]
-fn reopen_corrupt_session_json_errors() {
-    use std::fs;
-    let d = Durable::start("sess");
-    let path = d.reopen().run_dir("sess").join("session.json");
-    fs::write(&path, "not json").unwrap();
-    assert!(d.reopen().read_session("sess").is_err());
-}
-
-#[test]
-fn reopen_missing_session_is_none() {
-    let d = Durable::start("sess");
-    assert!(d.reopen().read_session("sess").unwrap().is_none());
-}
-
-#[test]
 fn full_durability_walk_each_tick_a_fresh_process() {
     // The capstone: drive a full station-to-checkpoint walk where the entire
     // sequence is reconstructed from disk on every step, then approve and

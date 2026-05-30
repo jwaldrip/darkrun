@@ -9,8 +9,8 @@ pub enum McpError {
     #[error(transparent)]
     Core(#[from] CoreError),
 
-    /// A JSON (de)serialization fault — e.g. building a session payload value
-    /// to persist into `session.json`.
+    /// A JSON (de)serialization fault — e.g. parsing a proof payload or
+    /// serializing a state document.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 

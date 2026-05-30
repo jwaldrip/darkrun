@@ -400,30 +400,6 @@ fn state_json_default_is_empty() {
     assert!(state.stations.is_empty());
 }
 
-// ─── session.json ───────────────────────────────────────────────────────
-
-#[test]
-fn session_roundtrip_opaque_value() {
-    let tmp = tempfile::tempdir().expect("tmp");
-    let store = StateStore::new(tmp.path());
-    store.write_run(&run("r", Status::Active)).expect("w");
-
-    assert!(store.read_session("r").expect("read").is_none());
-
-    let session = serde_json::json!({
-        "id": "sess-1",
-        "station": "build",
-        "phase": "manufacture",
-        "nested": { "depth": 3, "open": true },
-    });
-    store.write_session("r", &session).expect("write");
-
-    let loaded = store.read_session("r").expect("read").expect("present");
-    assert_eq!(loaded["id"], "sess-1");
-    assert_eq!(loaded["nested"]["depth"], 3);
-    assert_eq!(loaded["nested"]["open"], true);
-}
-
 // ─── feedback ───────────────────────────────────────────────────────────
 
 #[test]

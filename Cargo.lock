@@ -1168,6 +1168,7 @@ dependencies = [
  "chrono",
  "darkrun-api",
  "darkrun-core",
+ "darkrun-http",
  "darkrun-prompts",
  "rmcp",
  "schemars 0.8.22",

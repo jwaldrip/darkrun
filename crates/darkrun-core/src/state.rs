@@ -9,8 +9,12 @@
 //!   units/<slug>.md one markdown doc per Unit
 //!   state.json      derived station/run state snapshot
 //!   feedback/*.md   feedback items (frontmatter + body)
-//!   session.json    the active interactive session, if any
+//!   proof.json      attached objective-evidence proofs, if any
 //! ```
+//!
+//! Interactive sessions (question/direction/picker) are EPHEMERAL and live only
+//! in an in-memory registry shared by the in-process MCP + HTTP servers — they
+//! are never persisted here.
 //!
 //! [`StateStore`] reads and writes this layout. It does not interpret the
 //! manager's walk — it only persists and resolves the durable shapes.
@@ -266,30 +270,6 @@ impl StateStore {
         io(&dir, fs::create_dir_all(&dir))?;
         let path = dir.join("state.json");
         let json = serde_json::to_string_pretty(state)?;
-        io(&path, fs::write(&path, json))
-    }
-
-    // ─── Session (session.json) ──────────────────────────────────────────
-
-    /// Read the raw `session.json` value, or `None` when absent.
-    ///
-    /// The session payload shape lives in `darkrun-api`; the core store keeps
-    /// it opaque to avoid a dependency cycle.
-    pub fn read_session(&self, run: &str) -> Result<Option<serde_json::Value>> {
-        let path = self.run_dir(run).join("session.json");
-        if !path.exists() {
-            return Ok(None);
-        }
-        let raw = io(&path, fs::read_to_string(&path))?;
-        Ok(Some(serde_json::from_str(&raw)?))
-    }
-
-    /// Write the `session.json` value.
-    pub fn write_session(&self, run: &str, session: &serde_json::Value) -> Result<()> {
-        let dir = self.run_dir(run);
-        io(&dir, fs::create_dir_all(&dir))?;
-        let path = dir.join("session.json");
-        let json = serde_json::to_string_pretty(session)?;
         io(&path, fs::write(&path, json))
     }
 

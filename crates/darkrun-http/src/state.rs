@@ -99,6 +99,25 @@ impl SessionRegistry {
         guard.get(id).map(|e| e.payload.clone())
     }
 
+    /// Mint the next session id for the given kind `prefix` (`q`/`d`/`p`),
+    /// scanning the live registry so ids stay unique and monotonic within the
+    /// process. Format: `{prefix}-NN` (zero-padded to two digits).
+    ///
+    /// This is the in-memory replacement for the old on-disk `session.json`
+    /// id-minting: the manager (darkrun-mcp) calls it to label a session before
+    /// upserting it, so the desktop app sees stable `/api/session/:id` paths.
+    pub fn next_session_id(&self, prefix: &str) -> String {
+        let want = format!("{prefix}-");
+        let guard = self.inner.lock().expect("session registry poisoned");
+        let max = guard
+            .keys()
+            .filter_map(|k| k.strip_prefix(&want))
+            .filter_map(|n| n.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+        format!("{prefix}-{:02}", max + 1)
+    }
+
     /// Whether a session with the given id exists (drives the heartbeat probe).
     pub fn contains(&self, id: &str) -> bool {
         let guard = self.inner.lock().expect("session registry poisoned");

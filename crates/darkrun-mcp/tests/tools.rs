@@ -5235,13 +5235,6 @@ fn p_opt(id: &str) -> PickerOptionInput {
     }
 }
 
-/// A store rooted the same way `DarkrunServer::new(dir.path())` roots — used to
-/// simulate the HTTP handler writing the operator's answer back onto the
-/// session payload that the result tools then read.
-fn store_for(dir: &TempDir) -> darkrun_core::StateStore {
-    darkrun_core::StateStore::new(dir.path())
-}
-
 // ── darkrun_question ───────────────────────────────────────────────────────
 
 #[test]
@@ -5326,7 +5319,7 @@ fn question_tool_rejects_duplicate_option_ids() {
 
 #[test]
 fn question_result_tool_surfaces_submitted_answer() {
-    let (d, server) = started("r");
+    let (_d, server) = started("r");
     server
         .darkrun_question(Parameters(QuestionInput {
             slug: "r".into(),
@@ -5349,17 +5342,17 @@ fn question_result_tool_surfaces_submitted_answer() {
     assert_eq!(body(&pending)["status"], "pending");
     assert!(body(&pending)["answer"].is_null());
 
-    // Simulate the HTTP handler recording the operator's answer.
-    let store = store_for(&d);
-    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
-    if let Some(darkrun_api::SessionPayload::Question(q)) = reg.sessions.get_mut("q-01") {
+    // Simulate the HTTP handler recording the operator's answer by upserting the
+    // mutated payload back into the shared in-memory registry (no disk).
+    let reg = server.sessions();
+    if let Some(darkrun_api::SessionPayload::Question(mut q)) = reg.get("q-01") {
         q.answer = Some(darkrun_api::QuestionAnswer {
             selected: vec!["a".into(), "b".into()],
             text: Some("both".into()),
         });
         q.status = darkrun_api::SessionStatus::Answered;
+        reg.upsert(darkrun_api::SessionPayload::Question(q));
     }
-    reg.save(&store, "r").unwrap();
 
     let answered = server
         .darkrun_question_result(Parameters(SessionResultInput {
@@ -5439,7 +5432,7 @@ fn direction_tool_rejects_incomplete_archetypes() {
 
 #[test]
 fn direction_result_tool_surfaces_choice_and_annotations() {
-    let (d, server) = started("r");
+    let (_d, server) = started("r");
     server
         .darkrun_direction(Parameters(DirectionInput {
             slug: "r".into(),
@@ -5450,9 +5443,9 @@ fn direction_result_tool_surfaces_choice_and_annotations() {
         }))
         .unwrap();
 
-    let store = store_for(&d);
-    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
-    if let Some(darkrun_api::SessionPayload::Direction(dr)) = reg.sessions.get_mut("d-01") {
+    // Simulate the HTTP handler recording the choice into the shared registry.
+    let reg = server.sessions();
+    if let Some(darkrun_api::SessionPayload::Direction(mut dr)) = reg.get("d-01") {
         dr.chosen_archetype = Some("b".into());
         dr.annotations = Some(darkrun_api::DirectionAnnotations {
             pins: vec![darkrun_api::DirectionPin {
@@ -5464,8 +5457,8 @@ fn direction_result_tool_surfaces_choice_and_annotations() {
             comments: vec!["nice".into()],
         });
         dr.status = darkrun_api::SessionStatus::Decided;
+        reg.upsert(darkrun_api::SessionPayload::Direction(dr));
     }
-    reg.save(&store, "r").unwrap();
 
     let res = server
         .darkrun_direction_result(Parameters(SessionResultInput {
@@ -5544,7 +5537,7 @@ fn picker_tool_rejects_empty_title_and_options() {
 
 #[test]
 fn picker_result_tool_surfaces_selection() {
-    let (d, server) = started("r");
+    let (_d, server) = started("r");
     server
         .darkrun_picker(Parameters(PickerInput {
             slug: "r".into(),
@@ -5555,13 +5548,13 @@ fn picker_result_tool_surfaces_selection() {
         }))
         .unwrap();
 
-    let store = store_for(&d);
-    let mut reg = darkrun_mcp::SessionRegistry::load(&store, "r").unwrap();
-    if let Some(darkrun_api::SessionPayload::Picker(p)) = reg.sessions.get_mut("p-01") {
+    // Simulate the HTTP handler recording the selection into the shared registry.
+    let reg = server.sessions();
+    if let Some(darkrun_api::SessionPayload::Picker(mut p)) = reg.get("p-01") {
         p.selection = Some(darkrun_api::PickerSelection { id: "shape".into() });
         p.status = darkrun_api::SessionStatus::Decided;
+        reg.upsert(darkrun_api::SessionPayload::Picker(p));
     }
-    reg.save(&store, "r").unwrap();
 
     let res = server
         .darkrun_picker_result(Parameters(SessionResultInput {

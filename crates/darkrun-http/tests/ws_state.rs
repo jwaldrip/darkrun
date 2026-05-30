@@ -1404,3 +1404,31 @@ fn app_state_carries_configured_limits() {
     assert_eq!(state.limits.max_ws_sessions, 7);
     assert!(state.limits.remote);
 }
+
+// ── next_session_id (the in-memory replacement for on-disk id minting) ────────
+
+#[test]
+fn next_session_id_starts_at_one_per_prefix() {
+    let reg = SessionRegistry::new();
+    assert_eq!(reg.next_session_id("q"), "q-01");
+    assert_eq!(reg.next_session_id("d"), "d-01");
+    assert_eq!(reg.next_session_id("p"), "p-01");
+}
+
+#[test]
+fn next_session_id_advances_past_registered_sessions() {
+    let reg = SessionRegistry::new();
+    reg.upsert(question("q-01"));
+    reg.upsert(question("q-02"));
+    // Minting scans the live registry, so the next id is monotonic.
+    assert_eq!(reg.next_session_id("q"), "q-03");
+    // A different prefix is independent.
+    assert_eq!(reg.next_session_id("d"), "d-01");
+}
+
+#[test]
+fn next_session_id_ignores_unparseable_suffixes() {
+    let reg = SessionRegistry::new();
+    reg.upsert(review("rev-frame")); // not a `q-NN` id
+    assert_eq!(reg.next_session_id("q"), "q-01");
+}
