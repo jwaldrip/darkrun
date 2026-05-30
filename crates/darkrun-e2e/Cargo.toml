@@ -1,0 +1,32 @@
+[package]
+name = "darkrun-e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "darkrun end-to-end tests — full factory Runs driven across engine crates"
+publish = false
+
+# Test-only crate. The library is intentionally empty; the value lives in
+# `tests/`, which exercise darkrun-mcp + darkrun-core + darkrun-content (and
+# darkrun-api) together as a single system.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+darkrun-core = { workspace = true }
+darkrun-content = { workspace = true }
+darkrun-api = { workspace = true }
+darkrun-mcp = { path = "../darkrun-mcp" }
+darkrun-http = { path = "../darkrun-http" }
+darkrun-vcs = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tempfile = "3"
+filetime = "0.2"
+axum = { version = "0.8", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

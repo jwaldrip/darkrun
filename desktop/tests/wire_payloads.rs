@@ -240,12 +240,39 @@ async fn one_shot_server(response: &'static [u8]) -> (ConnConfig, tokio::task::J
     let addr = listener.local_addr().unwrap();
     let handle = tokio::spawn(async move {
         let (mut sock, _) = listener.accept().await.unwrap();
-        // Read whatever the client sends until it stops writing the head+body.
-        // The client sets Connection: close and Content-Length; we just read a
-        // chunk so we capture the request for assertions.
-        let mut buf = vec![0u8; 4096];
-        let n = sock.read(&mut buf).await.unwrap_or(0);
-        buf.truncate(n);
+        // The client writes the head and the body in two separate writes, so a
+        // single read() can return just the first TCP segment (the headers).
+        // Loop until we have the full head plus the Content-Length body, so the
+        // captured request is complete and the body assertions are not racy.
+        let mut buf = Vec::with_capacity(4096);
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = sock.read(&mut chunk).await.unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            // Once headers are terminated, check whether the declared body has
+            // fully arrived; if so we can stop reading.
+            if let Some(hdr_end) = buf
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .map(|p| p + 4)
+            {
+                let head = String::from_utf8_lossy(&buf[..hdr_end]);
+                let content_len = head
+                    .lines()
+                    .find_map(|l| {
+                        l.strip_prefix("Content-Length:")
+                            .or_else(|| l.strip_prefix("content-length:"))
+                    })
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if buf.len() >= hdr_end + content_len {
+                    break;
+                }
+            }
+        }
         sock.write_all(response).await.unwrap();
         sock.flush().await.unwrap();
         // Drop closes the connection so read_to_end on the client returns.

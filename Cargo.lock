@@ -986,6 +986,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "darkrun-e2e"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "darkrun-api",
+ "darkrun-content",
+ "darkrun-core",
+ "darkrun-http",
+ "darkrun-mcp",
+ "darkrun-vcs",
+ "filetime",
+ "http-body-util",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "darkrun-git"
 version = "0.1.0"
 dependencies = [
