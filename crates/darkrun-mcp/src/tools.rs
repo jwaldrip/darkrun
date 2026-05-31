@@ -118,10 +118,24 @@ impl DarkrunServer {
 
 fn ok_json<T: Serialize>(value: &T) -> std::result::Result<CallToolResult, ErrorData> {
     match serde_json::to_value(value) {
-        Ok(v) => Ok(CallToolResult::structured(v)),
+        Ok(v) => Ok(CallToolResult::structured(ensure_object(v))),
         Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
             "serialization error: {e}"
         ))])),
+    }
+}
+
+/// MCP requires `structuredContent` to be a JSON object. A handler that
+/// serializes a list (e.g. `darkrun_unit_list`, `darkrun_factory_list`) would
+/// otherwise emit a top-level array, which strict clients reject with
+/// "expected record, received array". Wrap any non-object value so every tool
+/// returns a record: arrays under `items`, scalars under `value`. Objects pass
+/// through unchanged.
+fn ensure_object(v: serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Object(_) => v,
+        serde_json::Value::Array(_) => serde_json::json!({ "items": v }),
+        other => serde_json::json!({ "value": other }),
     }
 }
 
@@ -1745,8 +1759,8 @@ mod tests {
         let server = DarkrunServer::new(dir.path());
         let res = server.darkrun_factory_list().unwrap();
         let v = res.structured_content.unwrap();
-        assert_eq!(v[0]["name"], "software");
-        assert_eq!(v[0]["stations"][0]["name"], "frame");
+        assert_eq!(v["items"][0]["name"], "software");
+        assert_eq!(v["items"][0]["stations"][0]["name"], "frame");
     }
 
     #[test]
@@ -1866,7 +1880,7 @@ mod tests {
             }))
             .unwrap();
         let v = listed.structured_content.unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v["items"].as_array().unwrap().len(), 1);
 
         // Resolve it terminally.
         let resolved = server
@@ -1887,7 +1901,7 @@ mod tests {
             }))
             .unwrap();
         let v = listed.structured_content.unwrap();
-        assert_eq!(v.as_array().unwrap().len(), 0);
+        assert_eq!(v["items"].as_array().unwrap().len(), 0);
     }
 
     #[test]
@@ -1957,7 +1971,13 @@ mod tests {
                 include_archived: false,
             }))
             .unwrap();
-        assert_eq!(listed.structured_content.unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(
+            listed.structured_content.unwrap()["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
 
         server
             .darkrun_run_archive(Parameters(RunArchiveInput {
@@ -1971,14 +1991,26 @@ mod tests {
                 include_archived: false,
             }))
             .unwrap();
-        assert_eq!(listed.structured_content.unwrap().as_array().unwrap().len(), 0);
+        assert_eq!(
+            listed.structured_content.unwrap()["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
 
         let listed = server
             .darkrun_run_list(Parameters(RunListInput {
                 include_archived: true,
             }))
             .unwrap();
-        assert_eq!(listed.structured_content.unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(
+            listed.structured_content.unwrap()["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

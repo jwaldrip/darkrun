@@ -35,8 +35,22 @@ fn server() -> (TempDir, DarkrunServer) {
 }
 
 /// The JSON `structured_content` of a successful result.
+///
+/// List tools wrap their array in a `{ "items": [...] }` envelope so the MCP
+/// `structuredContent` is always a JSON object (the protocol forbids a
+/// top-level array). This helper transparently unwraps that sole-`items`
+/// envelope so content assertions read the list directly; object results pass
+/// through unchanged. The envelope itself is pinned by
+/// `list_tools_wrap_array_in_items_envelope`.
 fn body(res: &CallToolResult) -> Value {
-    res.structured_content.clone().expect("structured content")
+    let v = res.structured_content.clone().expect("structured content");
+    match &v {
+        Value::Object(map) if map.len() == 1 => match map.get("items") {
+            Some(items @ Value::Array(_)) => items.clone(),
+            _ => v,
+        },
+        _ => v,
+    }
 }
 
 fn is_ok(res: &CallToolResult) -> bool {
@@ -1943,6 +1957,34 @@ fn structured_content_present_on_every_success() {
         .unwrap()
         .structured_content
         .is_some());
+}
+
+#[test]
+fn list_tools_wrap_array_in_items_envelope() {
+    // MCP `structuredContent` must be a JSON object, never a top-level array —
+    // strict clients reject "expected record, received array". Every list tool
+    // wraps its array under `items`. Asserted on the raw content, bypassing the
+    // `body()` unwrap.
+    let (_d, server) = started("r");
+    create_unit(&server, "r", "u1", "frame");
+    let units = server
+        .darkrun_unit_list(Parameters(RunRef { slug: "r".into() }))
+        .unwrap()
+        .structured_content
+        .expect("structured content");
+    assert!(units.is_object(), "unit_list must return an object, got {units}");
+    assert_eq!(units["items"].as_array().expect("items array").len(), 1);
+
+    let factories = server
+        .darkrun_factory_list()
+        .unwrap()
+        .structured_content
+        .expect("structured content");
+    assert!(
+        factories.is_object(),
+        "factory_list must return an object, got {factories}"
+    );
+    assert!(factories["items"].is_array(), "factory_list items must be an array");
 }
 
 // ── Extended coverage: helpers for full station walks ──────────────────────
