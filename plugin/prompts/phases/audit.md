@@ -21,6 +21,8 @@ Dispatch each reviewer{% if reviewers %} ({% for r in reviewers %}`{{ r }}`{% if
 - Does the combined output actually eliminate **{{ kills }}**?
 - Is anything fragile, unhandled, or quietly broken?
 
+**A reviewer verifies — it does not rebuild.** Each reviewer MUST NOT propose new requirements beyond the Unit's completion criteria, MUST NOT redesign the output or reopen the locked spec, and MUST NOT flag stylistic preference. It checks the output against the criteria and files what genuinely fails — nothing more.
+
 {% if units %}
 Units to audit:
 {% for u in units %}
@@ -42,6 +44,17 @@ Units to audit:
 - **Surface = `{{ surface }}` (terminal).** Verify objectively with a terminal/output snapshot of the real invocation, and attach it as a screenshot-bearing proof with `darkrun_proof_attach`.
 {% endif %}
 
+## The verdict — one state, no partial pass
+
+Every check and every reviewer lands on exactly one verdict — never a partial, never a "mostly":
+
+- **PASS** — you ran it and *observed* it meet the criteria. Not "looks right", not "should work" — observed.
+- **FAIL** — you ran it and it does not meet the criteria. "3 of 4 green" is FAIL until the fourth is green or explicitly explained away.
+- **BLOCKED** — you could not run it. BLOCKED is **not** a PASS; the checkpoint holds until it can run.
+- **SKIP** — genuinely not applicable to this surface, with the reason stated.
+
+When in doubt, **FAIL** — a false PASS ships broken work; a false FAIL costs one more look.
+
 ## Done when
 
-Every reviewer has signed off or filed feedback, the full check suite passes, {% if surface %}the surface-routed objective proof is attached, {% endif %}and the evidence is recorded against the station. Filed feedback becomes a fix-worker track — it does **not** get hand-waved past. Record the audit verdict, then call `run_next`.
+Every reviewer has signed off or filed feedback, the full check suite passes, {% if surface %}the surface-routed objective proof is attached, {% endif %}and the evidence is recorded against the station. Filed feedback becomes a fix-worker track — it does **not** get hand-waved past. Record the audit verdict (PASS only when every check passed and every reviewer cleared), then call `run_next`.

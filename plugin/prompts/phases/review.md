@@ -27,6 +27,8 @@ Dispatch each reviewer{% if reviewers %} ({% for r in reviewers %}`{{ r }}`{% if
 - Are the Units genuinely independent, or will they collide during manufacture?
 - Is anything load-bearing left unstated?
 
+**A reviewer reviews — it does not redesign.** Each reviewer MUST NOT propose new requirements outside the spec's stated intent, MUST NOT substitute its own approach or relitigate a settled tradeoff, and MUST NOT block on stylistic preference. It finds where the spec fails *its own* goal and files exactly that — nothing more.
+
 {% if units %}
 ### Units under review
 {% for u in units %}

@@ -29,6 +29,8 @@ The Pass loop is adversarial on purpose: a single confident pass is exactly wher
 
 Run **only the `{{ worker }}` beat** this tick. When it returns, call `run_next`; the manager advances the loop or releases the next wave. A Unit is locked only after Resolve and its completion criteria pass.
 
+A Unit gets a **bounded pass budget** — the manager escalates a Unit that can't converge within it to the operator rather than grinding forever. Don't paper over a stuck Unit to dodge the escalation; a Unit that needs more passes than the budget allows is a signal the spec, the scope, or the approach is wrong, and that's the operator's call to make.
+
 {% if user_facing %}
 ## Visual work — get a design direction first
 
