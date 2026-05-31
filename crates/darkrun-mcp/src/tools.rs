@@ -775,11 +775,15 @@ impl DarkrunServer {
             serde_json::json!({ "status": "connected" })
         } else if let Some(addr) = self.announced_addr {
             match crate::desktop::spawn(self.repo_root.as_ref(), addr.port()) {
-                Some(bin) => serde_json::json!({
+                crate::desktop::Launch::Launched(bin) => serde_json::json!({
                     "status": "launched",
                     "bin": bin.to_string_lossy(),
                 }),
-                None => serde_json::json!({
+                crate::desktop::Launch::Building => serde_json::json!({
+                    "status": "building",
+                    "note": "Compiling darkrun-desktop for your arch; the app opens when the build finishes.",
+                }),
+                crate::desktop::Launch::NotFound => serde_json::json!({
                     "status": "not_found",
                     "hint": "darkrun-desktop binary not found — set DARKRUN_DESKTOP or build it (cargo build -p darkrun-desktop)",
                 }),
