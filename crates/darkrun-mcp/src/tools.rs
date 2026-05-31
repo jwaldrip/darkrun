@@ -265,6 +265,18 @@ pub struct ReflectionListInput {
     pub slug: String,
 }
 
+/// Input for `darkrun_drift_accept` — accept an intentional change to a locked
+/// artifact (re-witness it so the sweep stops flagging it).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct DriftAcceptInput {
+    /// The run slug.
+    pub slug: String,
+    /// The drifted artifact path (repo-root-relative), as reported by the
+    /// `resolve_drift` action.
+    pub path: String,
+}
+
 /// Input for `darkrun_feedback_list`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -797,6 +809,26 @@ impl DarkrunServer {
         let store = self.store();
         match reflection::list(&store, &input.slug) {
             Ok(rs) => ok_json(&rs),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Accept an intentional change to a locked artifact, clearing its drift.
+    #[tool(
+        name = "darkrun_drift_accept",
+        description = "Accept an intentional change to a drifted locked artifact: re-witness it to its current content so the sweep stops flagging it."
+    )]
+    pub fn darkrun_drift_accept(
+        &self,
+        Parameters(input): Parameters<DriftAcceptInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match crate::drift::accept(&store, &input.slug, &input.path) {
+            Ok(true) => ok_json(&serde_json::json!({ "accepted": input.path })),
+            Ok(false) => Ok(err_text(format!(
+                "no witness for '{}' (or the file is unreadable)",
+                input.path
+            ))),
             Err(e) => Ok(err_text(e)),
         }
     }

@@ -979,6 +979,9 @@ pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Resu
 /// - `Checkpoint` with an `auto` gate -> advance to the next station's `Spec`;
 ///   non-auto gates hold until [`checkpoint_decide`].
 pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
+    // Sweep first: re-hash every locked artifact so a silent mutation surfaces
+    // as a drift entry that Track C (inside derive_position) then preempts.
+    crate::drift::sweep(store, slug)?;
     let position = derive_position(store, slug)?;
 
     let action = match &position.action {
@@ -1064,6 +1067,8 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             // checkpoint_decide.
             if matches!(kind, CheckpointKind::Auto) {
                 complete_station(&mut state, &factory, station, &now)?;
+                // Snapshot the locked artifacts so the sweep can witness drift.
+                crate::drift::record_station_witnesses(store, slug, station)?;
             }
         }
         RunAction::ExternalReviewRequested { station, .. } => {
@@ -1227,6 +1232,8 @@ pub fn checkpoint_decide(
     let now = Utc::now().to_rfc3339();
     if approved {
         complete_station(&mut state, &factory, &station, &now)?;
+        // Snapshot the locked artifacts so the sweep can witness drift.
+        crate::drift::record_station_witnesses(store, slug, &station)?;
     } else {
         let st = ensure_station(&mut state, &factory, &station)?;
         // Hold the station; route rework back through the feedback track.

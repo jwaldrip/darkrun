@@ -23,11 +23,13 @@ pub mod error;
 pub mod frontmatter;
 pub mod locks;
 pub mod state;
+pub mod witness;
 
 pub use dag::Dag;
 pub use error::{CoreError, Result};
 pub use locks::{LockGuard, LockManager};
 pub use state::{run_is_complete, RunState, StateStore};
+pub use witness::{hash_bytes, hash_file, Witness};
 
 #[cfg(test)]
 mod tests {

@@ -13,12 +13,11 @@ A **locked** artifact changed out from under the line. Drift preempts everything
 ## What to do
 
 1. **Diff** the current `{{ path }}` against its locked state. Know exactly what changed.
-2. **Classify** the drift:
-   - *Legitimate* — the change is correct and intended. Re-derive anything downstream that depended on the old value, then re-lock.
-   - *Accidental / wrong* — the change should not have happened. Revert `{{ path }}` to its locked state.
+2. **Classify** the drift, then clear it the matching way:
+   - *Accidental / wrong* — the change should not have happened. **Revert** `{{ path }}` to its locked content. The next sweep re-hashes it, sees it matches the witness again, and clears the drift on its own — no tool call needed.
+   - *Legitimate* — the change is correct and intended. Re-derive anything downstream that depended on the old value, then **accept** the new content with `darkrun_drift_accept { path: "{{ path }}" }`, which re-witnesses the artifact to its current hash and clears the drift.
 3. **Reconcile downstream.** Any Unit, spec, or output built on the old version may now be stale — re-check, don't assume.
-4. **Re-lock** `{{ path }}` once it and its dependents are consistent again.
 
 ## Done when
 
-`{{ path }}` is reconciled and re-locked, downstream artifacts are consistent, and the drift entry is cleared. Then call `run_next`.
+`{{ path }}` is reconciled (reverted, or accepted via `darkrun_drift_accept`), downstream artifacts are consistent, and the drift entry is cleared. Then call `run_next`.

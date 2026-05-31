@@ -347,6 +347,30 @@ impl StateStore {
         let path = dir.join(format!("{id}.md"));
         io(&path, fs::write(&path, content))
     }
+
+    /// The `witnesses.json` path for a run — the drift-sweep baseline.
+    pub fn witnesses_path(&self, slug: &str) -> PathBuf {
+        self.run_dir(slug).join("witnesses.json")
+    }
+
+    /// Read a run's artifact witnesses (empty when none recorded).
+    pub fn read_witnesses(&self, run: &str) -> Result<Vec<crate::witness::Witness>> {
+        let path = self.witnesses_path(run);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = io(&path, fs::read_to_string(&path))?;
+        Ok(serde_json::from_str(&raw)?)
+    }
+
+    /// Overwrite a run's artifact witnesses.
+    pub fn write_witnesses(&self, run: &str, witnesses: &[crate::witness::Witness]) -> Result<()> {
+        let dir = self.run_dir(run);
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = self.witnesses_path(run);
+        let raw = serde_json::to_string_pretty(witnesses)?;
+        io(&path, fs::write(&path, raw))
+    }
 }
 
 /// Whether a run is in a terminal (completed) status.

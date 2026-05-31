@@ -20,6 +20,7 @@ tokio = { version = "1", features = ["full"] }
 schemars = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 nix = { version = "0.29", features = ["signal", "process"] }
+sha2 = "0.10"
 
 # Internal crates — referenced by path so downstream members can depend on them.
 darkrun-core = { path = "crates/darkrun-core" }
