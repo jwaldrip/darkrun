@@ -20,10 +20,21 @@ use darkrun_desktop::{map, wire};
 mod home;
 mod review;
 
+use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use wire::ConnConfig;
 
 fn main() {
-    dioxus::launch(app);
+    // A titled, focused window so a launched app is recognizable and comes to
+    // the front (the engine spawns this from the MCP server, not Finder, so it
+    // must request focus or it opens hidden behind the terminal).
+    let window = WindowBuilder::new()
+        .with_title("darkrun")
+        .with_inner_size(LogicalSize::new(1040.0, 760.0))
+        .with_focused(true)
+        .with_visible(true);
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(Config::new().with_window(window))
+        .launch(app);
 }
 
 /// Top-level app: reads the launch config from the environment and picks the
