@@ -50,7 +50,7 @@ pub fn Shell() -> Element {
                     NavLink { to: Route::Docs {}, label: "Docs" }
                     NavLink { to: Route::Methodology {}, label: "Methodology" }
                     NavLink { to: Route::Blog {}, label: "Blog" }
-                    NavLink { to: Route::Review {}, label: "Review" }
+                    NavLink { to: Route::Browse {}, label: "Browse" }
                 }
             }
             main { style: "{main}", Outlet::<Route> {} }
