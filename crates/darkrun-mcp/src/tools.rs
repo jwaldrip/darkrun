@@ -328,6 +328,60 @@ pub struct GateReviewInput {
 #[schemars(crate = "rmcp::schemars")]
 pub struct NoInput {}
 
+/// Input for `darkrun_backlog` — manage the project backlog.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct BacklogInput {
+    /// `list` (default) / `add` / `review` / `promote`.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// The idea text, for `add`.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The item id, for `promote`.
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+/// Input for `darkrun_scaffold` — generate an editable custom artifact.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ScaffoldInput {
+    /// `factory` / `station` / `worker` / `reviewer`.
+    pub kind: String,
+    /// The artifact name.
+    pub name: String,
+    /// The parent factory (required for station/worker/reviewer).
+    #[serde(default)]
+    pub factory: Option<String>,
+    /// The parent station (required for worker/reviewer).
+    #[serde(default)]
+    pub station: Option<String>,
+}
+
+/// Input for `darkrun_setup` — detect (and optionally write) project settings.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SetupInput {
+    /// When true, write `.darkrun/settings.yml`; otherwise detect only.
+    #[serde(default)]
+    pub apply: bool,
+}
+
+/// Input for `darkrun_run_reset` — wipe a station or whole run.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct RunResetInput {
+    /// The run slug.
+    pub slug: String,
+    /// The station to wipe; omit to reset the whole run.
+    #[serde(default)]
+    pub station: Option<String>,
+    /// Must be true to actually delete; otherwise a dry run.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
 /// Input for `darkrun_feedback_list`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -956,6 +1010,92 @@ impl DarkrunServer {
         Parameters(_): Parameters<GateReviewInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         ok_json(&crate::gate::gate_review(self.repo_root.as_ref()))
+    }
+
+    // ── Backlog / scaffold / setup / reset ───────────────────────────────
+
+    /// Manage the project backlog (list / add / review / promote).
+    #[tool(
+        name = "darkrun_backlog",
+        description = "Manage the project backlog: list (default), add a description, review, or promote an item out to become a Run."
+    )]
+    pub fn darkrun_backlog(
+        &self,
+        Parameters(input): Parameters<BacklogInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let root = self.repo_root.as_ref();
+        let action = input.action.as_deref().unwrap_or("list");
+        let result = match action {
+            "add" => match &input.description {
+                Some(d) => crate::backlog::add(root, d).map(|i| serde_json::json!({ "added": i })),
+                None => return Ok(err_text("`description` is required for action `add`")),
+            },
+            "promote" => match &input.id {
+                Some(id) => crate::backlog::promote(root, id).map(|opt| match opt {
+                    Some(i) => serde_json::json!({ "promoted": i, "next": "hand off to /darkrun:darkrun-start" }),
+                    None => serde_json::json!({ "error": format!("no backlog item `{id}`") }),
+                }),
+                None => return Ok(err_text("`id` is required for action `promote`")),
+            },
+            // list and review both return the items.
+            _ => crate::backlog::list(root).map(|items| serde_json::json!({ "items": items })),
+        };
+        match result {
+            Ok(v) => ok_json(&v),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Scaffold an editable custom artifact under `.darkrun/factories/`.
+    #[tool(
+        name = "darkrun_scaffold",
+        description = "Scaffold an editable Factory, Station, Worker, or Reviewer template under .darkrun/factories/."
+    )]
+    pub fn darkrun_scaffold(
+        &self,
+        Parameters(input): Parameters<ScaffoldInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        match crate::scaffold::scaffold(
+            self.repo_root.as_ref(),
+            &input.kind,
+            &input.name,
+            input.factory.as_deref(),
+            input.station.as_deref(),
+        ) {
+            Ok(s) => ok_json(&s),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Detect (and optionally write) the project's darkrun settings.
+    #[tool(
+        name = "darkrun_setup",
+        description = "Auto-detect VCS, hosting, CI/CD, and the default branch; with apply:true, write .darkrun/settings.yml."
+    )]
+    pub fn darkrun_setup(
+        &self,
+        Parameters(input): Parameters<SetupInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        match crate::setup::setup(self.repo_root.as_ref(), input.apply) {
+            Ok(s) => ok_json(&s),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Wipe a station (re-enter it) or the whole run. Dry run unless confirmed.
+    #[tool(
+        name = "darkrun_run_reset",
+        description = "Wipe a station so the manager re-enters it (or the whole run). Dry run unless confirm:true."
+    )]
+    pub fn darkrun_run_reset(
+        &self,
+        Parameters(input): Parameters<RunResetInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match crate::reset::reset(&store, &input.slug, input.station.as_deref(), input.confirm) {
+            Ok(plan) => ok_json(&plan),
+            Err(e) => Ok(err_text(e)),
+        }
     }
 
     /// List a run's feedback findings.

@@ -48,6 +48,7 @@
 //! with no on-disk bridge. The typed helpers behind the tools live in [`units`],
 //! [`feedback`], [`runs`], [`drift`], [`proof`], and [`sessions`].
 
+pub mod backlog;
 pub mod change;
 pub mod drift;
 pub mod error;
@@ -58,9 +59,12 @@ pub mod meta;
 pub mod position;
 pub mod proof;
 pub mod reflection;
+pub mod reset;
 pub mod runs;
+pub mod scaffold;
 pub mod server;
 pub mod sessions;
+pub mod setup;
 pub mod skill_bridge;
 pub mod tools;
 pub mod units;
