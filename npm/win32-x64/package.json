@@ -2,7 +2,7 @@
   "name": "@darkrun/win32-x64",
   "version": "0.1.0",
   "description": "darkrun native binary for Windows (x86_64).",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "repository": "https://github.com/jwaldrip/darkrun",
   "os": ["win32"],
   "cpu": ["x64"],

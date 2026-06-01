@@ -1091,6 +1091,7 @@ name = "darkrun-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "darkrun-api",
  "filetime",
  "nix",
  "schemars 0.8.22",
@@ -1107,11 +1108,14 @@ name = "darkrun-desktop"
 version = "0.1.0"
 dependencies = [
  "darkrun-api",
+ "darkrun-harness",
+ "darkrun-mcp",
  "darkrun-ui",
  "dioxus",
  "futures-util",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
 ]
@@ -1180,11 +1184,15 @@ dependencies = [
  "darkrun-harness",
  "darkrun-http",
  "darkrun-prompts",
+ "dirs",
+ "image",
+ "nix",
  "rmcp",
  "rust-embed",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

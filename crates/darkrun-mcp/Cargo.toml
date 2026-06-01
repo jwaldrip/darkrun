@@ -19,6 +19,10 @@ thiserror.workspace = true
 schemars.workspace = true
 chrono.workspace = true
 tokio.workspace = true
+dirs.workspace = true
+sha2.workspace = true
+nix.workspace = true
+image.workspace = true
 rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "schemars"] }
 rust-embed = { version = "8", features = ["interpolate-folder-path", "debug-embed"] }
 

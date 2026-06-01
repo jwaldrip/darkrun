@@ -181,13 +181,41 @@ pub async fn serve_with_state(addr: SocketAddr, state: AppState) -> std::io::Res
 /// The escape hatch for the registry-sharing path: build the router yourself
 /// (after cloning the [`SessionRegistry`] out of your [`AppState`]) and hand it
 /// here. Applies the same connection cap as [`serve`].
+///
+/// Pass port `0` (e.g. `127.0.0.1:0`) to bind an ephemeral port; embedders that
+/// need the actual bound address back should instead [`bind_listener`] first and
+/// then [`serve_router_on`], which lets them read the real port before serving.
 pub async fn serve_router(
     addr: SocketAddr,
     router: Router,
     limits: Limits,
 ) -> std::io::Result<()> {
+    let listener = bind_listener(addr).await?;
+    serve_router_on(listener, router, limits).await
+}
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+/// Bind a loopback [`TcpListener`] on `addr`, returning it for the caller to
+/// inspect (via [`TcpListener::local_addr`]) before serving.
+///
+/// Pass port `0` to request an ephemeral port; the kernel assigns a free port
+/// the caller can read back and advertise. This is the seam the in-process
+/// `darkrun mcp` host uses so it can write the discovery descriptor with the
+/// REAL bound port before handing the listener to [`serve_router_on`].
+pub async fn bind_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(addr).await
+}
+
+/// Serve a pre-built [`Router`] on an already-bound `listener`.
+///
+/// The counterpart to [`bind_listener`]: callers that bound the socket
+/// themselves (to read back an ephemeral port) hand the listener here to start
+/// serving. Applies the same connection cap as [`serve`].
+pub async fn serve_router_on(
+    listener: tokio::net::TcpListener,
+    router: Router,
+    limits: Limits,
+) -> std::io::Result<()> {
+    let addr = listener.local_addr()?;
     tracing::info!(
         %addr,
         max_connections = limits.max_connections,

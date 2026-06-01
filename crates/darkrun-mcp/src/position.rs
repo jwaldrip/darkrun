@@ -1246,6 +1246,25 @@ pub fn checkpoint_decide(
             let doc = format!("---\nstatus: pending\n---\n{body}\n");
             store.write_feedback_raw(slug, id, &doc)?;
         }
+        // Ship the station's OPEN annotations — the global station note leading,
+        // then each per-artifact ask — as a feedback doc so the rework loop reads
+        // them back alongside any free-form checkpoint note. The annotation
+        // records themselves are retained (status carries their lifecycle); this
+        // is the legible hand-off body. Skipped when there are no open marks.
+        let annotations = store.list_annotations(slug)?;
+        let station_marks: Vec<_> = annotations
+            .into_iter()
+            .filter(|a| {
+                a.work_item.station == station
+                    && a.status == darkrun_api::annotation::AnnotationStatus::Open
+            })
+            .collect();
+        if !station_marks.is_empty() {
+            let id = "fb-annotations";
+            let body = crate::annotation::render_rework_feedback(&station, &station_marks);
+            let doc = format!("---\nstatus: pending\nstation: {station}\n---\n{body}\n");
+            store.write_feedback_raw(slug, id, &doc)?;
+        }
     }
     store.write_state(slug, &state)?;
 
@@ -1343,10 +1362,10 @@ mod tests {
         // Planned stations ran; the omitted ones never did.
         assert!(state.stations.contains_key("build"));
         assert!(state.stations.contains_key("prove"));
-        assert!(state.stations.get("frame").is_none(), "frame is not in the quick plan");
-        assert!(state.stations.get("specify").is_none());
-        assert!(state.stations.get("shape").is_none());
-        assert!(state.stations.get("harden").is_none());
+        assert!(!state.stations.contains_key("frame"), "frame is not in the quick plan");
+        assert!(!state.stations.contains_key("specify"));
+        assert!(!state.stations.contains_key("shape"));
+        assert!(!state.stations.contains_key("harden"));
     }
 
     #[test]
@@ -1539,6 +1558,77 @@ mod tests {
         assert_eq!(res.position.track, Track::Feedback);
         let s = store.read_state("r").unwrap().unwrap();
         assert_eq!(s.stations["frame"].status, Status::Blocked);
+    }
+
+    #[test]
+    fn checkpoint_reject_ships_open_annotations_as_feedback() {
+        use darkrun_api::annotation::{
+            Anchor, Annotation, AnnotationStatus, ArtifactInfo, ArtifactType, Ask, AskKind,
+            AskSeverity, TextRange, WorkItem, WorkItemKind,
+        };
+        use darkrun_api::common::AuthorType;
+
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+
+        // A global station note + a per-artifact mark, both OPEN on `frame`.
+        let note = Annotation {
+            id: "anno_note".into(),
+            created_at: "2026-05-31T00:00:00Z".into(),
+            author: AuthorType::Human,
+            work_item: WorkItem {
+                kind: WorkItemKind::Station,
+                id: String::new(),
+                station: "frame".into(),
+            },
+            artifact: None,
+            anchor: None,
+            expression: None,
+            comment: "overall: tighten the framing".into(),
+            ask: Ask {
+                kind: AskKind::Change,
+                severity: AskSeverity::Should,
+            },
+            suggestion: None,
+            status: AnnotationStatus::Open,
+        };
+        let mark = Annotation {
+            id: "anno_mark".into(),
+            work_item: WorkItem {
+                kind: WorkItemKind::Output,
+                id: "spec.md".into(),
+                station: "frame".into(),
+            },
+            artifact: Some(ArtifactInfo {
+                id: "spec.md".into(),
+                path: "spec.md".into(),
+                artifact_type: ArtifactType::Text,
+                version_sha: "aa".into(),
+            }),
+            anchor: Some(Anchor::Text {
+                range: TextRange {
+                    start_line: 3,
+                    start_col: 0,
+                    end_line: 3,
+                    end_col: 4,
+                },
+                quote: "todo".into(),
+                prefix: String::new(),
+                suffix: String::new(),
+            }),
+            ..note.clone()
+        };
+        store.write_annotation("r", &note).unwrap();
+        store.write_annotation("r", &mark).unwrap();
+
+        checkpoint_decide(&store, "r", false, None).expect("reject");
+
+        // The open annotations shipped as a feedback doc, station-scoped.
+        let raw = store.read_feedback_raw("r").unwrap();
+        let doc = raw.get("fb-annotations").expect("annotations feedback shipped");
+        assert!(doc.contains("station: frame"));
+        assert!(doc.contains("station note"));
+        assert!(doc.contains("spec.md"));
     }
 
     // ── Surface routing into the rendered prompt ─────────────────────────────

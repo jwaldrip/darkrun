@@ -39,6 +39,10 @@ pub enum CoreError {
     #[error("unit not found: {0}")]
     UnitNotFound(String),
 
+    /// A requested annotation was not found on disk.
+    #[error("annotation not found: {0}")]
+    AnnotationNotFound(String),
+
     /// The unit dependency graph contains a cycle.
     #[error("circular dependency detected among units: {0}")]
     CyclicDependency(String),

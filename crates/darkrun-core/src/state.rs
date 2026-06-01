@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{Run, RunFrontmatter, Station, Status, Unit, UnitFrontmatter};
+use crate::domain::{Run, RunFrontmatter, Station, StationPhase, Status, Unit, UnitFrontmatter};
 use crate::error::{CoreError, Result};
 use crate::frontmatter;
 
@@ -58,7 +58,71 @@ pub struct RunState {
     pub stations: BTreeMap<String, Station>,
 }
 
-fn io<T>(path: &Path, r: std::io::Result<T>) -> Result<T> {
+/// The derived position of one station in a run's ordered plan — the strip
+/// entry the desktop renders: its name, its lifecycle [`Status`] (done /
+/// current / pending), and the [`StationPhase`] it currently sits in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StationStatus {
+    /// The station name, in plan order.
+    pub station: String,
+    /// Lifecycle status: `Completed` (done), `Active`/`InProgress` (current),
+    /// `Pending` (not yet reached), or `Blocked`.
+    pub status: Status,
+    /// The phase within the station — `Spec` for a station not yet entered.
+    pub phase: StationPhase,
+}
+
+impl RunState {
+    /// The ordered station names this run actually walks: its explicit
+    /// right-sized [`plan`](RunState::plan), or the factory's full ordered
+    /// station list when no plan is recorded (full-size / legacy runs).
+    ///
+    /// `factory_stations` is the factory's declared station order (from
+    /// `FACTORY.md` frontmatter `stations: [...]`); the caller resolves it.
+    pub fn ordered_stations(&self, factory_stations: &[String]) -> Vec<String> {
+        if self.plan.is_empty() {
+            factory_stations.to_vec()
+        } else {
+            self.plan.clone()
+        }
+    }
+
+    /// Per-station status + phase for the run's ordered plan — the STATION
+    /// strip the desktop renders.
+    ///
+    /// A station with a recorded entry in [`stations`](RunState::stations)
+    /// reports its persisted `status`/`phase`; a station not yet reached
+    /// reports `Pending` in the `Spec` phase (the freshly-entered default).
+    pub fn station_status_summary(&self, factory_stations: &[String]) -> Vec<StationStatus> {
+        self.ordered_stations(factory_stations)
+            .into_iter()
+            .map(|name| {
+                let (status, phase) = self
+                    .stations
+                    .get(&name)
+                    .map(|st| (st.status, st.phase))
+                    .unwrap_or((Status::Pending, StationPhase::Spec));
+                StationStatus {
+                    station: name,
+                    status,
+                    phase,
+                }
+            })
+            .collect()
+    }
+
+    /// The phase of the active station — the live PHASE subheader. Resolves the
+    /// [`active_station`](RunState::active_station)'s recorded phase, defaulting
+    /// to `Spec` when the station has no entry yet (or none is active).
+    pub fn active_phase(&self) -> StationPhase {
+        self.stations
+            .get(&self.active_station)
+            .map(|st| st.phase)
+            .unwrap_or(StationPhase::Spec)
+    }
+}
+
+pub(crate) fn io<T>(path: &Path, r: std::io::Result<T>) -> Result<T> {
     r.map_err(|source| CoreError::Io {
         path: path.to_path_buf(),
         source,
@@ -376,4 +440,98 @@ impl StateStore {
 /// Whether a run is in a terminal (completed) status.
 pub fn run_is_complete(run: &Run) -> bool {
     matches!(run.frontmatter.status, Status::Completed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Station, StationPhase, Status};
+
+    fn station(name: &str, status: Status, phase: StationPhase) -> Station {
+        Station {
+            station: name.to_string(),
+            status,
+            phase,
+            checkpoint: None,
+            started_at: None,
+            completed_at: None,
+        }
+    }
+
+    fn factory() -> Vec<String> {
+        ["frame", "specify", "shape", "build", "prove", "harden"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn ordered_stations_falls_back_to_factory_when_plan_empty() {
+        let state = RunState::default();
+        assert_eq!(state.ordered_stations(&factory()), factory());
+    }
+
+    #[test]
+    fn ordered_stations_uses_plan_when_present() {
+        let state = RunState {
+            plan: vec!["build".to_string(), "prove".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(
+            state.ordered_stations(&factory()),
+            vec!["build".to_string(), "prove".to_string()]
+        );
+    }
+
+    #[test]
+    fn station_status_summary_derives_done_current_pending() {
+        let mut state = RunState {
+            active_station: "specify".to_string(),
+            ..Default::default()
+        };
+        state.stations.insert(
+            "frame".to_string(),
+            station("frame", Status::Completed, StationPhase::Checkpoint),
+        );
+        state.stations.insert(
+            "specify".to_string(),
+            station("specify", Status::InProgress, StationPhase::Manufacture),
+        );
+
+        let summary = state.station_status_summary(&factory());
+        // Preserves the factory's ordering across the full list.
+        let order: Vec<&str> = summary.iter().map(|s| s.station.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["frame", "specify", "shape", "build", "prove", "harden"]
+        );
+
+        // Recorded stations report their persisted status/phase…
+        assert_eq!(summary[0].status, Status::Completed);
+        assert_eq!(summary[0].phase, StationPhase::Checkpoint);
+        assert_eq!(summary[1].status, Status::InProgress);
+        assert_eq!(summary[1].phase, StationPhase::Manufacture);
+
+        // …and not-yet-reached stations default to Pending/Spec.
+        for s in &summary[2..] {
+            assert_eq!(s.status, Status::Pending);
+            assert_eq!(s.phase, StationPhase::Spec);
+        }
+    }
+
+    #[test]
+    fn active_phase_resolves_the_active_station_phase() {
+        let mut state = RunState {
+            active_station: "shape".to_string(),
+            ..Default::default()
+        };
+        // No entry yet → Spec default.
+        assert_eq!(state.active_phase(), StationPhase::Spec);
+
+        state.stations.insert(
+            "shape".to_string(),
+            station("shape", Status::InProgress, StationPhase::Audit),
+        );
+        assert_eq!(state.active_phase(), StationPhase::Audit);
+    }
 }

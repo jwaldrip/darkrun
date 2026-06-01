@@ -105,7 +105,8 @@ struct ServeArgs {
 #[derive(Debug, Args)]
 struct McpArgs {
     /// Address the in-process HTTP/WS review server binds. Overrides
-    /// DARKRUN_PORT; defaults to 127.0.0.1:4317 when neither is set.
+    /// DARKRUN_PORT; binds an ephemeral loopback port (advertised in the home
+    /// discovery registry) when neither is set.
     #[arg(long)]
     addr: Option<SocketAddr>,
     /// The agent harness hosting this MCP server (claude-code, cursor,
@@ -347,7 +348,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Block on the stdio MCP server, which co-hosts the HTTP/WS review server
 /// in-process. With an explicit `--addr`, bind there; otherwise the server
-/// resolves DARKRUN_PORT (or the 127.0.0.1:4317 default).
+/// resolves DARKRUN_PORT, falling back to an ephemeral loopback port that it
+/// advertises in the home discovery registry.
 fn serve_mcp(
     repo_root: PathBuf,
     addr: Option<SocketAddr>,

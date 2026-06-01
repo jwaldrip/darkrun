@@ -10,9 +10,15 @@
 //! with no on-disk `session.json` bridge.
 //!
 //! The bound port is announced to the agent in the MCP server `instructions`
-//! string and on stderr, so the desktop app (which reads `DARKRUN_PORT`) knows
-//! where to connect. The port is chosen from `DARKRUN_PORT` (or `--addr` passed
-//! through by the CLI), defaulting to `127.0.0.1:4317`.
+//! string and on stderr, AND written to the home discovery registry
+//! (`~/.darkrun/<slug>/engine-<pid>.json`, see [`crate::registry`]) so the
+//! desktop app can discover the engine and the port it serves on — no fixed
+//! port required.
+//!
+//! By default the server binds an EPHEMERAL loopback port (`127.0.0.1:0`) and
+//! reads the kernel-assigned port back before advertising it, so many engines
+//! coexist. `DARKRUN_PORT` (or `--addr` passed through by the CLI) overrides
+//! this with an explicit port when a caller needs a fixed one.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -24,13 +30,25 @@ use darkrun_core::StateStore;
 use darkrun_harness::Harness;
 use darkrun_http::{AppState, Limits};
 
+use crate::registry::EngineRegistry;
 use crate::tools::DarkrunServer;
 
 /// The default loopback address the in-process HTTP/WS server binds.
+///
+/// Retained for callers that want an explicit fixed port; the default boot path
+/// now binds an EPHEMERAL port (see [`resolve_addr`]).
 pub const DEFAULT_ADDR: &str = "127.0.0.1:4317";
 
+/// The ephemeral loopback bind address: port `0` lets the kernel assign a free
+/// port, which is read back via `local_addr()` after binding.
+const EPHEMERAL_ADDR: SocketAddr = SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+    0,
+);
+
 /// Resolve the HTTP/WS bind address: the `DARKRUN_PORT` env override (as a bare
-/// port on loopback, or a full `host:port`) else [`DEFAULT_ADDR`].
+/// port on loopback, or a full `host:port`) else an EPHEMERAL loopback port
+/// (`127.0.0.1:0`), whose real value is read back after binding.
 fn resolve_addr() -> SocketAddr {
     let raw = std::env::var("DARKRUN_PORT").ok();
     if let Some(raw) = raw {
@@ -44,7 +62,7 @@ fn resolve_addr() -> SocketAddr {
             return addr;
         }
     }
-    DEFAULT_ADDR.parse().expect("default addr is valid")
+    EPHEMERAL_ADDR
 }
 
 /// Serve the darkrun MCP server over stdio, rooted at `repo_root`, while also
@@ -58,9 +76,11 @@ pub async fn serve_stdio(repo_root: impl Into<PathBuf>, harness: Harness) -> std
     serve_stdio_on(repo_root, resolve_addr(), harness).await
 }
 
-/// Like [`serve_stdio`], but binds the HTTP/WS server to an explicit `addr`.
-/// The MCP `instructions` announce the bound port to the agent. `harness`
-/// selects the capability set the server adapts its tools and prompts to.
+/// Like [`serve_stdio`], but binds the HTTP/WS server to an explicit `addr`
+/// (pass port `0` for an ephemeral port). The MCP `instructions` announce the
+/// ACTUAL bound port to the agent, and the engine advertises itself in the home
+/// discovery registry (`~/.darkrun/<slug>/engine-<pid>.json`). `harness` selects
+/// the capability set the server adapts its tools and prompts to.
 pub async fn serve_stdio_on(
     repo_root: impl Into<PathBuf>,
     addr: SocketAddr,
@@ -74,28 +94,84 @@ pub async fn serve_stdio_on(
     let store = StateStore::new(&repo_root);
     let state = AppState::new(store, Limits::default());
 
-    // Spawn the axum HTTP/WS server on the same runtime, sharing the state.
+    // Bind the listener up front so we can read the REAL port back (the
+    // requested addr may carry port 0 for an ephemeral bind) before advertising
+    // it. Everything downstream — instructions, stderr, the discovery
+    // descriptor — uses this concrete address.
+    let listener = darkrun_http::bind_listener(addr).await?;
+    let bound = listener.local_addr()?;
+
+    // Advertise the engine in the home discovery registry. Best-effort: a write
+    // failure (e.g. no home dir) is non-fatal — the engine still serves, it's
+    // just not auto-discoverable. The descriptor is RETAINED on exit (flagged
+    // stale, never deleted), so we hold the registry handle to mark it stale.
+    let engine_registry = announce_engine(&repo_root, bound, harness.key());
+
+    // Spawn the axum HTTP/WS server on the same runtime, sharing the state, on
+    // the already-bound listener.
     let http_state = state.clone();
+    let limits = http_state.limits;
+    let router = darkrun_http::build_router(http_state);
     tokio::spawn(async move {
-        if let Err(e) = darkrun_http::serve_with_state(addr, http_state).await {
-            eprintln!("darkrun: in-process HTTP server on {addr} stopped: {e}");
+        if let Err(e) = darkrun_http::serve_router_on(listener, router, limits).await {
+            eprintln!("darkrun: in-process HTTP server on {bound} stopped: {e}");
         }
     });
 
     // Announce the bound port so the desktop app (DARKRUN_PORT) can connect.
-    eprintln!("darkrun: HTTP/WS review server listening on http://{addr}");
+    eprintln!("darkrun: HTTP/WS review server listening on http://{bound}");
     eprintln!("darkrun: harness = {}", harness.key());
 
     let server = DarkrunServer::with_sessions(repo_root, state.sessions.clone())
-        .with_announced_addr(addr)
+        .with_announced_addr(bound)
         .with_harness(harness);
     let running = server
         .serve(stdio())
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;
-    running
+    let wait = running
         .waiting()
         .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()));
+
+    // On a clean shutdown, flag the discovery descriptor stale (retains the
+    // record). Best-effort.
+    if let Some(registry) = &engine_registry {
+        if let Err(e) = registry.mark_stale() {
+            eprintln!("darkrun: could not flag discovery descriptor stale: {e}");
+        }
+    }
+
+    wait?;
     Ok(())
+}
+
+/// Write the home discovery descriptor for this engine, returning the registry
+/// handle (used to flag the descriptor stale on shutdown) or `None` if the
+/// registry could not be set up or the write failed.
+fn announce_engine(
+    repo_root: &std::path::Path,
+    addr: SocketAddr,
+    harness_key: &str,
+) -> Option<EngineRegistry> {
+    let registry = match EngineRegistry::new(repo_root) {
+        Ok(registry) => registry,
+        Err(e) => {
+            eprintln!("darkrun: discovery registry unavailable: {e}");
+            return None;
+        }
+    };
+    match registry.announce(addr, harness_key) {
+        Ok(_descriptor) => {
+            eprintln!(
+                "darkrun: discovery descriptor written to {}",
+                registry.descriptor_path().display()
+            );
+            Some(registry)
+        }
+        Err(e) => {
+            eprintln!("darkrun: could not write discovery descriptor: {e}");
+            None
+        }
+    }
 }

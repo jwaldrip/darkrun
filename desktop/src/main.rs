@@ -51,7 +51,7 @@ fn app() -> Element {
         if pinned {
             review::ReviewApp { cfg }
         } else {
-            home::HomeApp { cfg }
+            home::HomeApp { cfg, project_path: None }
         }
     }
 }

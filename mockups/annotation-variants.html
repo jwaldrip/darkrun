@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>darkrun — annotation surface variants</title>
+<style>
+:root{
+  --dr-surface-base:#07090c;--dr-surface-raised:#0e1217;--dr-surface-overlay:#161b22;
+  --dr-border:#222a33;--dr-border-strong:#33404d;--dr-text:#e6edf3;--dr-text-muted:#9aa7b4;--dr-text-faint:#5b6773;
+  --dr-accent:#5fd7ff;--dr-on-accent:#04141b;--dr-ok:#3fb950;--dr-warn:#f0b429;--dr-danger:#f85149;--dr-manufacture:#5fd7ff;
+  --dr-sans:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;--dr-mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
+}
+html,body{ background:var(--dr-surface-base);color:var(--dr-text);font-family:var(--dr-sans);color-scheme:dark;margin:0 }
+body{ padding:40px 20px 120px }
+.page-head{ width:1100px;max-width:100%;margin:0 auto 8px } .page-head h1{ font-size:22px;margin:0 0 4px } .page-head h1 b{ color:var(--dr-accent) }
+.page-head p{ color:var(--dr-text-muted);font-size:14px;margin:0;line-height:1.55 }
+.caption{ width:1100px;max-width:100%;margin:46px auto 8px;font-family:var(--dr-mono);font-size:12px;color:var(--dr-text-faint);text-transform:uppercase;letter-spacing:.09em }
+.caption .n{ color:var(--dr-accent);font-weight:700 } .caption .t{ color:var(--dr-text);font-weight:700;font-size:15px;font-family:var(--dr-sans);text-transform:none }
+.sub{ width:1100px;max-width:100%;margin:0 auto 12px;color:var(--dr-text-muted);font-size:13.5px;line-height:1.55 }
+.note{ width:1100px;max-width:100%;margin:10px auto 0;font-size:13px;line-height:1.5;padding:11px 15px;border-radius:8px }
+.note .h{ font-weight:700;font-family:var(--dr-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase }
+.note.info{ background:#0d1d27;border:1px solid #5fd7ff44;color:#bfe7f7 } .note.info .h{ color:var(--dr-accent) }
+.note code{ font-family:var(--dr-mono);background:#0006;padding:1px 5px;border-radius:4px;color:#fff }
+
+.win{ width:1100px;max-width:100%;margin:0 auto;border:1px solid var(--dr-border-strong);border-radius:12px;overflow:hidden;background:var(--dr-surface-base);box-shadow:0 24px 70px rgba(0,0,0,.55) }
+.titlebar{ height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#15191e;border-bottom:1px solid var(--dr-border) }
+.lights{ display:flex;gap:8px } .light{ width:12px;height:12px;border-radius:50% } .l-r{ background:#ff5f57 }.l-y{ background:#febc2e }.l-g{ background:#28c840 }
+.tbtitle{ margin-left:6px;color:var(--dr-text-muted);font-size:13px }
+
+/* the one surface: header + toolbar (annotate is always available) */
+.ahead{ display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--dr-border) }
+.ahead .nm{ font-weight:700;font-size:14px } .ahead .nm .ty{ font-family:var(--dr-mono);font-size:11px;color:var(--dr-text-faint);margin-left:8px }
+.palette{ display:flex;gap:4px;align-items:center;background:var(--dr-surface-overlay);border:1px solid var(--dr-border);border-radius:9px;padding:4px }
+.tool{ width:30px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--dr-text-muted);cursor:default }
+.tool.on{ background:var(--dr-accent);color:var(--dr-on-accent) } .tool .k{ font-family:var(--dr-mono);font-size:13px }
+.sep{ width:1px;height:18px;background:var(--dr-border-strong);margin:0 3px }
+
+.body{ display:flex;gap:0;min-height:380px }
+.surface{ flex:2;padding:18px 20px;border-right:1px solid var(--dr-border);position:relative;overflow:auto }
+.side{ flex:1;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:300px }
+.h2{ margin:0;font-size:12px;font-weight:700;color:var(--dr-text);text-transform:uppercase;letter-spacing:.04em }
+.cmt{ font-size:12.5px;color:var(--dr-text-muted);padding:8px 0;border-bottom:1px solid var(--dr-border);display:flex;gap:8px } .cmt b{ color:var(--dr-accent);font-weight:700 }
+.input{ width:100%;box-sizing:border-box;padding:9px 12px;border-radius:6px;border:1px solid var(--dr-border);background:var(--dr-surface-base);color:var(--dr-text);font-family:var(--dr-sans);font-size:13px }
+.badge{ display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-family:var(--dr-mono);font-size:10.5px;border:1px solid var(--dr-border-strong);color:var(--dr-text-muted) }
+.badge.filled{ border-color:transparent;font-weight:600 } .badge.ok{ background:var(--dr-ok);color:#04140a } .badge.warn{ background:var(--dr-warn);color:#1a1200 } .badge.info{ background:var(--dr-accent);color:var(--dr-on-accent) }
+.btn{ font-family:var(--dr-sans);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:6px;border:1px solid transparent;background:var(--dr-accent);color:var(--dr-on-accent) }
+
+/* AGENT PAYLOAD card — "what the agent gets" */
+.payload{ background:#0a1410;border:1px solid #1f5a2e;border-radius:9px;padding:11px 13px;font-family:var(--dr-mono);font-size:11.5px;color:#a9e4c1;line-height:1.55 }
+.payload .ph{ color:#3fb950;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:10px;margin-bottom:6px }
+.payload .k{ color:#6fcf97 } .payload .src{ color:var(--dr-accent) }
+.crop{ width:120px;height:64px;border-radius:6px;border:1px solid var(--dr-border);background:repeating-linear-gradient(45deg,#11161c,#11161c 6px,#0d1116 6px,#0d1116 12px);display:inline-block;vertical-align:middle }
+
+/* TEXT surface */
+.code{ font-family:var(--dr-mono);font-size:12.5px;line-height:1.7;color:var(--dr-text) }
+.code .ln{ display:flex } .code .g{ width:34px;color:var(--dr-text-faint);text-align:right;padding-right:14px;user-select:none } .code .c{ white-space:pre }
+.code .hl{ background:#5fd7ff1f;border-bottom:2px solid var(--dr-accent);border-radius:2px }
+.code .del{ background:#f851491a } .bubble{ margin:6px 0 6px 34px;border-left:2px solid var(--dr-accent);background:var(--dr-surface-overlay);border-radius:0 8px 8px 0;padding:8px 11px;font-family:var(--dr-sans);font-size:12.5px;color:var(--dr-text);max-width:560px }
+.diff{ font-family:var(--dr-mono);font-size:12px;margin:6px 0 0 34px } .diff .r{ color:var(--dr-danger) } .diff .a{ color:var(--dr-ok) }
+
+/* VISUAL surface */
+.stage{ position:relative;border:1px solid var(--dr-border);border-radius:10px;overflow:hidden;height:300px;background:repeating-linear-gradient(45deg,#0f141a,#0f141a 10px,#0c1015 10px,#0c1015 20px);display:flex;align-items:center;justify-content:center;color:var(--dr-text-faint);font-family:var(--dr-mono);font-size:12px }
+.pin{ position:absolute;width:24px;height:24px;border-radius:50%;background:var(--dr-accent);color:var(--dr-on-accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px #000a;transform:translate(-50%,-50%) }
+.boxann{ position:absolute;border:2px solid var(--dr-accent);border-radius:4px;background:#5fd7ff14 } .boxann .tag{ position:absolute;top:-11px;left:-2px;background:var(--dr-accent);color:var(--dr-on-accent);font-family:var(--dr-mono);font-size:10px;font-weight:700;border-radius:4px;padding:0 5px }
+
+/* fake rendered HTML UI for the html variant */
+.uihtml{ border:1px solid var(--dr-border);border-radius:10px;background:#0c1116;overflow:hidden;height:300px }
+.uihtml .bar{ height:30px;background:#11161c;border-bottom:1px solid var(--dr-border);display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--dr-text-faint);font-family:var(--dr-mono) }
+.uihtml .pad{ padding:16px 18px;display:flex;flex-direction:column;gap:10px } .uihtml .line{ display:flex;justify-content:space-between;font-size:13px } .uihtml .line .k{ color:var(--dr-text-muted) } .uihtml .line .v{ color:var(--dr-text) }
+.uihtml .total{ display:flex;justify-content:space-between;font-size:15px;font-weight:700;padding-top:10px;border-top:1px solid var(--dr-border);position:relative }
+.uihtml .total.marked{ outline:2px solid var(--dr-accent);outline-offset:4px;border-radius:4px } .uihtml .total .tag{ position:absolute;right:-2px;top:-22px;background:var(--dr-accent);color:var(--dr-on-accent);font-family:var(--dr-mono);font-size:10px;font-weight:700;border-radius:4px;padding:1px 5px }
+.mono{ font-family:var(--dr-mono) } .muted{ color:var(--dr-text-muted) }
+</style></head><body>
+
+<div class="page-head">
+  <h1><b>darkrun</b> — one surface: view = annotate</h1>
+  <p>There's no separate "review" screen. You open an artifact; the annotation palette is always there; pick a tool anytime. Three artifact classes, same envelope, each resolving to a <b>source</b> target the agent can act on. The green card under each is literally <i>what the agent receives</i>.</p>
+</div>
+
+<!-- ============ TEXT ============ -->
+<div class="caption"><span class="n">1</span> &nbsp; <span class="t">Text — code / markdown / spec</span></div>
+<div class="sub">Select a span → comment, highlight, strike, or propose a replacement (stored as a diff). Anchored by <code>version_sha</code> + line range + the quoted text & surrounding context, so it survives the file moving.</div>
+<div class="win">
+  <div class="titlebar"><div class="lights"><div class="light l-r"></div><div class="light l-y"></div><div class="light l-g"></div></div><div class="tbtitle">darkrun</div></div>
+  <div class="ahead">
+    <div class="nm">payment.rs <span class="ty">text · build/units/payment-step</span></div>
+    <div class="palette"><span class="tool">↖</span><span class="tool on" title="select">⌶</span><span class="tool" title="highlight">▭</span><span class="tool" title="strike">S̶</span><span class="tool" title="suggest">±</span><span class="sep"></span><span class="tool" title="comment">💬</span></div>
+  </div>
+  <div class="body">
+    <div class="surface">
+      <div class="code">
+        <div class="ln"><span class="g">40</span><span class="c">impl PaymentStep {</span></div>
+        <div class="ln"><span class="g">41</span><span class="c">    // the unhappy path is the point</span></div>
+        <div class="ln"><span class="g">42</span><span class="c">    fn charge(card: Card) -> Result&lt;Receipt&gt; {</span></div>
+        <div class="ln"><span class="g">43</span><span class="c">        gateway.<span class="hl">submit(card)</span></span></div>
+        <div class="ln"><span class="g">44</span><span class="c"><span class="hl">            .map_err(Error::Gateway)?</span>;</span></div>
+        <div class="bubble"><b style="color:var(--dr-accent)">comment</b> &nbsp; handle the <b>declined-card</b> path here, not just network errors. <span class="badge warn filled" style="margin-left:6px">change · should</span></div>
+        <div class="diff"><div class="r">- &nbsp; .map_err(Error::Gateway)?</div><div class="a">+ &nbsp; .map_err(classify_decline)?</div><div class="muted" style="margin-top:3px">↑ suggestion (a diff on the span)</div></div>
+        <div class="ln"><span class="g">45</span><span class="c">        Ok(Receipt::new())</span></div>
+        <div class="ln"><span class="g">46</span><span class="c">    }</span></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="h2">Thread</div>
+      <div class="cmt"><b>✎</b> handle the declined-card path here, not just network errors</div>
+      <input class="input" placeholder="reply…">
+      <div class="payload">
+        <div class="ph">what the agent gets</div>
+        <span class="k">file</span> <span class="src">build/.../payment.rs:43-44</span><br>
+        <span class="k">shifted</span> false &nbsp; <span class="k">v</span> 9f3c…<br>
+        <span class="k">quote</span> "gateway.submit(card)<br>&nbsp;&nbsp;.map_err(Error::Gateway)?"<br>
+        <span class="k">comment</span> handle the declined-card path…<br>
+        <span class="k">suggest</span> <span class="src">- .map_err(Error::Gateway)?</span> / + .map_err(classify_decline)?
+      </div>
+      <div style="display:flex;gap:8px"><span class="btn">Submit → agent</span></div>
+    </div>
+  </div>
+</div>
+<div class="note info"><span class="h">stored & re-referenced</span> &nbsp; <code>.darkrun/&lt;run&gt;/annotations/&lt;id&gt;.json</code> with <code>range + quote + prefix/suffix + version_sha</code>. Next version: exact if lines still hash-match, else re-found by quote search, else flagged "shifted." The agent lands on the span and applies/argues the suggestion diff.</div>
+
+<!-- ============ IMAGE ============ -->
+<div class="caption"><span class="n">2</span> &nbsp; <span class="t">Image — screenshot / render</span></div>
+<div class="sub">Pin, box, arrow, freehand, highlight — in normalized 0..1 coords (resolution-independent). On submit the engine crops the marked region from the version-pinned image, so the agent gets <i>the actual pixels you circled</i> + coords + provenance back to source.</div>
+<div class="win">
+  <div class="titlebar"><div class="lights"><div class="light l-r"></div><div class="light l-y"></div><div class="light l-g"></div></div><div class="tbtitle">darkrun</div></div>
+  <div class="ahead">
+    <div class="nm">dashboard.png <span class="ty">image · build/outputs</span></div>
+    <div class="palette"><span class="tool">↖</span><span class="tool" title="pin">📍</span><span class="tool on" title="box">▭</span><span class="tool" title="arrow">↗</span><span class="tool" title="pen">✐</span><span class="tool" title="highlight">▤</span><span class="sep"></span><span class="tool" title="redact">▰</span></div>
+  </div>
+  <div class="body">
+    <div class="surface">
+      <div class="stage">payment summary · 1440×900
+        <div class="boxann" style="left:54%;top:60%;width:30%;height:13%"><span class="tag">2</span></div>
+        <div class="pin" style="left:22%;top:26%">1</div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="h2">Thread</div>
+      <div class="cmt"><b>1</b> contrast on muted text too low</div>
+      <div class="cmt"><b>2</b> total is misaligned with the rows</div>
+      <input class="input" placeholder="comment on pin 2…">
+      <div class="payload">
+        <div class="ph">what the agent gets · pin 2</div>
+        <span class="crop"></span><br>
+        <span class="k">region</span> rect(0.55,0.46 · 0.30×0.13)<br>
+        <span class="k">crop</span> anno_…__crop.png<br>
+        <span class="k">from</span> <span class="src">web/cart/Summary.tsx</span> (route /checkout)<br>
+        <span class="k">comment</span> total is misaligned with the rows
+      </div>
+      <div style="display:flex;gap:8px"><span class="btn">Submit → agent</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HTML ============ -->
+<div class="caption"><span class="n">3</span> &nbsp; <span class="t">HTML / live visual — the strong case</span></div>
+<div class="sub">You annotate pixels; we read the DOM element under the mark and resolve it to the <b>exact source line</b> via build-time <code>data-darkrun-src</code> attributes. The human never thinks about the DOM — the agent gets <code>Summary.tsx:118</code>.</div>
+<div class="win">
+  <div class="titlebar"><div class="lights"><div class="light l-r"></div><div class="light l-y"></div><div class="light l-g"></div></div><div class="tbtitle">darkrun</div></div>
+  <div class="ahead">
+    <div class="nm">checkout summary <span class="ty">html · live render</span></div>
+    <div class="palette"><span class="tool">↖</span><span class="tool" title="pin">📍</span><span class="tool on" title="box">▭</span><span class="tool" title="arrow">↗</span><span class="tool" title="pen">✐</span><span class="sep"></span><span class="tool" title="inspect">⌗</span></div>
+  </div>
+  <div class="body">
+    <div class="surface">
+      <div class="uihtml">
+        <div class="bar">/checkout · 1440×900</div>
+        <div class="pad">
+          <div class="line"><span class="k">Cart subtotal</span><span class="v">$128.00</span></div>
+          <div class="line"><span class="k">Shipping</span><span class="v">$9.00</span></div>
+          <div class="line"><span class="k">Tax</span><span class="v">$11.04</span></div>
+          <div class="total marked"><span class="tag">1 · .total-row</span><span>Total</span><span>$148.04</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="h2">Thread</div>
+      <div class="cmt"><b>1</b> total is misaligned with the rows above</div>
+      <input class="input" placeholder="reply…">
+      <div class="payload">
+        <div class="ph">what the agent gets · pixel → source</div>
+        <span class="k">el</span> main &gt; section.summary &gt; .total-row<br>
+        <span class="k">src</span> <span class="src">web/cart/Summary.tsx:118</span><br>
+        <span class="k">html</span> &lt;div class="total-row"&gt;…&lt;/div&gt;<br>
+        <span class="k">px</span> rect(0.06,0.62 · 0.88×0.10)<br>
+        <span class="k">comment</span> total is misaligned with the rows
+      </div>
+      <div style="display:flex;gap:8px"><span class="btn">Submit → agent</span></div>
+    </div>
+  </div>
+</div>
+<div class="note info"><span class="h">why html is best-supported</span> &nbsp; It's the one type where we anchor pixels <i>and</i> source at once. The factory's renderer injects <code>data-darkrun-src="file:line"</code>; a pixel mark resolves to a precise component edit. Images fall back to provenance; text is already source.</div>
+
+<div style="height:80px"></div>
+</body></html>

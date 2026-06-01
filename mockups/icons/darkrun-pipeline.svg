@@ -1,0 +1,26 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#11161d"/>
+      <stop offset="1" stop-color="#06080b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#5fd7ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5fd7ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- squircle tile -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="32.5" y="32.5" width="959" height="959" rx="223.5" fill="none" stroke="#2a333d" stroke-width="3"/>
+  <!-- assembly line: connector -->
+  <line x1="300" y1="512" x2="724" y2="512" stroke="#33404d" stroke-width="16" stroke-linecap="round"/>
+  <line x1="300" y1="512" x2="512" y2="512" stroke="#5fd7ff" stroke-width="16" stroke-linecap="round" opacity="0.9"/>
+  <!-- pending node (left) -->
+  <circle cx="300" cy="512" r="52" fill="#0a0e12" stroke="#5b6773" stroke-width="14"/>
+  <!-- active node (center) ◉ with glow -->
+  <circle cx="512" cy="512" r="180" fill="url(#glow)"/>
+  <circle cx="512" cy="512" r="92" fill="#0a0e12" stroke="#5fd7ff" stroke-width="20"/>
+  <circle cx="512" cy="512" r="40" fill="#5fd7ff"/>
+  <!-- pending node (right) -->
+  <circle cx="724" cy="512" r="52" fill="#0a0e12" stroke="#5b6773" stroke-width="14"/>
+</svg>

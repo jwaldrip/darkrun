@@ -10,10 +10,13 @@
 //! dependency. The WebSocket uses `tokio-tungstenite`.
 
 use std::fmt;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use darkrun_api::{
-    DirectionSelectRequest, OutputReviewRequest, PickerSelectRequest, QuestionAnswerRequest,
-    ReviewDecisionRequest, RunDetailPayload, RunListPayload, SessionPayload,
+    DirectionSelectRequest, FeedbackCreateRequest, FeedbackListResponse, FeedbackUpdateRequest,
+    OutputReviewRequest, PickerSelectRequest, QuestionAnswerRequest, ReviewDecisionRequest,
+    RunDetailPayload, RunListPayload, SessionPayload,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -118,6 +121,20 @@ impl ConnConfig {
     /// objective-evidence proof.
     pub fn proof_path(&self, run: &str) -> String {
         format!("/api/proof/{run}")
+    }
+
+    /// The feedback-list GET path (`/api/feedback/:run/:station`) — every
+    /// feedback item on a station, the data the feedback inbox renders and the
+    /// checkpoint counts by severity. (Annotations submitted from the review
+    /// surface land here as `user-visual` feedback server-side.)
+    pub fn feedback_list_path(&self, run: &str, station: &str) -> String {
+        format!("/api/feedback/{run}/{station}")
+    }
+
+    /// The feedback-item PUT path (`/api/feedback/:run/:station/:id`) — used by
+    /// the inbox's resolve/dismiss chips to transition an item's status.
+    pub fn feedback_item_path(&self, run: &str, station: &str, id: &str) -> String {
+        format!("/api/feedback/{run}/{station}/{id}")
     }
 
     /// The run-list GET path (`/api/runs`) — every non-archived run summary.
@@ -280,6 +297,46 @@ pub async fn fetch_runs(cfg: &ConnConfig) -> Result<RunListPayload, WireError> {
     get_json(&cfg.authority(), &cfg.runs_path()).await
 }
 
+/// GET a station's feedback list (`/api/feedback/:run/:station`) — the data the
+/// feedback inbox renders and the checkpoint reads to count open annotations by
+/// severity. The annotation model surfaces every artifact annotation here as a
+/// feedback item, so this is the desktop's read path for
+/// `list_annotations_for_work_item`-style counts over a station.
+pub async fn fetch_feedback(
+    cfg: &ConnConfig,
+    run: &str,
+    station: &str,
+) -> Result<FeedbackListResponse, WireError> {
+    get_json(&cfg.authority(), &cfg.feedback_list_path(run, station)).await
+}
+
+/// POST a station annotation as a `user-visual` feedback item
+/// (`/api/feedback/:run/:station`) — the review surface's `submit_annotation`
+/// path for a text/markdown artifact (or a global station note). Image / live
+/// HTML artifacts go through [`submit_output_review`] instead, which records the
+/// pin geometry. Either way the engine mints an `FB-NN` item the inbox lists and
+/// the agent re-references.
+pub async fn submit_annotation(
+    cfg: &ConnConfig,
+    run: &str,
+    station: &str,
+    req: &FeedbackCreateRequest,
+) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.feedback_list_path(run, station), req).await
+}
+
+/// PUT a feedback-item status update (`/api/feedback/:run/:station/:id`) — the
+/// inbox's resolve / dismiss chips transition an item out of the open set.
+pub async fn update_feedback(
+    cfg: &ConnConfig,
+    run: &str,
+    station: &str,
+    id: &str,
+    req: &FeedbackUpdateRequest,
+) -> Result<(), WireError> {
+    send_json("PUT", &cfg.authority(), &cfg.feedback_item_path(run, station, id), req).await
+}
+
 /// GET the `current` focus session and return the run slug it names, if any.
 ///
 /// `darkrun_show` upserts a Review payload under the `current` session id whose
@@ -357,10 +414,23 @@ async fn post_json<T: Serialize>(
     path: &str,
     req: &T,
 ) -> Result<(), WireError> {
+    send_json("POST", authority, path, req).await
+}
+
+/// Hand-rolled HTTP/1.1 JSON request over loopback TCP for an arbitrary method
+/// (`POST` / `PUT`), shared by the decision / answer / annotation / feedback-
+/// update paths. Serializes `req`, writes the request, reads the response, and
+/// surfaces a typed result on the status code.
+async fn send_json<T: Serialize>(
+    method: &str,
+    authority: &str,
+    path: &str,
+    req: &T,
+) -> Result<(), WireError> {
     let body = serde_json::to_vec(req).map_err(WireError::Encode)?;
 
     let request = format!(
-        "POST {path} HTTP/1.1\r\n\
+        "{method} {path} HTTP/1.1\r\n\
          Host: {authority}\r\n\
          Content-Type: application/json\r\n\
          Content-Length: {len}\r\n\
@@ -402,6 +472,70 @@ pub fn parse_status_code(buf: &[u8]) -> Result<u16, WireError> {
         .ok_or_else(|| WireError::Io(std::io::Error::other("malformed HTTP status line")))
 }
 
+/// A live engine discovered under `~/.darkrun`, projected from the registry's
+/// `EngineDescriptor` down to what the desktop needs to connect and label it.
+///
+/// Mirrors the on-disk descriptor (see `darkrun_mcp::registry::EngineDescriptor`)
+/// but flattens the bound `SocketAddr` to just the `port` the desktop dials and
+/// keeps the absolute `project_path` (the engine's repo root) for matching a
+/// selected run to its engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredEngine {
+    /// Absolute repo root the engine was launched against.
+    pub project_path: PathBuf,
+    /// The loopback port the engine's HTTP/WS server is listening on.
+    pub port: u16,
+    /// Slug derived from `project_path`; matches the registry directory name.
+    pub slug: String,
+    /// OS process id of the live engine.
+    pub pid: u32,
+    /// Harness key the engine adapted to, for display.
+    pub harness: String,
+    /// RFC3339 timestamp the engine announced itself at.
+    pub started_at: String,
+}
+
+impl DiscoveredEngine {
+    /// Project a registry descriptor into the desktop-facing shape, dropping the
+    /// host (always loopback) and keeping only the port.
+    fn from_descriptor(d: darkrun_mcp::registry::EngineDescriptor) -> Self {
+        DiscoveredEngine {
+            project_path: d.repo_root,
+            port: d.addr.port(),
+            slug: d.slug,
+            pid: d.pid,
+            harness: d.harness,
+            started_at: d.started_at,
+        }
+    }
+}
+
+/// Discover every LIVE engine advertised under `~/.darkrun`.
+///
+/// Delegates the descriptor lifecycle (active vs `.stale`, pid liveness) to the
+/// registry's [`list_live_engines`](darkrun_mcp::registry::list_live_engines), so
+/// the desktop and the engine agree exactly on what "live" means. Returns an
+/// empty list when the tree doesn't exist (no engine has ever booted).
+pub async fn discover_live_engines() -> io::Result<Vec<DiscoveredEngine>> {
+    let descriptors = darkrun_mcp::registry::list_live_engines()?;
+    Ok(descriptors
+        .into_iter()
+        .map(DiscoveredEngine::from_descriptor)
+        .collect())
+}
+
+/// Find the loopback port of the live engine serving `project_path`, if any.
+///
+/// Matches on the absolute repo root the engine recorded; both sides are assumed
+/// absolute (the registry stores an absolute `repo_root`). Returns the first
+/// match's port, or `None` when no live engine serves that project.
+pub fn find_engine_for_project(engines: &[DiscoveredEngine], project_path: &Path) -> Option<u16> {
+    engines
+        .iter()
+        .find(|e| e.project_path == project_path)
+        .map(|e| e.port)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,6 +568,10 @@ mod tests {
             "/visual-review/s-42/annotate"
         );
         assert_eq!(cfg.proof_path("my-run"), "/api/proof/my-run");
+        assert_eq!(
+            cfg.feedback_list_path("my-run", "build"),
+            "/api/feedback/my-run/build"
+        );
     }
 
     #[test]
@@ -475,5 +613,87 @@ mod tests {
             404
         );
         assert!(parse_status_code(b"garbage").is_err());
+    }
+
+    // --- Engine discovery -------------------------------------------------
+
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+    fn discovered(project: &str, port: u16) -> DiscoveredEngine {
+        DiscoveredEngine {
+            project_path: PathBuf::from(project),
+            port,
+            slug: format!("slug-{port}"),
+            pid: 1234,
+            harness: "claude".into(),
+            started_at: "2026-05-31T00:00:00+00:00".into(),
+        }
+    }
+
+    #[test]
+    fn from_descriptor_flattens_addr_to_port() {
+        let desc = darkrun_mcp::registry::EngineDescriptor {
+            pid: 4242,
+            addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5151)),
+            repo_root: PathBuf::from("/Users/dev/proj"),
+            slug: "proj-deadbeef".into(),
+            harness: "claude".into(),
+            started_at: "2026-05-31T00:00:00+00:00".into(),
+        };
+        let eng = DiscoveredEngine::from_descriptor(desc);
+        assert_eq!(eng.port, 5151);
+        assert_eq!(eng.project_path, PathBuf::from("/Users/dev/proj"));
+        assert_eq!(eng.pid, 4242);
+        assert_eq!(eng.slug, "proj-deadbeef");
+    }
+
+    #[test]
+    fn find_engine_for_project_matches_by_path() {
+        let engines = vec![discovered("/Users/dev/a", 7001), discovered("/Users/dev/b", 7002)];
+        assert_eq!(
+            find_engine_for_project(&engines, Path::new("/Users/dev/b")),
+            Some(7002)
+        );
+    }
+
+    #[test]
+    fn find_engine_for_project_no_match_returns_none() {
+        let engines = vec![discovered("/Users/dev/a", 7001)];
+        assert_eq!(
+            find_engine_for_project(&engines, Path::new("/Users/dev/missing")),
+            None
+        );
+    }
+
+    #[test]
+    fn discovery_filters_to_live_and_excludes_stale() {
+        // Mirror `discover_live_engines`'s internals against a temp registry tree:
+        // an announced engine for the live pid is returned; a stale-flagged one is
+        // not. The registry owns the active-vs-stale + liveness rules.
+        let tmp = tempfile::tempdir().unwrap();
+        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6161));
+
+        let live = darkrun_mcp::registry::EngineRegistry::with_root(tmp.path(), "/Users/dev/live");
+        live.announce(addr, "claude").unwrap();
+
+        let gone = darkrun_mcp::registry::EngineRegistry::with_root(tmp.path(), "/Users/dev/gone");
+        gone.announce(addr, "claude").unwrap();
+        gone.mark_stale().unwrap();
+
+        let engines: Vec<DiscoveredEngine> =
+            darkrun_mcp::registry::list_live_engines_in(tmp.path())
+                .unwrap()
+                .into_iter()
+                .map(DiscoveredEngine::from_descriptor)
+                .collect();
+
+        assert_eq!(engines.len(), 1);
+        assert_eq!(engines[0].project_path, PathBuf::from("/Users/dev/live"));
+        assert_eq!(engines[0].port, 6161);
+        // The matcher then resolves the right project's port.
+        assert_eq!(
+            find_engine_for_project(&engines, Path::new("/Users/dev/live")),
+            Some(6161)
+        );
     }
 }

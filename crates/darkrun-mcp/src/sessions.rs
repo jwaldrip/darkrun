@@ -28,15 +28,20 @@
 //! The registry is keyed by `session_id` so a single run can hold several
 //! concurrent visual sessions without clobbering each other.
 
+use std::collections::BTreeMap;
+
 use darkrun_api::session::{
     DirectionArchetype, DirectionSessionPayload, PickerKind, PickerOption, PickerSessionPayload,
-    QuestionOption, QuestionSessionPayload, ReviewSessionPayload, SessionPayload,
+    QuestionOption, QuestionSessionPayload, ReviewSessionPayload, RunCurrentState, RunPhase,
+    SessionPayload, StationStateInfo,
 };
 use darkrun_api::SessionStatus;
+use darkrun_core::domain::StationPhase;
 use darkrun_core::StateStore;
 use serde::Serialize;
 
 use crate::error::{McpError, Result};
+use crate::factory::resolve_factory;
 
 /// The focus channel the desktop home watches: when a Review payload appears
 /// under this session id, the app navigates to the run it names.
@@ -54,6 +59,53 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
     let run_json = serde_json::to_value(&run).ok();
     let unit_jsons: Vec<serde_json::Value> =
         units.iter().filter_map(|u| serde_json::to_value(u).ok()).collect();
+
+    // Derive the per-factory STATION strip + the live PHASE from the run's real
+    // state. The factory declares the ordered station list; `RunState` carries
+    // each station's derived status/phase. Absent state (a run with no
+    // `state.json` yet) yields an empty strip and no phase — the payload stays
+    // valid, the pipeline just renders nothing rather than stale data.
+    let state = store.read_state(slug)?;
+    let factory_stations: Vec<String> = resolve_factory(&run.frontmatter.factory)
+        .map(|f| f.station_names())
+        .unwrap_or_default();
+
+    let (station_states, current_state) = match state {
+        Some(state) => {
+            let mut station_states: BTreeMap<String, StationStateInfo> = BTreeMap::new();
+            for entry in state.station_status_summary(&factory_stations) {
+                let recorded = state.stations.get(&entry.station);
+                let checkpoint = recorded.and_then(|st| st.checkpoint.as_ref());
+                station_states.insert(
+                    entry.station.clone(),
+                    StationStateInfo {
+                        station: entry.station.clone(),
+                        merged_into_main: matches!(
+                            entry.status,
+                            darkrun_core::domain::Status::Completed
+                        ),
+                        status: enum_token(&entry.status),
+                        phase: enum_token(&entry.phase),
+                        started_at: recorded.and_then(|st| st.started_at.clone()),
+                        completed_at: recorded.and_then(|st| st.completed_at.clone()),
+                        gate_entered_at: checkpoint.and_then(|c| c.entered_at.clone()),
+                        gate_outcome: checkpoint
+                            .and_then(|c| c.outcome.as_ref())
+                            .and_then(enum_token),
+                    },
+                );
+            }
+            let current = RunCurrentState {
+                factory: state.factory.clone(),
+                station: state.active_station.clone(),
+                phase: Some(run_phase(state.active_phase())),
+                ..Default::default()
+            };
+            (station_states, Some(current))
+        }
+        None => (BTreeMap::new(), None),
+    };
+
     let build = |session_id: &str| {
         SessionPayload::Review(ReviewSessionPayload {
             session_id: session_id.to_string(),
@@ -61,12 +113,37 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
             run_slug: Some(slug.to_string()),
             run: run_json.clone(),
             units: unit_jsons.clone(),
+            station_states: station_states.clone(),
+            current_state: current_state.clone(),
             ..Default::default()
         })
     };
     registry.upsert(build(slug));
     registry.upsert(build(CURRENT_SESSION));
     Ok(slug.to_string())
+}
+
+/// Serialize a snake_case-tagged unit enum to its wire token (the `Option<String>`
+/// display shims the review payload carries). Returns `None` only if the value
+/// somehow fails to serialize as a JSON string.
+fn enum_token<T: Serialize>(value: &T) -> Option<String> {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+}
+
+/// Map the core [`StationPhase`] onto the API's [`RunPhase`] — the two share the
+/// fixed universal taxonomy (`spec/review/manufacture/audit/reflect/checkpoint`),
+/// kept as separate types to keep `darkrun-api` dependency-light.
+fn run_phase(phase: StationPhase) -> RunPhase {
+    match phase {
+        StationPhase::Spec => RunPhase::Spec,
+        StationPhase::Review => RunPhase::Review,
+        StationPhase::Manufacture => RunPhase::Manufacture,
+        StationPhase::Audit => RunPhase::Audit,
+        StationPhase::Reflect => RunPhase::Reflect,
+        StationPhase::Checkpoint => RunPhase::Checkpoint,
+    }
 }
 
 /// The in-memory interactive-session registry shared between the MCP tool
@@ -466,10 +543,141 @@ mod tests {
                     assert_eq!(rev.session_id, sid);
                     assert_eq!(rev.run_slug.as_deref(), Some("r"));
                     assert!(rev.run.is_some(), "run json populated");
+
+                    // A freshly-started run sits at `frame`/Spec, and the strip
+                    // carries every one of the factory's ordered stations.
+                    let cur = rev.current_state.as_ref().expect("current_state set");
+                    assert_eq!(cur.factory, "software");
+                    assert_eq!(cur.station, "frame");
+                    assert_eq!(cur.phase, Some(RunPhase::Spec));
+
+                    let order: Vec<&str> =
+                        rev.station_states.values().map(|s| s.station.as_str()).collect();
+                    // BTreeMap is name-keyed; the strip's true order is the
+                    // factory's, but every station must be present.
+                    for name in ["frame", "specify", "shape", "build", "prove", "harden"] {
+                        assert!(
+                            rev.station_states.contains_key(name),
+                            "station {name} present in strip, got {order:?}"
+                        );
+                    }
                 }
                 other => panic!("expected a review session, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn create_show_payload_carries_ordered_stations_phase_and_statuses() {
+        use darkrun_core::domain::{
+            Checkpoint, CheckpointKind, CheckpointOutcome, Station, StationPhase, Status,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        crate::position::run_start(&store, "r", "software", None, "continuous").unwrap();
+
+        // Hand-build a mid-run state: `frame` locked (Completed, gate advanced),
+        // `specify` the active station mid-Manufacture, everything downstream
+        // untouched (Pending/Spec, no entry).
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.active_station = "specify".into();
+        state.stations.insert(
+            "frame".into(),
+            Station {
+                station: "frame".into(),
+                status: Status::Completed,
+                phase: StationPhase::Checkpoint,
+                checkpoint: Some(Checkpoint {
+                    kind: CheckpointKind::Ask,
+                    entered_at: Some("2026-05-31T00:00:00Z".into()),
+                    outcome: Some(CheckpointOutcome::Advanced),
+                }),
+                started_at: Some("2026-05-31T00:00:00Z".into()),
+                completed_at: Some("2026-05-31T01:00:00Z".into()),
+            },
+        );
+        state.stations.insert(
+            "specify".into(),
+            Station {
+                station: "specify".into(),
+                status: Status::InProgress,
+                phase: StationPhase::Manufacture,
+                checkpoint: None,
+                started_at: Some("2026-05-31T01:00:00Z".into()),
+                completed_at: None,
+            },
+        );
+        store.write_state("r", &state).unwrap();
+
+        let reg = registry();
+        create_show(&reg, &store, "r").expect("show");
+
+        let rev = match reg.get("r").expect("session present") {
+            SessionPayload::Review(rev) => rev,
+            other => panic!("expected a review session, got {other:?}"),
+        };
+
+        // The dead pipeline is fixed: the active phase is present and matches the
+        // active station's recorded phase.
+        let cur = rev.current_state.as_ref().expect("current_state set");
+        assert_eq!(cur.station, "specify");
+        assert_eq!(cur.phase, Some(RunPhase::Manufacture));
+        assert_eq!(cur.factory, "software");
+
+        // The strip carries an entry for every ordered factory station.
+        for name in ["frame", "specify", "shape", "build", "prove", "harden"] {
+            assert!(rev.station_states.contains_key(name), "{name} present");
+        }
+        assert_eq!(rev.station_states.len(), 6);
+
+        // Completed station: merged, Completed status, Checkpoint phase, gate
+        // metadata carried through.
+        let frame = &rev.station_states["frame"];
+        assert!(frame.merged_into_main);
+        assert_eq!(frame.status.as_deref(), Some("completed"));
+        assert_eq!(frame.phase.as_deref(), Some("checkpoint"));
+        assert_eq!(frame.completed_at.as_deref(), Some("2026-05-31T01:00:00Z"));
+        assert_eq!(frame.gate_entered_at.as_deref(), Some("2026-05-31T00:00:00Z"));
+        assert_eq!(frame.gate_outcome.as_deref(), Some("advanced"));
+
+        // Active station: not merged, in-progress, Manufacture phase.
+        let specify = &rev.station_states["specify"];
+        assert!(!specify.merged_into_main);
+        assert_eq!(specify.status.as_deref(), Some("in_progress"));
+        assert_eq!(specify.phase.as_deref(), Some("manufacture"));
+
+        // A not-yet-reached station: pending, Spec phase, nothing started.
+        let harden = &rev.station_states["harden"];
+        assert!(!harden.merged_into_main);
+        assert_eq!(harden.status.as_deref(), Some("pending"));
+        assert_eq!(harden.phase.as_deref(), Some("spec"));
+        assert!(harden.started_at.is_none());
+    }
+
+    #[test]
+    fn run_state_ordered_stations_prefers_plan_then_factory() {
+        use darkrun_core::RunState;
+
+        let factory = vec![
+            "frame".to_string(),
+            "specify".to_string(),
+            "shape".to_string(),
+        ];
+
+        // Empty plan → the factory's full ordered list.
+        let full = RunState::default();
+        assert_eq!(full.ordered_stations(&factory), factory);
+
+        // A recorded plan overrides the factory list.
+        let sized = RunState {
+            plan: vec!["build".to_string(), "prove".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(
+            sized.ordered_stations(&factory),
+            vec!["build".to_string(), "prove".to_string()]
+        );
     }
 
     fn q_opt(id: &str, label: &str) -> QuestionOptionSpec {

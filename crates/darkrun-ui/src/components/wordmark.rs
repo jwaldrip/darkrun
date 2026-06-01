@@ -1,9 +1,11 @@
 //! The darkrun wordmark: **dark** in bold + "run" in regular weight.
 //!
-//! Two variants:
+//! Three variants:
 //! - [`WordmarkVariant::Filled`] — solid accent text, used in the desktop app.
 //! - [`WordmarkVariant::Outlined`] — transparent fill with an accent stroke,
 //!   used on the website hero.
+//! - [`WordmarkVariant::OutlinedSolidRun`] — outlined accent "dark" with a solid
+//!   "run", used in the desktop sticky header.
 
 use dioxus::prelude::*;
 
@@ -17,6 +19,19 @@ pub enum WordmarkVariant {
     Filled,
     /// Outlined / stroked text (website hero).
     Outlined,
+    /// Outlined accent "dark" + solid "run" at medium weight (sticky header).
+    OutlinedSolidRun,
+}
+
+impl WordmarkVariant {
+    /// The `data-variant` slug emitted on the wordmark root.
+    fn slug(self) -> &'static str {
+        match self {
+            WordmarkVariant::Filled => "filled",
+            WordmarkVariant::Outlined => "outlined",
+            WordmarkVariant::OutlinedSolidRun => "outlined-solid-run",
+        }
+    }
 }
 
 /// Render the darkrun wordmark.
@@ -47,6 +62,15 @@ pub fn Wordmark(
                 muted = tokens::TEXT_MUTED
             ),
         ),
+        WordmarkVariant::OutlinedSolidRun => (
+            // Outlined accent "dark" paired with a solid, medium-weight "run".
+            format!(
+                "color:transparent;font-weight:800;\
+                 -webkit-text-stroke:1px {accent};text-stroke:1px {accent};",
+                accent = tokens::ACCENT
+            ),
+            format!("color:{};font-weight:500;", tokens::TEXT),
+        ),
     };
 
     let root_style = format!(
@@ -58,14 +82,28 @@ pub fn Wordmark(
     rsx! {
         span {
             class: "dr-wordmark",
-            "data-variant": match variant {
-                WordmarkVariant::Filled => "filled",
-                WordmarkVariant::Outlined => "outlined",
-            },
+            "data-variant": variant.slug(),
             style: "{root_style}",
             "aria-label": "darkrun",
             span { class: "dr-wordmark-dark", style: "{dark_style}", "dark" }
             span { class: "dr-wordmark-run", style: "{run_style}", "run" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slug_is_stable_per_variant() {
+        assert_eq!(WordmarkVariant::Filled.slug(), "filled");
+        assert_eq!(WordmarkVariant::Outlined.slug(), "outlined");
+        assert_eq!(WordmarkVariant::OutlinedSolidRun.slug(), "outlined-solid-run");
+    }
+
+    #[test]
+    fn default_variant_is_filled() {
+        assert_eq!(WordmarkVariant::default(), WordmarkVariant::Filled);
     }
 }

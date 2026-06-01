@@ -1,0 +1,15 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#11161d"/>
+      <stop offset="1" stop-color="#06080b"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg2)"/>
+  <rect x="32.5" y="32.5" width="959" height="959" rx="223.5" fill="none" stroke="#2a333d" stroke-width="3"/>
+  <!-- bold lowercase 'd' monogram -->
+  <text x="500" y="700" font-family="Inter, system-ui, sans-serif" font-size="620"
+        font-weight="800" fill="#5fd7ff" text-anchor="middle" letter-spacing="-20">d</text>
+  <!-- terminal-cursor underscore: 'run' it -->
+  <rect x="566" y="690" width="150" height="34" rx="8" fill="#5fd7ff"/>
+</svg>

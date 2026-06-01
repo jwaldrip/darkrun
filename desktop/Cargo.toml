@@ -19,6 +19,15 @@ darkrun-api = { workspace = true }
 # Shared design system — tokens + components rendered by the review screens.
 darkrun-ui = { workspace = true }
 
+# Harness registry — per-harness display names + autonomous launch flags, used to
+# render the no-engine ONE-STEP start command (cd <project> && <harness> <flag>).
+darkrun-harness = { workspace = true }
+
+# Engine discovery — reads the `~/.darkrun/<slug>/engine-<pid>.json` registry to
+# find live engines and the loopback port each serves on, so the desktop can
+# auto-connect without a fixed port / env handshake.
+darkrun-mcp = { workspace = true }
+
 # UI: Dioxus + the desktop (WebView) renderer, behind the `desktop` feature.
 dioxus = { version = "0.7", features = ["desktop"] }
 
@@ -31,3 +40,7 @@ futures-util = "0.3"
 # (De)serialization of the wire payloads.
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# Mock the `~/.darkrun` discovery tree in unit tests for engine discovery.
+tempfile = "3"

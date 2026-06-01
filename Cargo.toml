@@ -5,7 +5,10 @@ members = ["crates/*", "desktop", "web/site", "web/server"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+# FSL-1.1-ALv2 is not an SPDX identifier; the full text lives in ./LICENSE.
+# darkrun crates are not published to crates.io (npm-only distribution), so this
+# informational string doesn't need to be a valid SPDX expression.
+license = "FSL-1.1-ALv2"
 authors = ["darkrun contributors"]
 repository = "https://github.com/jwaldrip/darkrun"
 homepage = "https://darkrun.ai"
@@ -21,6 +24,11 @@ schemars = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 nix = { version = "0.29", features = ["signal", "process"] }
 sha2 = "0.10"
+dirs = "6"
+# PNG/JPEG decode + region crop for the annotation agent re-reference payload
+# (cropping the version-pinned image to the marked normalized rect). Default
+# features are trimmed to the raster codecs we actually emit/consume.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # Internal crates — referenced by path so downstream members can depend on them.
 darkrun-core = { path = "crates/darkrun-core" }
@@ -29,5 +37,6 @@ darkrun-verify = { path = "crates/darkrun-verify" }
 darkrun-content = { path = "crates/darkrun-content" }
 darkrun-prompts = { path = "crates/darkrun-prompts" }
 darkrun-harness = { path = "crates/darkrun-harness" }
+darkrun-mcp = { path = "crates/darkrun-mcp" }
 darkrun-ui = { path = "crates/darkrun-ui" }
 darkrun-vcs = { path = "crates/darkrun-vcs" }

@@ -65,6 +65,14 @@ pub mod prelude {
     pub use crate::components::chips::{
         CheckpointBadge, RightSizeStrip, RightSizeTier, RiskChip,
     };
+    pub use crate::components::annotate::{
+        AnnotateTool, AnnotateToolbar, BoxMarker, CommentPanel, PinMarker,
+        SurfaceKind, ThreadComment,
+    };
+    pub use crate::components::feedback::{
+        counts_by_severity, feedback_inbox, feedback_row, FeedbackAction,
+        FeedbackEntry, Severity,
+    };
     pub use crate::components::factory::{
         CheckpointBar, CheckpointKind, FactoryCard, UnitRow,
     };
@@ -81,6 +89,10 @@ pub mod prelude {
         ArchetypeCard, DirectionView, OptionCard, PickerItem, PickerView, QuestionView,
     };
     pub use crate::components::station_flow::StationFlow;
+    pub use crate::components::station_strip::{
+        strip_from, StationItem, StationStatus, StationStrip,
+    };
+    pub use crate::components::tab_bar::{TabBar, TabItem};
     pub use crate::components::view_artifacts::{ArtifactEntry, ViewArtifacts};
     pub use crate::components::walkthrough::RunWalkthrough;
     pub use crate::components::wordmark::{Wordmark, WordmarkVariant};

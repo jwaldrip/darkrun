@@ -8,6 +8,7 @@ repository.workspace = true
 description = "darkrun domain types and filesystem state engine (locks, DAG, frontmatter)"
 
 [dependencies]
+darkrun-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true

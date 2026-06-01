@@ -1,0 +1,36 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#11161d"/>
+      <stop offset="1" stop-color="#06080b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#5fd7ff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#5fd7ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- squircle tile -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="33.5" y="33.5" width="957" height="957" rx="222.5" fill="none" stroke="#2a333d" stroke-width="3"/>
+
+  <!-- dr monogram, raised above the line -->
+  <!-- x nudged to 587 (= 512 + letter-spacing/2) so the wider pair stays centered -->
+  <text x="587" y="600" font-family="Inter, 'Segoe UI', system-ui, sans-serif"
+        font-size="500" text-anchor="middle" letter-spacing="150">
+    <tspan fill="#5fd7ff" font-weight="800">d</tspan><tspan fill="#e6edf3" font-weight="500">r</tspan>
+  </text>
+
+  <!-- assembly-line pipeline as the baseline the monogram stands on -->
+  <g>
+    <line x1="300" y1="772" x2="724" y2="772" stroke="#33404d" stroke-width="14" stroke-linecap="round"/>
+    <line x1="300" y1="772" x2="512" y2="772" stroke="#5fd7ff" stroke-width="14" stroke-linecap="round"/>
+    <!-- pending (left) -->
+    <circle cx="300" cy="772" r="42" fill="#0a0e12" stroke="#5b6773" stroke-width="12"/>
+    <!-- active (center) ◉ with glow -->
+    <circle cx="512" cy="772" r="120" fill="url(#glow)"/>
+    <circle cx="512" cy="772" r="58" fill="#0a0e12" stroke="#5fd7ff" stroke-width="15"/>
+    <circle cx="512" cy="772" r="24" fill="#5fd7ff"/>
+    <!-- pending (right) -->
+    <circle cx="724" cy="772" r="42" fill="#0a0e12" stroke="#5b6773" stroke-width="12"/>
+  </g>
+</svg>

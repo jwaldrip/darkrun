@@ -10,6 +10,8 @@
 //! filesystem under `.darkrun/`.
 //!
 //! Modules:
+//! - [`annotation`] — annotation storage, the text re-anchor pass, and the
+//!   open-ask severity aggregation that steers the checkpoint.
 //! - [`domain`]      — the factory domain types (Run, Station, Unit, Pass, ...).
 //! - [`frontmatter`] — YAML-frontmatter + markdown-body parsing.
 //! - [`state`]       — the [`state::StateStore`] filesystem engine.
@@ -17,6 +19,7 @@
 //! - [`dag`]         — the unit dependency graph (topo order, waves, ready-set).
 //! - [`error`]       — the crate error type.
 
+pub mod annotation;
 pub mod dag;
 pub mod domain;
 pub mod error;
@@ -25,10 +28,14 @@ pub mod locks;
 pub mod state;
 pub mod witness;
 
+pub use annotation::{
+    checkpoint_button_state, count_open_by_severity, reanchor_annotation, reanchor_text,
+    CheckpointButton, OpenSeverityCounts, ReAnchor,
+};
 pub use dag::Dag;
 pub use error::{CoreError, Result};
 pub use locks::{LockGuard, LockManager};
-pub use state::{run_is_complete, RunState, StateStore};
+pub use state::{run_is_complete, RunState, StateStore, StationStatus};
 pub use witness::{hash_bytes, hash_file, Witness};
 
 #[cfg(test)]

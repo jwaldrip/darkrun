@@ -111,6 +111,7 @@ impl Harness {
                     isolation: true,
                     model_param: false,
                 },
+                autonomous_launch_args: Some("--dangerously-skip-permissions"),
             },
             Harness::Cursor => Capabilities {
                 harness: self,
@@ -135,6 +136,8 @@ impl Harness {
                     isolation: false,
                     model_param: false,
                 },
+                // GUI-driven — autonomous mode lives in Cursor's settings, no CLI flag.
+                autonomous_launch_args: None,
             },
             Harness::Windsurf => Capabilities {
                 harness: self,
@@ -159,6 +162,8 @@ impl Harness {
                     isolation: false,
                     model_param: false,
                 },
+                // GUI-driven — autonomous mode lives in Windsurf's settings, no CLI flag.
+                autonomous_launch_args: None,
             },
             Harness::GeminiCli => Capabilities {
                 harness: self,
@@ -183,6 +188,7 @@ impl Harness {
                     isolation: false,
                     model_param: false,
                 },
+                autonomous_launch_args: Some("--yolo"),
             },
             Harness::Opencode => Capabilities {
                 harness: self,
@@ -207,6 +213,8 @@ impl Harness {
                     isolation: false,
                     model_param: true,
                 },
+                // No known autonomous-mode CLI flag — update to Some(...) if one lands.
+                autonomous_launch_args: None,
             },
             Harness::Kiro => Capabilities {
                 harness: self,
@@ -231,6 +239,8 @@ impl Harness {
                     isolation: false,
                     model_param: false,
                 },
+                // GUI-driven — autonomous mode lives in Kiro's settings, no CLI flag.
+                autonomous_launch_args: None,
             },
             // Conservative profile. Codex reads the MCP `instructions` field and
             // serves STDIO/HTTP MCP servers, but its docs don't confirm MCP
@@ -262,6 +272,7 @@ impl Harness {
                     isolation: false,
                     model_param: false,
                 },
+                autonomous_launch_args: Some("--full-auto"),
             },
         }
     }
@@ -326,6 +337,14 @@ pub struct Capabilities {
     pub model_tiers: &'static [&'static str],
     /// Subagent-spawning capabilities.
     pub subagents: Subagents,
+    /// The CLI flag that puts this harness into autonomous (no-approval) mode,
+    /// if it exposes one (`--dangerously-skip-permissions` for Claude Code,
+    /// `--full-auto` for Codex, `--yolo` for Gemini CLI). `None` for harnesses
+    /// that have no such flag — either GUI-driven ones whose autonomous mode
+    /// lives in in-app settings (Cursor, Windsurf, Kiro), or CLIs with no known
+    /// autonomous-mode flag (OpenCode). These flag names are canonical for the
+    /// current harness versions and should be re-verified against release notes.
+    pub autonomous_launch_args: Option<&'static str>,
 }
 
 impl Capabilities {
@@ -370,6 +389,14 @@ impl Capabilities {
     /// or `"Agent"` as a neutral default when the harness has none.
     pub fn subagent_tool(&self) -> &'static str {
         self.subagents.tool_names.first().copied().unwrap_or("Agent")
+    }
+
+    /// The CLI flag(s) to launch this harness in autonomous (no-approval) mode,
+    /// or `""` when the harness has none (GUI-driven settings, or no known flag).
+    /// Callers can splice this straight into a launch command line — an empty
+    /// string contributes nothing.
+    pub fn autonomous_launch_args(&self) -> &'static str {
+        self.autonomous_launch_args.unwrap_or("")
     }
 }
 
@@ -614,5 +641,48 @@ mod tests {
         assert!(out.contains("No subagents"));
         assert!(out.contains("ask inline in plain text"));
         assert!(out.contains("call `darkrun_run_next` yourself"));
+    }
+
+    #[test]
+    fn test_autonomous_launch_args_for_cli_harnesses() {
+        assert_eq!(
+            Harness::ClaudeCode.capabilities().autonomous_launch_args(),
+            "--dangerously-skip-permissions"
+        );
+        assert_eq!(Harness::GeminiCli.capabilities().autonomous_launch_args(), "--yolo");
+        assert_eq!(Harness::Codex.capabilities().autonomous_launch_args(), "--full-auto");
+    }
+
+    #[test]
+    fn test_autonomous_launch_args_empty_for_gui_harnesses() {
+        // GUI harnesses drive autonomous mode through in-app settings, not a CLI flag.
+        for h in [Harness::Cursor, Harness::Windsurf, Harness::Kiro] {
+            assert_eq!(h.capabilities().autonomous_launch_args(), "", "{}", h.key());
+            assert_eq!(h.capabilities().autonomous_launch_args, None, "{}", h.key());
+        }
+    }
+
+    #[test]
+    fn test_autonomous_launch_args_empty_for_unsupported() {
+        // OpenCode has no known autonomous-mode CLI flag.
+        let c = Harness::Opencode.capabilities();
+        assert_eq!(c.autonomous_launch_args(), "");
+        assert_eq!(c.autonomous_launch_args, None);
+    }
+
+    #[test]
+    fn test_all_harnesses_have_autonomous_launch_args() {
+        // Every harness defines the field; CLI harnesses carry a non-empty flag,
+        // and the helper never returns the literal `None` wrapper.
+        let cli = [Harness::ClaudeCode, Harness::GeminiCli, Harness::Codex];
+        for h in Harness::ALL {
+            let caps = h.capabilities();
+            let helper = caps.autonomous_launch_args();
+            match caps.autonomous_launch_args {
+                Some(flag) => assert_eq!(helper, flag, "{}", h.key()),
+                None => assert_eq!(helper, "", "{}", h.key()),
+            }
+            assert_eq!(cli.contains(&h), !helper.is_empty(), "{}", h.key());
+        }
     }
 }

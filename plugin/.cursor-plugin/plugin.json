@@ -6,7 +6,7 @@
   "author": "jwaldrip",
   "homepage": "https://darkrun.ai",
   "repository": "https://github.com/jwaldrip/darkrun",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "mcpServers": {
     "darkrun": {
       "command": "npx",

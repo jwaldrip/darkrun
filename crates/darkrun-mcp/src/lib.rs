@@ -48,6 +48,7 @@
 //! with no on-disk bridge. The typed helpers behind the tools live in [`units`],
 //! [`feedback`], [`runs`], [`drift`], [`proof`], and [`sessions`].
 
+pub mod annotation;
 pub mod backlog;
 pub mod change;
 pub mod debug;
@@ -61,6 +62,7 @@ pub mod meta;
 pub mod position;
 pub mod proof;
 pub mod reflection;
+pub mod registry;
 pub mod reset;
 pub mod runs;
 pub mod scaffold;
@@ -72,6 +74,11 @@ pub mod tools;
 pub mod units;
 pub mod zap;
 
+pub use annotation::{
+    agent_re_reference, list as list_annotations, render_rework_feedback, station_rework_bundle,
+    submit as submit_annotation, AgentReReferencePayload, AnnotationListing, SubmitArgs,
+    SubmitResult,
+};
 pub use change::{change_request_intent, ChangeRequestIntent};
 pub use error::{McpError, Result};
 pub use factory::{list_factories, resolve_factory, FactoryDef, StationDef};
@@ -81,6 +88,9 @@ pub use position::{
 };
 pub use proof::{
     attach_proof, get_proof, get_surface, route_for, set_surface, SurfaceResult,
+};
+pub use registry::{
+    list_live_engines, list_live_engines_in, slug_for, EngineDescriptor, EngineRegistry,
 };
 pub use runs::RunSummary;
 pub use server::{serve_stdio, serve_stdio_on, DEFAULT_ADDR};

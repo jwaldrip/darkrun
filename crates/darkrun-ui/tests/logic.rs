@@ -1562,6 +1562,8 @@ fn wordmark_variant_default_is_filled() {
 #[test]
 fn wordmark_variants_are_distinct() {
     assert_ne!(WordmarkVariant::Filled, WordmarkVariant::Outlined);
+    assert_ne!(WordmarkVariant::Filled, WordmarkVariant::OutlinedSolidRun);
+    assert_ne!(WordmarkVariant::Outlined, WordmarkVariant::OutlinedSolidRun);
 }
 
 #[test]

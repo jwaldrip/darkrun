@@ -6,13 +6,18 @@
 //! and criteria payloads are loose `serde_json::Value`s by design; we probe a
 //! handful of conventional keys and degrade gracefully when one is absent.
 
-use darkrun_api::common::{GateType, SessionStatus};
+use std::collections::BTreeMap;
+
+use darkrun_api::common::{FeedbackSeverity, GateType, SessionStatus};
+use darkrun_api::feedback::FeedbackItem;
 use darkrun_api::proof::{Proof, Surface};
 use darkrun_api::session::{
-    DirectionArchetype, DirectionPin, PickerOption, QuestionOption, RunPhase, ViewArtifact,
-    ViewArtifactKind,
+    DirectionArchetype, DirectionPin, PickerOption, QuestionOption, RunCurrentState, RunPhase,
+    StationStateInfo, ViewArtifact, ViewArtifactKind,
 };
 use darkrun_ui::components::factory::CheckpointKind;
+use darkrun_ui::components::feedback::{FeedbackEntry, Severity};
+use darkrun_ui::components::station_strip::{StationItem, StationStatus};
 use darkrun_ui::components::proof_panel::{
     AuditRow, BenchStat, ProofMetricKind, ProofView, VitalMetric,
 };
@@ -37,6 +42,132 @@ pub fn phase(p: RunPhase) -> Phase {
         RunPhase::Reflect => Phase::Reflect,
         RunPhase::Checkpoint => Phase::Checkpoint,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Station strip + phase subheader projection. The review payload now carries
+// `station_states` (an ordered per-factory map) AND a `current_state.phase`, so
+// the TOP-level assembly line (the station strip) and the SECONDARY phase
+// subheader scoped to the current station are both driven straight off the wire.
+// ---------------------------------------------------------------------------
+
+/// Decide one station's [`StationStatus`] from its wire snapshot relative to the
+/// run's active station.
+///
+/// `merged_into_main` is the only authoritative predicate — a merged station is
+/// done. The active station (matching `current_station`) reads `Current`;
+/// everything else is `Pending`. We also honor an explicit `status` token when
+/// it canonicalizes to done/current so a stale `merged_into_main` never blanks a
+/// finished station.
+fn station_status(
+    info: &StationStateInfo,
+    current_station: Option<&str>,
+) -> StationStatus {
+    if info.merged_into_main {
+        return StationStatus::Done;
+    }
+    if let Some(tok) = info.status.as_deref() {
+        let parsed = StationStatus::parse(tok);
+        if matches!(parsed, StationStatus::Done) {
+            return StationStatus::Done;
+        }
+    }
+    if current_station == Some(info.station.as_str()) {
+        return StationStatus::Current;
+    }
+    StationStatus::Pending
+}
+
+/// Project the review payload's ordered `station_states` into the strip's
+/// [`StationItem`] list — the assembly line at the TOP of the review.
+///
+/// `station_states` is a `BTreeMap` keyed by station name, so iteration order is
+/// stable (alphabetical) — the engine names stations to sort in line order.
+/// `feedback_stations` flags which stations carry open feedback so the strip can
+/// ride an amber dot on them.
+pub fn station_items(
+    station_states: &BTreeMap<String, StationStateInfo>,
+    current_state: Option<&RunCurrentState>,
+    feedback_stations: &[String],
+) -> Vec<StationItem> {
+    let current = current_state.map(|s| s.station.as_str()).filter(|s| !s.is_empty());
+    station_states
+        .values()
+        .map(|info| {
+            let status = station_status(info, current);
+            let has_feedback = feedback_stations.iter().any(|s| s == &info.station);
+            StationItem { name: info.station.clone(), status, has_feedback }
+        })
+        .collect()
+}
+
+/// The active phase for the current station's subheader, resolved from
+/// `current_state.phase` (the now-live pipeline). `None` leaves the phase strip
+/// all-pending.
+pub fn station_phase(current_state: Option<&RunCurrentState>) -> Option<Phase> {
+    current_state.and_then(|s| s.phase).map(phase)
+}
+
+// ---------------------------------------------------------------------------
+// Feedback inbox projection: wire `FeedbackItem`s -> the severity-grouped
+// `FeedbackEntry` rows the inbox renders, and the open-count the checkpoint reads.
+// ---------------------------------------------------------------------------
+
+/// Map a wire [`FeedbackSeverity`] onto the UI [`Severity`]. An unclassified
+/// item (no severity yet) reads as a [`Severity::Should`] so it surfaces as
+/// actionable rather than a silent nit.
+pub fn feedback_severity(s: Option<FeedbackSeverity>) -> Severity {
+    match s {
+        Some(FeedbackSeverity::Blocker) => Severity::Must,
+        Some(FeedbackSeverity::High) => Severity::Should,
+        Some(FeedbackSeverity::Medium) => Severity::Should,
+        Some(FeedbackSeverity::Low) => Severity::Nit,
+        None => Severity::Should,
+    }
+}
+
+/// Project one wire [`FeedbackItem`] into a UI [`FeedbackEntry`]. A non-blocking
+/// status (closed / addressed / answered / …) renders the row dimmed.
+pub fn feedback_entry(item: &FeedbackItem) -> FeedbackEntry {
+    let locator = item
+        .source_ref
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if item.title.is_empty() {
+                item.feedback_id.clone()
+            } else {
+                item.title.clone()
+            }
+        });
+    let comment = if item.body.is_empty() {
+        item.title.clone()
+    } else {
+        item.body.clone()
+    };
+    FeedbackEntry {
+        id: item.feedback_id.clone(),
+        severity: feedback_severity(item.severity),
+        locator,
+        anchor: String::new(),
+        comment,
+        author: item.author.clone(),
+        resolved: !item.status.blocks_gate(),
+    }
+}
+
+/// Project every feedback item into UI entries (severity-grouped at render).
+pub fn feedback_entries(items: &[FeedbackItem]) -> Vec<FeedbackEntry> {
+    items.iter().map(feedback_entry).collect()
+}
+
+/// Whether a feedback item is an OPEN blocker-or-high (a `must`/`should` that
+/// holds the checkpoint's clean Approve). Drives the severity-driven primary.
+pub fn feedback_blocks_checkpoint(item: &FeedbackItem) -> bool {
+    if !item.status.blocks_gate() {
+        return false;
+    }
+    matches!(feedback_severity(item.severity), Severity::Must | Severity::Should)
 }
 
 /// Project a `darkrun-api` [`RunSummary`] into the UI [`RunCardData`] view-model
@@ -368,12 +499,109 @@ fn vital_metric(key: &str, value: f64) -> VitalMetric {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darkrun_api::common::{AuthorType, FeedbackOrigin, FeedbackStatus};
     use serde_json::json;
 
     #[test]
     fn phase_and_gate_round_trip() {
         assert_eq!(phase(RunPhase::Manufacture), Phase::Manufacture);
         assert_eq!(checkpoint_kind(GateType::Await), CheckpointKind::Await);
+    }
+
+    fn station_info(name: &str, merged: bool, status: Option<&str>) -> StationStateInfo {
+        StationStateInfo {
+            station: name.to_string(),
+            merged_into_main: merged,
+            status: status.map(str::to_string),
+            phase: None,
+            started_at: None,
+            completed_at: None,
+            gate_entered_at: None,
+            gate_outcome: None,
+        }
+    }
+
+    #[test]
+    fn station_items_marks_done_current_pending() {
+        let mut states = BTreeMap::new();
+        states.insert("01-frame".into(), station_info("01-frame", true, None));
+        states.insert("02-build".into(), station_info("02-build", false, None));
+        states.insert("03-harden".into(), station_info("03-harden", false, None));
+        let cur = RunCurrentState {
+            station: "02-build".into(),
+            ..Default::default()
+        };
+        let items = station_items(&states, Some(&cur), &["02-build".to_string()]);
+        assert_eq!(items.len(), 3);
+        // BTreeMap order is the line order here.
+        assert_eq!(items[0].status, StationStatus::Done);
+        assert_eq!(items[1].status, StationStatus::Current);
+        assert!(items[1].has_feedback);
+        assert_eq!(items[2].status, StationStatus::Pending);
+        assert!(!items[2].has_feedback);
+    }
+
+    #[test]
+    fn station_status_honors_explicit_done_token() {
+        // A not-yet-merged station whose status reads "done" still shows done.
+        let info = station_info("x", false, Some("completed"));
+        assert_eq!(station_status(&info, Some("other")), StationStatus::Done);
+    }
+
+    #[test]
+    fn feedback_severity_maps_and_defaults() {
+        assert_eq!(feedback_severity(Some(FeedbackSeverity::Blocker)), Severity::Must);
+        assert_eq!(feedback_severity(Some(FeedbackSeverity::High)), Severity::Should);
+        assert_eq!(feedback_severity(Some(FeedbackSeverity::Medium)), Severity::Should);
+        assert_eq!(feedback_severity(Some(FeedbackSeverity::Low)), Severity::Nit);
+        // Unclassified surfaces as actionable, not a silent nit.
+        assert_eq!(feedback_severity(None), Severity::Should);
+    }
+
+    fn feedback_item(id: &str, sev: Option<FeedbackSeverity>, status: FeedbackStatus) -> FeedbackItem {
+        FeedbackItem {
+            feedback_id: id.into(),
+            title: "t".into(),
+            body: "b".into(),
+            status,
+            origin: FeedbackOrigin::UserVisual,
+            severity: sev,
+            author: "you".into(),
+            author_type: AuthorType::Human,
+            created_at: "2026-05-31T00:00:00Z".into(),
+            visit: 1,
+            source_ref: Some("payment.rs".into()),
+            closed_by: None,
+            resolution: None,
+            replies: vec![],
+            inline_anchor: None,
+            scope: None,
+            iterations: vec![],
+            closure_reply: None,
+            closure_reply_unread: None,
+        }
+    }
+
+    #[test]
+    fn feedback_entry_resolves_closed_items() {
+        let open = feedback_item("FB-01", Some(FeedbackSeverity::Blocker), FeedbackStatus::Pending);
+        let closed = feedback_item("FB-02", Some(FeedbackSeverity::Low), FeedbackStatus::Closed);
+        let e_open = feedback_entry(&open);
+        assert_eq!(e_open.severity, Severity::Must);
+        assert!(!e_open.resolved);
+        assert_eq!(e_open.locator, "payment.rs");
+        assert!(feedback_entry(&closed).resolved);
+    }
+
+    #[test]
+    fn feedback_blocks_checkpoint_only_open_high_or_blocker() {
+        let blocker = feedback_item("a", Some(FeedbackSeverity::Blocker), FeedbackStatus::Pending);
+        let nit = feedback_item("b", Some(FeedbackSeverity::Low), FeedbackStatus::Pending);
+        let closed_blocker =
+            feedback_item("c", Some(FeedbackSeverity::Blocker), FeedbackStatus::Closed);
+        assert!(feedback_blocks_checkpoint(&blocker));
+        assert!(!feedback_blocks_checkpoint(&nit));
+        assert!(!feedback_blocks_checkpoint(&closed_blocker));
     }
 
     #[test]

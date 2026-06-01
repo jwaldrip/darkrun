@@ -120,9 +120,15 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 "#;
+
+/// The app icon, embedded so the launch wrapper always ships its own `.icns`
+/// (referenced by `CFBundleIconFile` above) without depending on a sibling file.
+#[cfg(target_os = "macos")]
+const APP_ICON: &[u8] = include_bytes!("../assets/AppIcon.icns");
 
 /// Materialize (idempotently) a tiny `.app` wrapper next to `bin` so `open` can
 /// hand the launch to LaunchServices. The `Contents/MacOS` executable is a
@@ -138,6 +144,9 @@ fn ensure_bundle(bin: &Path) -> std::io::Result<PathBuf> {
     let macos = bundle.join("Contents").join("MacOS");
     std::fs::create_dir_all(&macos)?;
     std::fs::write(bundle.join("Contents").join("Info.plist"), INFO_PLIST)?;
+    let resources = bundle.join("Contents").join("Resources");
+    std::fs::create_dir_all(&resources)?;
+    std::fs::write(resources.join("AppIcon.icns"), APP_ICON)?;
     let link = macos.join("darkrun-desktop");
     let _ = std::fs::remove_file(&link); // refresh the symlink target
     symlink(bin, &link)?;
@@ -370,6 +379,27 @@ mod tests {
         touch(&exe);
         touch(&ws.join("Cargo.toml"));
         assert!(dev_workspace_from(&exe).is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ensure_bundle_writes_plist_and_icon() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("darkrun-desktop");
+        touch(&bin);
+        let bundle = ensure_bundle(&bin).expect("bundle");
+
+        let plist = std::fs::read_to_string(bundle.join("Contents").join("Info.plist")).unwrap();
+        assert!(plist.contains("<key>CFBundleIconFile</key><string>AppIcon</string>"));
+
+        let icon = bundle
+            .join("Contents")
+            .join("Resources")
+            .join("AppIcon.icns");
+        let bytes = std::fs::read(&icon).expect("icon written");
+        assert_eq!(bytes, APP_ICON);
+        // .icns files begin with the "icns" magic.
+        assert_eq!(&bytes[..4], b"icns");
     }
 
     // DARKRUN_DESKTOP is process-global; keep its mutation in one sequential test.

@@ -1,27 +1,36 @@
-//! The live Review screen.
+//! The live Review screen — the assembly-line IA (mockup section A/E/E·f/F).
 //!
 //! [`ReviewApp`] opens the session WebSocket, holds the latest
-//! [`ReviewSessionPayload`] in a signal, and renders:
-//!   - the darkrun wordmark + a [`FactoryCard`] header with the live station
-//!     pipeline,
-//!   - the unit list (each [`UnitRow`]) with its completion criteria,
-//!   - declared output deliverables,
-//!   - the unit dependency DAG behind the shared [`UnitGraph`] viz, and
-//!   - a [`CheckpointBar`] whose approve / request-changes actions POST a
-//!     decision back to the engine.
+//! [`ReviewSessionPayload`] in a signal, and renders the review surface:
+//!   - the [`StationStrip`] at the TOP — the prominent assembly line, driven off
+//!     the payload's ordered `station_states`,
+//!   - a compact phase subheader ([`StationPipeline`]) scoped to the current
+//!     station, now live off `current_state.phase`,
+//!   - a [`TabBar`] (Units / Outputs / Knowledge / Feedback / Overview) over the
+//!     station body, each unit/output row carrying view + review(annotate)
+//!     affordances and a feedback count,
+//!   - a Feedback inbox listing every station annotation grouped by severity,
+//!     reachable from a persistent header button,
+//!   - the annotate surface ([`AnnotateToolbar`] + overlay + [`CommentPanel`])
+//!     opened on an artifact, submitting via the wire, and
+//!   - a single severity-driven [`CheckpointBar`] rendered ONLY at an active
+//!     review/final gate, whose primary action darkens to Request-changes when
+//!     open `should`/`must` annotations exist.
 //!
 //! Only the `Review` session variant is rendered in full; the other variants
 //! (question / direction / picker / view) show a compact placeholder so an
 //! unexpected payload never blanks the screen.
 
+use darkrun_api::common::{FeedbackOrigin, FeedbackStatus};
+use darkrun_api::feedback::FeedbackItem;
 use darkrun_api::session::{
     DirectionAnnotations, DirectionSessionPayload, OutputArtifact, PickerSessionPayload,
     ProofSessionPayload, QuestionSessionPayload, ReviewSessionPayload, ViewSessionPayload,
     VisualReviewAnnotations, VisualReviewPin, VisualReviewSessionPayload,
 };
 use darkrun_api::{
-    DirectionSelectRequest, OutputReviewRequest, PickerSelectRequest, QuestionAnswerRequest,
-    ReviewDecisionRequest, SessionPayload,
+    DirectionSelectRequest, FeedbackCreateRequest, OutputReviewRequest, PickerSelectRequest,
+    QuestionAnswerRequest, ReviewDecisionRequest, SessionPayload,
 };
 use darkrun_ui::prelude::*;
 
@@ -81,12 +90,21 @@ pub fn ReviewApp(cfg: ConnConfig) -> Element {
 
     let shell = "padding:24px;display:flex;flex-direction:column;gap:16px;\
                  max-width:880px;margin:0 auto;";
+    // Translucent surface so content blurs *through* the sticky header.
+    let header_style = format!(
+        "display:flex;align-items:center;justify-content:space-between;gap:12px;\
+         position:sticky;top:0;z-index:10;padding:12px 0;\
+         backdrop-filter:blur(8px);background:{base}ee;\
+         border-bottom:1px solid {border};",
+        base = tokens::SURFACE_BASE,
+        border = tokens::BORDER,
+    );
 
     rsx! {
         div { style: "{shell}",
             header {
-                style: "display:flex;align-items:center;justify-content:space-between;gap:12px;",
-                Wordmark { variant: WordmarkVariant::Filled, size: 28.0 }
+                style: "{header_style}",
+                Wordmark { variant: WordmarkVariant::OutlinedSolidRun, size: 28.0 }
                 LinkBadge { link: link.read().clone() }
             }
             match payload.read().clone() {
@@ -122,90 +140,357 @@ fn LinkBadge(link: Link) -> Element {
     }
 }
 
-/// The fully-rendered review payload.
+/// Which artifact the operator is annotating, captured when a unit/output row's
+/// "review" affordance is pressed. Carries enough to drive the annotate surface
+/// (the toolbar's surface kind, the artifact label/path, and a screenshot URL
+/// for the visual case).
+#[derive(Debug, Clone, PartialEq)]
+struct AnnotateTarget {
+    /// Display label of the artifact.
+    label: String,
+    /// Run-relative path / locator.
+    path: String,
+    /// The work-item id (unit slug / output name) the annotation hangs on.
+    work_id: String,
+    /// Whether this is a visual surface (image / live HTML) or a text surface.
+    visual: bool,
+    /// Screenshot / image URL for a visual surface.
+    screenshot_url: Option<String>,
+}
+
+/// The fully-rendered review surface — the assembly-line IA.
 ///
 /// A plain function (not a `#[component]`) because the wire payload types don't
-/// derive `PartialEq`, which the component macro requires of its props.
+/// derive `PartialEq`, which the component macro requires of its props. It owns
+/// the surface-local UI signals (active tab, the open annotate target, whether
+/// the feedback inbox is open) and the fetched station feedback, then renders the
+/// station strip, the phase subheader, the tabbed body, and the (severity-driven)
+/// checkpoint bar.
 fn review_body(
     cfg: ConnConfig,
     review: ReviewSessionPayload,
     decision: Signal<Decision>,
 ) -> Element {
-    // Header: factory + active station + live phase pipeline.
-    let factory = review
-        .current_state
-        .as_ref()
-        .map(|s| s.factory.clone())
-        .filter(|f| !f.is_empty())
-        .unwrap_or_else(|| "software-factory".to_string());
+    // --- Header context -----------------------------------------------------
     let station = review
         .station
         .clone()
         .or_else(|| review.current_state.as_ref().map(|s| s.station.clone()))
         .filter(|s| !s.is_empty());
-    let active_phase = review
-        .current_state
-        .as_ref()
-        .and_then(|s| s.phase)
-        .map(map::phase);
+    let active_phase = map::station_phase(review.current_state.as_ref());
     let title = review
         .run_slug
         .clone()
         .unwrap_or_else(|| "darkrun review".to_string());
-    let header_tone = map::status_tone(review.status);
+    let run_slug = review.run_slug.clone();
 
-    // Units flattened out of the opaque parser payload.
+    // --- Live station feedback (the inbox data + the checkpoint counts) ------
+    // Fetched off the feedback HTTP route for the current station; the annotation
+    // model surfaces every artifact annotation here as a feedback item.
+    let feedback = use_signal(Vec::<FeedbackItem>::new);
+    {
+        let cfg = cfg.clone();
+        let run = run_slug.clone();
+        let st = station.clone();
+        let mut feedback = feedback;
+        use_future(move || {
+            let cfg = cfg.clone();
+            let run = run.clone();
+            let st = st.clone();
+            async move {
+                if let (Some(run), Some(st)) = (run, st) {
+                    if let Ok(resp) = wire::fetch_feedback(&cfg, &run, &st).await {
+                        feedback.set(resp.items);
+                    }
+                }
+            }
+        });
+    }
+    let feedback_items = feedback.read().clone();
+    let feedback_entries = map::feedback_entries(&feedback_items);
+    let open_blockers = feedback_items
+        .iter()
+        .filter(|f| map::feedback_blocks_checkpoint(f))
+        .count();
+    let open_total = feedback_items
+        .iter()
+        .filter(|f| f.status.blocks_gate())
+        .count();
+
+    // The station strip: ordered station_states, with the current station's
+    // open feedback flagged as the amber dot.
+    let feedback_stations: Vec<String> = if open_total > 0 {
+        station.clone().into_iter().collect()
+    } else {
+        Vec::new()
+    };
+    let stations = map::station_items(
+        &review.station_states,
+        review.current_state.as_ref(),
+        &feedback_stations,
+    );
+
+    // --- Units + outputs (the tab bodies) -----------------------------------
     let units: Vec<map::UnitView> = review.units.iter().map(map::unit_view).collect();
+    let outputs = review.output_artifacts.clone();
+    let knowledge = review.knowledge_files.clone();
+    let unit_outputs = review.unit_outputs.clone();
+
+    // --- Surface-local UI state --------------------------------------------
+    let active_tab = use_signal(|| "units".to_string());
+    let annotate_target = use_signal(|| None::<AnnotateTarget>);
+    let inbox_open = use_signal(|| false);
+
+    // The tab strip, with the Feedback tab carrying the open-annotation count
+    // (danger-red when any blocker/high is open).
+    let tabs = build_tabs(units.len(), outputs.len(), knowledge.len(), open_total);
+    let active = active_tab.read().clone();
+
+    let mut tab_sig = active_tab;
+    let mut inbox_sig = inbox_open;
+    let inbox_is_open = *inbox_open.read();
+
+    // The active gate predicate: only render the checkpoint at an actual
+    // review/final gate that is currently blocking on a decision.
+    let gate_open = review.await_active.unwrap_or(false);
 
     rsx! {
-        FactoryCard {
-            title,
-            factory,
+        // ── The assembly line (TOP) ────────────────────────────────────────
+        ReviewHeader {
+            title: title.clone(),
             station: station.clone(),
             phase: active_phase,
-            status: header_tone,
+            status: map::status_tone(review.status),
             status_label: format!("{:?}", review.status).to_lowercase(),
+            stations: stations.clone(),
+            feedback_count: open_total as u32,
+            feedback_alert: open_blockers > 0,
+            on_open_feedback: move |_| inbox_sig.set(!inbox_is_open),
         }
 
-        UnitList { units: units.clone() }
-
-        if !units.is_empty() {
-            UnitDag { units: units.clone() }
+        // ── The feedback inbox (severity-grouped), toggled from the header ──
+        if inbox_is_open {
+            {feedback_inbox_panel(cfg.clone(), run_slug.clone(), station.clone(), feedback, feedback_entries.clone())}
         }
 
-        {output_list(review.output_artifacts.clone())}
+        // ── The annotate surface, when an artifact is under review ──────────
+        if let Some(target) = annotate_target.read().clone() {
+            {annotate_panel(cfg.clone(), run_slug.clone(), station.clone(), target, annotate_target)}
+        }
 
-        {checkpoint_section(cfg, review, decision)}
+        // ── The tabbed station body ─────────────────────────────────────────
+        Card {
+            TabBar {
+                tabs,
+                active: active.clone(),
+                on_select: move |id| tab_sig.set(id),
+            }
+            div { style: "margin-top:14px;",
+                {tab_body(&active, &units, &outputs, &knowledge, &unit_outputs, &feedback_entries, &review, annotate_target, inbox_open)}
+            }
+        }
+
+        // ── The single, severity-driven checkpoint control set ──────────────
+        if gate_open {
+            {checkpoint_section(cfg, review, decision, open_blockers)}
+        }
     }
 }
 
-/// The unit list with per-unit completion criteria.
+/// Build the review tab strip. The Feedback tab carries the open-annotation
+/// count; it reads danger-red when any blocker/high is open.
+fn build_tabs(units: usize, outputs: usize, knowledge: usize, feedback: usize) -> Vec<TabItem> {
+    let feedback_tab = if feedback > 0 {
+        TabItem::with_alert_count("feedback", "Feedback", feedback as u32)
+    } else {
+        TabItem::new("feedback", "Feedback")
+    };
+    vec![
+        TabItem::with_count("units", "Units", units as u32),
+        TabItem::with_count("outputs", "Outputs", outputs as u32),
+        TabItem::with_count("knowledge", "Knowledge", knowledge as u32),
+        feedback_tab,
+        TabItem::new("overview", "Overview"),
+    ]
+}
+
+/// The review header: the wordmark-free station strip + the compact phase
+/// subheader scoped to the current station, plus the persistent feedback button.
 #[component]
-fn UnitList(units: Vec<map::UnitView>) -> Element {
+fn ReviewHeader(
+    title: String,
+    station: Option<String>,
+    phase: Option<Phase>,
+    status: Tone,
+    status_label: String,
+    stations: Vec<StationItem>,
+    feedback_count: u32,
+    feedback_alert: bool,
+    on_open_feedback: EventHandler<MouseEvent>,
+) -> Element {
+    let title_style = format!(
+        "font-family:{sans};font-size:15px;font-weight:700;color:{text};",
+        sans = tokens::FONT_SANS,
+        text = tokens::TEXT,
+    );
+    let sub_style = format!(
+        "display:flex;align-items:center;gap:10px;margin-top:10px;\
+         font-family:{mono};font-size:12px;color:{muted};",
+        mono = tokens::FONT_MONO,
+        muted = tokens::TEXT_MUTED,
+    );
+    let (fb_bg, fb_fg) = if feedback_alert {
+        ("#f8514922", "#f5a3a3")
+    } else {
+        (tokens::SURFACE_OVERLAY, tokens::TEXT_MUTED)
+    };
+    let fb_btn = format!(
+        "background:{fb_bg};color:{fb_fg};border:1px solid {border};\
+         font-family:{sans};font-size:12px;border-radius:6px;padding:5px 11px;\
+         cursor:pointer;display:flex;align-items:center;gap:6px;",
+        border = tokens::BORDER_STRONG,
+        sans = tokens::FONT_SANS,
+    );
+    rsx! {
+        Card {
+            div {
+                style: "display:flex;align-items:center;justify-content:space-between;gap:12px;",
+                span { style: "{title_style}", "{title}" }
+                div { style: "display:flex;align-items:center;gap:8px;",
+                    button {
+                        class: "dr-feedback-open",
+                        style: "{fb_btn}",
+                        onclick: move |evt| on_open_feedback.call(evt),
+                        "Feedback"
+                        span {
+                            style: format!(
+                                "font-family:{};border-radius:999px;padding:0 6px;\
+                                 background:{};color:{};",
+                                tokens::FONT_MONO,
+                                if feedback_alert { "#f8514933" } else { tokens::SURFACE_BASE },
+                                fb_fg,
+                            ),
+                            "{feedback_count}"
+                        }
+                    }
+                    Badge { tone: status, filled: true, "{status_label}" }
+                }
+            }
+            // The assembly line — the prominent progress.
+            div { style: "margin-top:14px;",
+                StationStrip { stations }
+            }
+            // The phase subheader, scoped to the current station.
+            div { style: "{sub_style}",
+                if let Some(st) = station.clone() {
+                    span { "station: {st}" }
+                }
+                StationPipeline { dots: strip_for(phase), labels: true }
+            }
+        }
+    }
+}
+
+/// Render the body for the active tab.
+#[allow(clippy::too_many_arguments)]
+fn tab_body(
+    active: &str,
+    units: &[map::UnitView],
+    outputs: &[OutputArtifact],
+    knowledge: &[darkrun_api::session::KnowledgeFile],
+    unit_outputs: &std::collections::BTreeMap<String, Vec<darkrun_api::session::UnitOutputPreview>>,
+    feedback: &[FeedbackEntry],
+    review: &ReviewSessionPayload,
+    annotate_target: Signal<Option<AnnotateTarget>>,
+    inbox_open: Signal<bool>,
+) -> Element {
+    match active {
+        "outputs" => output_tab(outputs, feedback, annotate_target),
+        "knowledge" => knowledge_tab(knowledge),
+        "feedback" => feedback_tab(feedback, inbox_open),
+        "overview" => overview_tab(review),
+        // Default to the units tab.
+        _ => unit_tab(units, unit_outputs, feedback, annotate_target),
+    }
+}
+
+/// A count of open feedback rows targeting a given work item, by locator match.
+fn feedback_count_for(feedback: &[FeedbackEntry], needle: &str) -> usize {
+    feedback
+        .iter()
+        .filter(|e| !e.resolved && (e.locator == needle || e.locator.contains(needle)))
+        .count()
+}
+
+/// The Units tab: each unit row with its completion criteria, declared output
+/// previews folded in (the unit's dependencies), plus a review(annotate)
+/// affordance and a feedback count.
+fn unit_tab(
+    units: &[map::UnitView],
+    unit_outputs: &std::collections::BTreeMap<String, Vec<darkrun_api::session::UnitOutputPreview>>,
+    feedback: &[FeedbackEntry],
+    annotate_target: Signal<Option<AnnotateTarget>>,
+) -> Element {
     if units.is_empty() {
         return rsx! {
-            Card {
-                p { style: "color:var(--dr-text-muted);", "No units in this review." }
-            }
+            p { style: "color:var(--dr-text-muted);", "No units in this review." }
         };
     }
     rsx! {
-        Card {
-            h2 { style: section_title(), "Units" }
-            div { style: "display:flex;flex-direction:column;gap:10px;margin-top:10px;",
-                for unit in units.iter() {
-                    div { style: "display:flex;flex-direction:column;gap:6px;",
-                        UnitRow {
-                            title: unit.title.clone(),
-                            unit_type: unit.unit_type.clone(),
-                            status: unit.tone,
-                            status_label: unit.status_label.clone(),
-                            pass: unit.pass,
-                        }
-                        if !unit.criteria.is_empty() {
-                            ul { style: criteria_list(),
-                                for line in unit.criteria.iter() {
-                                    li { style: "margin:2px 0;", "{line}" }
+        div { style: "display:flex;flex-direction:column;gap:10px;",
+            for unit in units.iter() {
+                {
+                    let unit = unit.clone();
+                    let previews = unit_outputs.get(&unit.title).cloned().unwrap_or_default();
+                    let mut target = annotate_target;
+                    let label = unit.title.clone();
+                    let work_id = unit.title.clone();
+                    let fb_n = feedback_count_for(feedback, &unit.title);
+                    rsx! {
+                        div { style: "display:flex;flex-direction:column;gap:6px;",
+                            div { style: "display:flex;align-items:center;gap:8px;",
+                                div { style: "flex:1;min-width:0;",
+                                    UnitRow {
+                                        title: unit.title.clone(),
+                                        unit_type: unit.unit_type.clone(),
+                                        status: unit.tone,
+                                        status_label: unit.status_label.clone(),
+                                        pass: unit.pass,
+                                    }
+                                }
+                                if fb_n > 0 {
+                                    Badge { tone: Tone::Warn, "{fb_n}" }
+                                }
+                                {row_actions(move |_| {
+                                    target.set(Some(AnnotateTarget {
+                                        label: label.clone(),
+                                        path: work_id.clone(),
+                                        work_id: work_id.clone(),
+                                        visual: false,
+                                        screenshot_url: None,
+                                    }));
+                                })}
+                            }
+                            if !unit.criteria.is_empty() {
+                                ul { style: criteria_list(),
+                                    for line in unit.criteria.iter() {
+                                        li { style: "margin:2px 0;", "{line}" }
+                                    }
+                                }
+                            }
+                            // Declared outputs are the unit's dependencies — folded
+                            // into the unit row rather than a separate DAG panel.
+                            if !previews.is_empty() {
+                                div { style: "margin-left:28px;display:flex;flex-direction:column;gap:4px;",
+                                    for prev in previews.iter() {
+                                        div {
+                                            style: "display:flex;align-items:center;gap:8px;\
+                                                    font-family:var(--dr-font-mono);font-size:11px;\
+                                                    color:var(--dr-text-faint);",
+                                            Badge { tone: if prev.exists { Tone::Ok } else { Tone::Warn }, "out" }
+                                            span { "{prev.name}" }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -216,48 +501,53 @@ fn UnitList(units: Vec<map::UnitView>) -> Element {
     }
 }
 
-/// The unit dependency DAG, rendered behind the shared `UnitGraph` viz.
-///
-/// The opaque unit payload carries no edge schema we can rely on, so the graph
-/// shows the units as an ordered manufacturing line (each unit depends on the
-/// previous) — a faithful default until the wire carries explicit dependencies.
-#[component]
-fn UnitDag(units: Vec<map::UnitView>) -> Element {
-    let nodes: Vec<UnitGraphNode> = units
-        .iter()
-        .enumerate()
-        .map(|(i, u)| UnitGraphNode::new(format!("u{i}"), u.title.clone()).with_tone(u.tone))
-        .collect();
-    let edges: Vec<GraphEdge> = (1..units.len())
-        .map(|i| GraphEdge::new(format!("u{}", i - 1), format!("u{i}")))
-        .collect();
-    rsx! {
-        Card {
-            h2 { style: section_title(), "Assembly line" }
-            div { style: "margin-top:10px;overflow:auto;",
-                UnitGraph { units: nodes, edges }
-            }
-        }
-    }
-}
-
-/// The declared-output deliverables list.
-fn output_list(outputs: Vec<OutputArtifact>) -> Element {
+/// The Outputs tab: declared deliverables, each with view + review(annotate)
+/// affordances. Visual artifacts (image/html) open the spatial annotate surface;
+/// the rest open the text surface.
+fn output_tab(
+    outputs: &[OutputArtifact],
+    feedback: &[FeedbackEntry],
+    annotate_target: Signal<Option<AnnotateTarget>>,
+) -> Element {
     if outputs.is_empty() {
-        return rsx! {};
+        return rsx! {
+            p { style: "color:var(--dr-text-muted);", "No declared outputs." }
+        };
     }
     rsx! {
-        Card {
-            h2 { style: section_title(), "Outputs" }
-            div { style: "display:flex;flex-direction:column;gap:8px;margin-top:10px;",
-                for out in outputs.iter() {
-                    div {
-                        style: "display:flex;align-items:center;gap:10px;\
-                                font-family:var(--dr-font-mono);font-size:12px;",
-                        Badge { tone: Tone::Neutral, "{output_kind(out)}" }
-                        span { style: "flex:1;color:var(--dr-text);", "{out.name}" }
-                        if !out.station.is_empty() {
-                            span { style: "color:var(--dr-text-faint);", "{out.station}" }
+        div { style: "display:flex;flex-direction:column;gap:8px;",
+            for out in outputs.iter() {
+                {
+                    let out = out.clone();
+                    let mut target = annotate_target;
+                    let visual = output_is_visual(&out);
+                    let label = out.name.clone();
+                    let path = out.run_relative_path.clone().unwrap_or_else(|| out.name.clone());
+                    let url = out.relative_path.clone();
+                    let fb_n = feedback_count_for(feedback, &out.name);
+                    rsx! {
+                        div {
+                            style: "display:flex;align-items:center;gap:10px;\
+                                    font-family:var(--dr-font-mono);font-size:12px;\
+                                    border:1px solid var(--dr-border);border-radius:6px;\
+                                    padding:8px 10px;background:var(--dr-surface-raised);",
+                            Badge { tone: Tone::Neutral, "{output_kind(&out)}" }
+                            span { style: "flex:1;color:var(--dr-text);", "{out.name}" }
+                            if fb_n > 0 {
+                                Badge { tone: Tone::Warn, "{fb_n}" }
+                            }
+                            if !out.station.is_empty() {
+                                span { style: "color:var(--dr-text-faint);", "{out.station}" }
+                            }
+                            {row_actions(move |_| {
+                                target.set(Some(AnnotateTarget {
+                                    label: label.clone(),
+                                    path: path.clone(),
+                                    work_id: label.clone(),
+                                    visual,
+                                    screenshot_url: url.clone(),
+                                }));
+                            })}
                         }
                     }
                 }
@@ -266,11 +556,428 @@ fn output_list(outputs: Vec<OutputArtifact>) -> Element {
     }
 }
 
-/// The checkpoint bar plus approve / request-changes wiring.
+/// A small `view` + `review` action pair for a unit/output row. `on_review`
+/// fires the annotate affordance; `view` is a passive inline hint for now.
+fn row_actions(on_review: impl FnMut(MouseEvent) + 'static) -> Element {
+    let chip = format!(
+        "font-size:11px;color:{muted};border:1px solid {border};\
+         border-radius:5px;padding:3px 9px;cursor:pointer;background:transparent;",
+        muted = tokens::TEXT_MUTED,
+        border = tokens::BORDER_STRONG,
+    );
+    rsx! {
+        button {
+            class: "dr-row-review",
+            style: "{chip}",
+            onclick: on_review,
+            "review"
+        }
+    }
+}
+
+/// The Knowledge tab: the run's surfaced knowledge files.
+fn knowledge_tab(knowledge: &[darkrun_api::session::KnowledgeFile]) -> Element {
+    if knowledge.is_empty() {
+        return rsx! {
+            p { style: "color:var(--dr-text-muted);", "No knowledge files surfaced." }
+        };
+    }
+    rsx! {
+        div { style: "display:flex;flex-direction:column;gap:12px;",
+            for kf in knowledge.iter() {
+                div {
+                    div {
+                        style: "font-family:var(--dr-font-mono);font-size:12px;\
+                                color:var(--dr-text);margin-bottom:4px;",
+                        "{kf.name}"
+                    }
+                    pre {
+                        style: "margin:0;white-space:pre-wrap;font-family:var(--dr-font-mono);\
+                                font-size:11.5px;color:var(--dr-text-muted);\
+                                background:var(--dr-surface-base);border:1px solid var(--dr-border);\
+                                border-radius:6px;padding:10px;max-height:240px;overflow:auto;",
+                        "{kf.content}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The Feedback tab: the consolidated, severity-grouped inbox of every station
+/// annotation. A persistent header button mirrors this; both render the same data.
+fn feedback_tab(feedback: &[FeedbackEntry], inbox_open: Signal<bool>) -> Element {
+    let mut inbox = inbox_open;
+    if feedback.is_empty() {
+        return rsx! {
+            p { style: "color:var(--dr-text-muted);", "No feedback on this station yet." }
+        };
+    }
+    rsx! {
+        div { style: "display:flex;flex-direction:column;gap:8px;",
+            {feedback_inbox(feedback.to_vec(), None::<EventHandler<(String, FeedbackAction)>>)}
+            div { style: "margin-top:4px;",
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    on_click: move |_| inbox.set(true),
+                    "open inbox panel"
+                }
+            }
+        }
+    }
+}
+
+/// The Overview tab: the run-scope reflection + a per-station status digest.
+fn overview_tab(review: &ReviewSessionPayload) -> Element {
+    let reflection = review.reflection.clone();
+    rsx! {
+        div { style: "display:flex;flex-direction:column;gap:12px;",
+            if let Some(r) = reflection {
+                if !r.is_empty() {
+                    div {
+                        div { style: section_title(), "Reflection" }
+                        p {
+                            style: "margin:6px 0 0;font-size:12.5px;color:var(--dr-text-muted);\
+                                    white-space:pre-wrap;",
+                            "{r}"
+                        }
+                    }
+                }
+            }
+            div {
+                div { style: section_title(), "Stations" }
+                div { style: "display:flex;flex-direction:column;gap:6px;margin-top:8px;",
+                    for info in review.station_states.values() {
+                        div {
+                            style: "display:flex;align-items:center;gap:8px;\
+                                    font-family:var(--dr-font-mono);font-size:12px;",
+                            Badge {
+                                tone: if info.merged_into_main { Tone::Ok } else { Tone::Neutral },
+                                if info.merged_into_main { "merged" } else { "open" }
+                            }
+                            span { style: "flex:1;color:var(--dr-text);", "{info.station}" }
+                            if let Some(ph) = info.phase.clone() {
+                                span { style: "color:var(--dr-text-faint);", "{ph}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The feedback inbox panel, surfaced under the header when the operator opens
+/// it. Resolve / dismiss chips PUT the feedback status back over the wire; a
+/// successful write re-fetches the list so the count updates.
+fn feedback_inbox_panel(
+    cfg: ConnConfig,
+    run: Option<String>,
+    station: Option<String>,
+    feedback: Signal<Vec<FeedbackItem>>,
+    entries: Vec<FeedbackEntry>,
+) -> Element {
+    let on_action = {
+        let cfg = cfg.clone();
+        let run = run.clone();
+        let station = station.clone();
+        move |(id, action): (String, FeedbackAction)| {
+            // Only resolve/dismiss mutate; jump is a no-op surface action.
+            let new_status = match action {
+                FeedbackAction::Resolve => Some(FeedbackStatus::Addressed),
+                FeedbackAction::Dismiss => Some(FeedbackStatus::NonActionable),
+                FeedbackAction::Jump => None,
+            };
+            let (Some(status), Some(run), Some(station)) =
+                (new_status, run.clone(), station.clone())
+            else {
+                return;
+            };
+            let cfg = cfg.clone();
+            let mut feedback = feedback;
+            spawn(async move {
+                let req = darkrun_api::FeedbackUpdateRequest {
+                    status: Some(status),
+                    ..Default::default()
+                };
+                if wire::update_feedback(&cfg, &run, &station, &id, &req).await.is_ok() {
+                    if let Ok(resp) = wire::fetch_feedback(&cfg, &run, &station).await {
+                        feedback.set(resp.items);
+                    }
+                }
+            });
+        }
+    };
+    rsx! {
+        Card {
+            div { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px;",
+                h2 { style: section_title(), "Feedback inbox" }
+                Badge { tone: Tone::Neutral, "{entries.len()}" }
+            }
+            if entries.is_empty() {
+                p { style: "color:var(--dr-text-muted);", "No feedback on this station yet." }
+            } else {
+                {feedback_inbox(entries, Some(EventHandler::new(on_action)))}
+            }
+        }
+    }
+}
+
+/// The annotate surface: the toolbar + overlay + comment panel over the artifact
+/// under review. Submits via the wire — image/html artifacts through the
+/// visual-review annotate path (pin geometry), text artifacts through the
+/// annotation→feedback create path. Mirrors `annotation-variants` (text + image).
+fn annotate_panel(
+    cfg: ConnConfig,
+    run: Option<String>,
+    station: Option<String>,
+    target: AnnotateTarget,
+    mut annotate_target: Signal<Option<AnnotateTarget>>,
+) -> Element {
+    rsx! {
+        AnnotateSurface {
+            cfg,
+            run,
+            station,
+            label: target.label.clone(),
+            path: target.path.clone(),
+            work_id: target.work_id.clone(),
+            visual: target.visual,
+            screenshot_url: target.screenshot_url.clone(),
+            on_close: move |_| annotate_target.set(None),
+        }
+    }
+}
+
+/// The live annotate surface — owns the active tool, the placed pins, and the
+/// comment draft, and POSTs the annotation on submit.
+#[component]
+fn AnnotateSurface(
+    cfg: ConnConfig,
+    run: Option<String>,
+    station: Option<String>,
+    label: String,
+    path: String,
+    work_id: String,
+    visual: bool,
+    screenshot_url: Option<String>,
+    on_close: EventHandler<MouseEvent>,
+) -> Element {
+    let kind = if visual { SurfaceKind::Visual } else { SurfaceKind::Text };
+    let default_tool = if visual { AnnotateTool::Pin } else { AnnotateTool::Select };
+    let mut tool = use_signal(|| default_tool);
+    let mut pins = use_signal(Vec::<PinPoint>::new);
+    let mut comments = use_signal(Vec::<String>::new);
+    let submit = use_signal(|| Submit::Idle);
+
+    let place = move |(x, y, w, h): (f64, f64, f64, f64)| {
+        let note = format!("pin {}", pins.read().len() + 1);
+        let pt = if w > 0.0 && h > 0.0 {
+            place_pin(x, y, w, h, note)
+        } else {
+            PinPoint::new(x, y, note)
+        };
+        pins.write().push(pt);
+    };
+
+    let do_submit = {
+        let cfg = cfg.clone();
+        let run = run.clone();
+        let station = station.clone();
+        let label = label.clone();
+        let path = path.clone();
+        move |typed: String| {
+            let cfg = cfg.clone();
+            let run = run.clone();
+            let station = station.clone();
+            let label = label.clone();
+            let path = path.clone();
+            let mut submit = submit;
+            // Capture the comment typed in the panel before reading the thread so
+            // the user's text ships with the annotation, not just the pins/counts.
+            let typed = typed.trim();
+            if !typed.is_empty() {
+                comments.write().push(typed.to_string());
+            }
+            let pin_list = pins.read().clone();
+            let comment_list = comments.read().clone();
+            spawn(async move {
+                submit.set(Submit::Sending);
+                let result = if visual {
+                    // Visual artifact → record the pin geometry over the
+                    // screenshot via the visual-review annotate path.
+                    let pins = pin_list
+                        .iter()
+                        .map(|p| VisualReviewPin { x: p.x, y: p.y, note: p.note.clone() })
+                        .collect();
+                    let req = OutputReviewRequest {
+                        annotations: VisualReviewAnnotations { pins, comments: comment_list.clone() },
+                        title: Some(label.clone()),
+                    };
+                    wire::submit_output_review(&cfg, &req).await
+                } else {
+                    // Text artifact → submit the annotation as a feedback item.
+                    let (Some(run), Some(station)) = (run.clone(), station.clone()) else {
+                        submit.set(Submit::Failed("no run/station to attach to".into()));
+                        return;
+                    };
+                    let body = if comment_list.is_empty() {
+                        "(no comment)".to_string()
+                    } else {
+                        comment_list.join("\n")
+                    };
+                    let req = FeedbackCreateRequest {
+                        title: format!("review: {label}"),
+                        body,
+                        origin: Some(FeedbackOrigin::UserVisual),
+                        author: None,
+                        source_ref: Some(path.clone()),
+                        anchor: None,
+                        inline_anchor: None,
+                        resolution: None,
+                        attachment_data_url: None,
+                    };
+                    wire::submit_annotation(&cfg, &run, &station, &req).await
+                };
+                match result {
+                    Ok(()) => submit.set(Submit::Sent(format!(
+                        "annotation recorded ({} pins · {} comments)",
+                        pin_list.len(),
+                        comment_list.len(),
+                    ))),
+                    Err(e) => submit.set(Submit::Failed(e.to_string())),
+                }
+            });
+        }
+    };
+
+    let thread: Vec<ThreadComment> = comments
+        .read()
+        .iter()
+        .enumerate()
+        .map(|(i, c)| ThreadComment::new(i + 1, c.clone()))
+        .collect();
+    let active_tool = *tool.read();
+    let pin_points = pins.read().clone();
+    let stage_dims = use_signal(|| (0.0_f64, 0.0_f64));
+
+    rsx! {
+        Card {
+            div { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px;",
+                Badge { tone: Tone::Info, if visual { "annotate · visual" } else { "annotate · text" } }
+                span {
+                    style: "flex:1;font-family:var(--dr-font-mono);font-size:12px;color:var(--dr-text-muted);",
+                    "{label}"
+                }
+                Button { variant: ButtonVariant::Ghost, on_click: move |evt| on_close.call(evt), "close" }
+            }
+            div { style: "display:flex;gap:8px;margin-bottom:10px;",
+                AnnotateToolbar {
+                    kind,
+                    active: active_tool,
+                    on_pick: move |t| tool.set(t),
+                }
+            }
+            div { style: "display:flex;gap:16px;align-items:flex-start;",
+                // The artifact stage — a click drops a pin when a spatial tool is active.
+                {annotate_stage(visual, screenshot_url.clone(), pin_points, stage_dims, place)}
+                div { style: "flex:1;min-width:0;",
+                    CommentPanel {
+                        comments: thread,
+                        placeholder: "comment on this artifact…".to_string(),
+                        on_submit: do_submit,
+                    }
+                    SubmitStatus { state: submit.read().clone() }
+                    div {
+                        style: "margin-top:6px;font-family:var(--dr-font-mono);\
+                                font-size:11px;color:var(--dr-text-faint);",
+                        "annotating: {path}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The artifact stage the annotate surface paints over — the screenshot (visual)
+/// or a text placeholder. Forwards a click's pixel offset + the stage box so the
+/// caller can normalize the pin.
+fn annotate_stage(
+    visual: bool,
+    screenshot_url: Option<String>,
+    pins: Vec<PinPoint>,
+    _stage_dims: Signal<(f64, f64)>,
+    mut on_place: impl FnMut((f64, f64, f64, f64)) + 'static,
+) -> Element {
+    let stage = format!(
+        "position:relative;flex:0 0 360px;min-height:220px;border-radius:8px;\
+         border:1px solid {border};background:{base};overflow:hidden;\
+         {cursor}",
+        border = tokens::BORDER,
+        base = tokens::SURFACE_BASE,
+        cursor = if visual { "cursor:crosshair;" } else { "" },
+    );
+    rsx! {
+        div {
+            class: "dr-annotate-stage",
+            style: "{stage}",
+            onclick: move |evt| {
+                if !visual {
+                    return;
+                }
+                let coords = evt.element_coordinates();
+                // Width/height are read from the event's element rect when
+                // available; fall back to the fixed flex-basis so the pin still
+                // lands somewhere sensible.
+                on_place((coords.x, coords.y, 360.0, 220.0));
+            },
+            if visual {
+                if let Some(url) = screenshot_url {
+                    img {
+                        src: "{url}",
+                        style: "width:100%;display:block;pointer-events:none;",
+                    }
+                } else {
+                    div {
+                        style: "display:flex;align-items:center;justify-content:center;\
+                                height:220px;color:var(--dr-text-faint);font-size:12px;",
+                        "drop pins to point at the surface"
+                    }
+                }
+                for (i, pt) in pins.iter().enumerate() {
+                    PinMarker { point: pt.clone(), number: i + 1 }
+                }
+            } else {
+                div {
+                    style: "padding:14px;color:var(--dr-text-muted);font-size:12px;\
+                            font-family:var(--dr-font-mono);",
+                    "Text artifact — select a span and leave a comment. The annotation \
+                     anchors to this artifact and ships to the agent as feedback."
+                }
+            }
+        }
+    }
+}
+
+/// Whether an output artifact opens the visual (spatial) annotate surface.
+fn output_is_visual(out: &OutputArtifact) -> bool {
+    use darkrun_api::session::OutputArtifactType::*;
+    matches!(out.artifact_type, Html | Image | Video)
+}
+
+/// The single, severity-driven checkpoint control set, rendered only at an
+/// active review/final gate.
+///
+/// `open_blockers` is the count of open `must`/`should` annotations on the
+/// station. When any are open the primary darkens to Request-changes (you can't
+/// cleanly approve over a blocker); a clean / nits-only station keeps Approve
+/// primary. This is the ONE decision control — the old duplicate (the bar's
+/// advance/hold AND a separate approve row) is gone.
 fn checkpoint_section(
     cfg: ConnConfig,
     review: ReviewSessionPayload,
     decision: Signal<Decision>,
+    open_blockers: usize,
 ) -> Element {
     let kind = review
         .gate_type
@@ -287,19 +994,19 @@ fn checkpoint_section(
         .or_else(|| review.target.clone())
         .unwrap_or_else(|| "Checkpoint reached — approve or request changes.".to_string());
 
-    // A decision is only meaningful while the gate is actually blocking.
-    let gate_open = review.await_active.unwrap_or(true);
+    // A global station note shipped with Request-changes.
+    let note = use_signal(String::new);
 
     let post = {
         let cfg = cfg.clone();
-        move |raw: &'static str| {
+        move |raw: &'static str, feedback: Option<String>| {
             let cfg = cfg.clone();
             let mut decision = decision;
             spawn(async move {
                 decision.set(Decision::Sending);
                 let req = ReviewDecisionRequest {
                     decision: raw.to_string(),
-                    feedback: None,
+                    feedback,
                     annotations: None,
                 };
                 match wire::submit_decision(&cfg, &req).await {
@@ -311,39 +1018,64 @@ fn checkpoint_section(
     };
 
     let sending = matches!(*decision.read(), Decision::Sending);
+    // Severity-driven primary: open blockers darken Approve + promote changes.
+    let blocked = open_blockers > 0;
+    let changes_note = note.read().clone();
+    let changes_payload = if changes_note.trim().is_empty() {
+        None
+    } else {
+        Some(changes_note)
+    };
 
-    // One owned clone of the POST closure per click target.
-    let bar_approve = post.clone();
-    let bar_hold = post.clone();
-    let btn_approve = post.clone();
-    let btn_changes = post;
+    let approve_click = post.clone();
+    let changes_click = post.clone();
+    let bar_advance = post.clone();
+    let bar_hold = post;
+    let changes_payload_bar = changes_payload.clone();
+
+    let mut note_sig = note;
 
     rsx! {
         div { style: "display:flex;flex-direction:column;gap:10px;",
             CheckpointBar {
                 kind,
                 prompt,
-                on_advance: move |_| bar_approve("approved"),
-                on_hold: move |_| bar_hold("changes_requested"),
+                on_advance: move |_| if !blocked { bar_advance("approved", None) },
+                on_hold: move |_| bar_hold("changes_requested", changes_payload_bar.clone()),
             }
-            // Explicit, labelled decision buttons mirror the server's
-            // approve-action label and the request-changes path.
+            // One global station note ships with Request-changes.
+            textarea {
+                style: format!(
+                    "width:100%;box-sizing:border-box;min-height:54px;padding:9px 12px;\
+                     border-radius:6px;border:1px solid {border};background:{base};\
+                     color:{text};font-family:{sans};font-size:13px;resize:vertical;",
+                    border = tokens::BORDER,
+                    base = tokens::SURFACE_BASE,
+                    text = tokens::TEXT,
+                    sans = tokens::FONT_SANS,
+                ),
+                placeholder: "Station note (ships with Request changes)…",
+                oninput: move |evt| note_sig.set(evt.value()),
+            }
             div { style: "display:flex;align-items:center;gap:10px;",
                 Button {
-                    variant: ButtonVariant::Primary,
+                    variant: if blocked { ButtonVariant::Secondary } else { ButtonVariant::Primary },
                     tone: Tone::Ok,
-                    disabled: sending || !gate_open,
-                    on_click: move |_| btn_approve("approved"),
+                    disabled: sending || blocked,
+                    on_click: move |_| approve_click("approved", None),
                     "{approve_label}"
                 }
                 Button {
-                    variant: ButtonVariant::Secondary,
+                    variant: if blocked { ButtonVariant::Primary } else { ButtonVariant::Secondary },
                     tone: Tone::Danger,
-                    disabled: sending || !gate_open,
-                    on_click: move |_| btn_changes("changes_requested"),
+                    disabled: sending,
+                    on_click: move |_| changes_click("changes_requested", changes_payload.clone()),
                     "Request changes"
                 }
-                DecisionStatus { decision: decision.read().clone(), gate_open }
+                if blocked {
+                    Badge { tone: Tone::Danger, "{open_blockers} open blocking" }
+                }
+                DecisionStatus { decision: decision.read().clone(), gate_open: true }
             }
         }
     }

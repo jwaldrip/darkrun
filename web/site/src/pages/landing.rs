@@ -43,37 +43,56 @@ pub fn Landing() -> Element {
             }
         }
 
-        // The station line: the six software-factory stations as a pipeline.
+        // The software factory's line: its own declared stations, in pipeline
+        // order. This is one factory's recipe, not a fixed universal six.
         section { style: "margin:8px 0 40px;",
             SectionHead {
-                kicker: "the line".to_string(),
-                title: "Six stations, in cost-of-late-discovery order".to_string(),
+                kicker: "the software factory".to_string(),
+                title: "Its assembly line, in cost-of-late-discovery order".to_string(),
                 lead: Some(
                     "Frame -> Specify -> Shape -> Build -> Prove -> Harden. Each station retires \
-                     one class of risk before the next begins."
+                     one class of risk before the next begins. This is the software factory's line; \
+                     every factory declares its own — the station names and count are the recipe, \
+                     not the law."
                         .to_string(),
                 ),
             }
             div { class: "dr-grid",
-                for (i, name) in tokens::STATIONS.iter().enumerate() {
-                    StationCard { index: i, name: name.to_string() }
+                for (i, name) in software_stations().iter().enumerate() {
+                    StationCard { index: i, name: name.clone() }
                 }
             }
         }
 
-        // The phase machine every station runs.
+        // The phase machine: the universal part. Every station in every factory
+        // runs this loop, ordered by the cost of discovering a defect late.
         section { style: "margin:8px 0 40px;",
             SectionHead {
-                kicker: "every station".to_string(),
-                title: "One phase machine, six beats".to_string(),
+                kicker: "every factory, every station".to_string(),
+                title: "One phase machine, ordered by cost-of-late-discovery".to_string(),
                 lead: Some(
-                    "spec -> review -> manufacture -> audit -> tests -> checkpoint. The same loop \
-                     runs in Frame and in Harden; only the workers and the locked artifact change."
+                    "spec -> review -> manufacture -> audit -> tests -> checkpoint. This loop is \
+                     what every factory shares: the same machine runs in each station, and stations \
+                     are sequenced so the cheapest risks die first. The line's length and labels \
+                     vary by factory; the machine and the ordering principle do not."
                         .to_string(),
                 ),
             }
             PhaseLegend {}
         }
+    }
+}
+
+/// The software factory's own declared station names, in pipeline order.
+///
+/// Sourced from the embedded corpus so the landing line is genuinely *that
+/// factory's* recipe rather than a hardcoded universal. Falls back to the
+/// `tokens::STATIONS` defaults if the factory cannot be loaded, so the hero
+/// never blanks.
+fn software_stations() -> Vec<String> {
+    match darkrun_content::load_validated("software") {
+        Ok(factory) => factory.stations.iter().map(|s| s.name().to_string()).collect(),
+        Err(_) => tokens::STATIONS.iter().map(|s| s.to_string()).collect(),
     }
 }
 
@@ -102,5 +121,26 @@ fn StationCard(index: usize, name: String) -> Element {
             div { style: "{num}", "station {n}" }
             div { style: "{title}", "{name}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn software_stations_come_from_the_corpus() {
+        // The landing line renders the software factory's *own* declared
+        // stations, not the hardcoded token defaults, so adding/reordering a
+        // station in the corpus flows through to the hero.
+        let from_corpus = software_stations();
+        let declared: Vec<String> = darkrun_content::load_validated("software")
+            .expect("software factory loads")
+            .stations
+            .iter()
+            .map(|s| s.name().to_string())
+            .collect();
+        assert_eq!(from_corpus, declared);
+        assert!(!from_corpus.is_empty());
     }
 }

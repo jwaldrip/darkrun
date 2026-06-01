@@ -13,6 +13,7 @@
 //! [`serde_json::Value`]s rather than schematized here.
 
 pub mod advance;
+pub mod annotation;
 pub mod common;
 pub mod direction;
 pub mod feedback;
@@ -27,6 +28,11 @@ pub mod runs;
 pub mod session;
 
 pub use advance::AdvanceResponse;
+pub use annotation::{
+    Anchor, Annotation, AnnotationStatus, ArtifactInfo, ArtifactType, Ask, AskKind, AskSeverity,
+    DomAnchor, Expression, ImageShape, NormPoint, NormRect, PixelMark, Suggestion, TextRange,
+    WorkItem, WorkItemKind,
+};
 pub use common::{
     AuthorType, FeedbackOrigin, FeedbackReply, FeedbackResolution, FeedbackSeverity,
     FeedbackStatus, GateType, InlineComment, Pin, QuestionAnnotations, QuestionPin,

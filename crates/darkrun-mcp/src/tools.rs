@@ -258,6 +258,70 @@ pub struct FeedbackCreateInput {
     pub severity: Option<String>,
 }
 
+/// The work-item selector shared by the annotation tools: which unit / output /
+/// station an annotation hangs on. A `station`-kind selector (with an empty
+/// `id`) scopes the whole station — used to read the station-level records
+/// (including the global station note).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct WorkItemInput {
+    /// `unit` / `output` / `station`.
+    pub kind: String,
+    /// The unit slug / output id. Empty for a bare station selector.
+    #[serde(default)]
+    pub id: String,
+    /// The station this work item belongs to.
+    pub station: String,
+}
+
+/// Input for `darkrun_annotation_submit` — record one annotation (a per-artifact
+/// mark OR the global station note) into the run's annotation store.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct AnnotationSubmitInput {
+    /// The run slug.
+    pub slug: String,
+    /// Who is marking: `human` (default) or `agent`.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// The work item the annotation hangs on.
+    pub work_item: WorkItemInput,
+    /// The version-pinned artifact: `{ id, path, type, version_sha }`. Omit for
+    /// the global station note.
+    #[serde(default)]
+    pub artifact: Option<serde_json::Value>,
+    /// The typed anchor (tagged on `anchor_type`: text/image/html/pdf/svg/video).
+    /// Omit for the global station note.
+    #[serde(default)]
+    pub anchor: Option<serde_json::Value>,
+    /// How the human marked it: `{ tool, color? }`.
+    #[serde(default)]
+    pub expression: Option<serde_json::Value>,
+    /// The free-form comment (required).
+    pub comment: String,
+    /// The structured ask: `{ kind: change|question|nit|praise, severity:
+    /// must|should|nit }`.
+    pub ask: serde_json::Value,
+    /// An optional inline-replacement suggestion: `{ diff }`.
+    #[serde(default)]
+    pub suggestion: Option<serde_json::Value>,
+}
+
+/// Input for `darkrun_annotation_list` and `darkrun_annotation_payload` — scope
+/// to a work item (or a station).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct AnnotationListInput {
+    /// The run slug.
+    pub slug: String,
+    /// The work item (or station) to read annotations for.
+    pub work_item: WorkItemInput,
+    /// When true, return only OPEN annotations (the severity counts always
+    /// reflect open asks regardless). Defaults to false (full history).
+    #[serde(default)]
+    pub open_only: bool,
+}
+
 /// Input for `darkrun_reflection_record` — capture a Reflect-phase retrospective.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -702,6 +766,52 @@ fn parse_feedback_status_arg(raw: &str) -> Option<FeedbackStatus> {
     }
 }
 
+/// Parse a `WorkItemInput` into the typed `WorkItem`.
+fn parse_work_item(
+    input: &WorkItemInput,
+) -> std::result::Result<darkrun_api::annotation::WorkItem, String> {
+    use darkrun_api::annotation::WorkItemKind;
+    let kind = match input.kind.trim().to_ascii_lowercase().as_str() {
+        "unit" => WorkItemKind::Unit,
+        "output" => WorkItemKind::Output,
+        "station" => WorkItemKind::Station,
+        other => return Err(format!("invalid work_item kind: {other}")),
+    };
+    Ok(darkrun_api::annotation::WorkItem {
+        kind,
+        id: input.id.clone(),
+        station: input.station.clone(),
+    })
+}
+
+/// Deserialize an optional JSON value into a typed `T`, tagging the error with
+/// the field `label`. `None` passes through as `Ok(None)`.
+fn opt_from_value<T: serde::de::DeserializeOwned>(
+    label: &str,
+    v: Option<serde_json::Value>,
+) -> std::result::Result<Option<T>, String> {
+    match v {
+        Some(val) => serde_json::from_value(val)
+            .map(Some)
+            .map_err(|e| format!("invalid {label}: {e}")),
+        None => Ok(None),
+    }
+}
+
+/// Parse the optional `author` string into an `AuthorType` (default: human).
+fn parse_author(raw: Option<&str>) -> std::result::Result<darkrun_api::common::AuthorType, String> {
+    use darkrun_api::common::AuthorType;
+    match raw.map(|s| s.trim().to_ascii_lowercase()) {
+        None => Ok(AuthorType::Human),
+        Some(s) => match s.as_str() {
+            "human" => Ok(AuthorType::Human),
+            "agent" => Ok(AuthorType::Agent),
+            "system" => Ok(AuthorType::System),
+            other => Err(format!("invalid author: {other}")),
+        },
+    }
+}
+
 // ── Tool handlers ───────────────────────────────────────────────────────
 
 #[tool_router]
@@ -955,6 +1065,118 @@ impl DarkrunServer {
         };
         match feedback::create(&store, &input.slug, &input.station, &input.body, severity) {
             Ok(fb) => ok_json(&fb),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    // ── Annotations ──────────────────────────────────────────────────────
+
+    /// Record one annotation — a per-artifact mark (text/image/html/pdf/svg/
+    /// video) or the global station note — into the run's annotation store.
+    /// Validates the anchor's typed shape against the artifact type, mints the
+    /// id + timestamp, and (for an image/html rect mark) crops the marked region
+    /// out of the version-pinned artifact to a PNG beside the JSON.
+    #[tool(
+        name = "darkrun_annotation_submit",
+        description = "Record one annotation (a per-artifact text/image/html mark, or the global station note) pinned to the artifact's version; image/html rect marks are cropped to disk for the agent re-reference payload."
+    )]
+    pub fn darkrun_annotation_submit(
+        &self,
+        Parameters(input): Parameters<AnnotationSubmitInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let work_item = match parse_work_item(&input.work_item) {
+            Ok(w) => w,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let author = match parse_author(input.author.as_deref()) {
+            Ok(a) => a,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let artifact = match opt_from_value("artifact", input.artifact) {
+            Ok(a) => a,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let anchor = match opt_from_value("anchor", input.anchor) {
+            Ok(a) => a,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let expression = match opt_from_value("expression", input.expression) {
+            Ok(e) => e,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let suggestion = match opt_from_value("suggestion", input.suggestion) {
+            Ok(s) => s,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let ask: darkrun_api::annotation::Ask = match serde_json::from_value(input.ask) {
+            Ok(a) => a,
+            Err(e) => return Ok(err_text(format!("invalid ask: {e}"))),
+        };
+        let args = crate::annotation::SubmitArgs {
+            author,
+            work_item,
+            artifact,
+            anchor,
+            expression,
+            comment: input.comment,
+            ask,
+            suggestion,
+        };
+        let store = self.store();
+        match crate::annotation::submit(&store, self.repo_root.as_ref(), &input.slug, args) {
+            Ok(res) => ok_json(&res),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// List the annotations on a work item (or a station), with the open-
+    /// severity tally and the checkpoint button steering — the feedback-inbox
+    /// data. `should`/`must` flip the primary button to `request_changes`; a
+    /// `nit` never blocks.
+    #[tool(
+        name = "darkrun_annotation_list",
+        description = "List annotations on a work item (or station), decorated with the open-severity counts (blocker/high/nit) and the checkpoint button steering (approve vs request_changes)."
+    )]
+    pub fn darkrun_annotation_list(
+        &self,
+        Parameters(input): Parameters<AnnotationListInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let work_item = match parse_work_item(&input.work_item) {
+            Ok(w) => w,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let store = self.store();
+        match crate::annotation::list(&store, &input.slug, &work_item, input.open_only) {
+            Ok(listing) => ok_json(&listing),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Resolve every OPEN annotation on a work item into an actionable agent
+    /// bundle: text → file:line + quote + comment (+ suggestion diff); image →
+    /// a cropped region PNG + coords + comment; html → dom.src (file:line) +
+    /// outer_html + comment (or a flagged fallback when no source map exists).
+    /// This is the payload the agent receives when it revisits the work item.
+    #[tool(
+        name = "darkrun_annotation_payload",
+        description = "Resolve a work item's OPEN annotations into the agent re-reference payload: source location (file:line for text/html, cropped region for image) + quote/crop + comment + optional suggestion diff."
+    )]
+    pub fn darkrun_annotation_payload(
+        &self,
+        Parameters(input): Parameters<AnnotationListInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let work_item = match parse_work_item(&input.work_item) {
+            Ok(w) => w,
+            Err(e) => return Ok(err_text(e)),
+        };
+        let store = self.store();
+        match crate::annotation::agent_re_reference(
+            &store,
+            self.repo_root.as_ref(),
+            &input.slug,
+            &work_item,
+        ) {
+            Ok(payload) => ok_json(&payload),
             Err(e) => Ok(err_text(e)),
         }
     }
@@ -2043,6 +2265,98 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn annotation_submit_list_payload_wire_flow() {
+        let (_d, server) = started_server();
+        // Submit a text annotation via the wire-typed tool.
+        let submitted = server
+            .darkrun_annotation_submit(Parameters(AnnotationSubmitInput {
+                slug: "r".into(),
+                author: Some("human".into()),
+                work_item: WorkItemInput {
+                    kind: "output".into(),
+                    id: "payment".into(),
+                    station: "build".into(),
+                },
+                artifact: Some(serde_json::json!({
+                    "id": "payment.rs",
+                    "path": "src/payment.rs",
+                    "type": "text",
+                    "version_sha": "9f3c"
+                })),
+                anchor: Some(serde_json::json!({
+                    "anchor_type": "text",
+                    "range": { "start_line": 42, "start_col": 0, "end_line": 42, "end_col": 9 },
+                    "quote": "fn charge"
+                })),
+                expression: Some(serde_json::json!({ "tool": "select" })),
+                comment: "handle the declined-card path".into(),
+                ask: serde_json::json!({ "kind": "change", "severity": "should" }),
+                suggestion: None,
+            }))
+            .unwrap();
+        assert_eq!(submitted.is_error, Some(false));
+        let v = submitted.structured_content.unwrap();
+        assert!(v["annotation"]["id"].as_str().unwrap().starts_with("anno_"));
+
+        // List it back with the severity steering.
+        let listed = server
+            .darkrun_annotation_list(Parameters(AnnotationListInput {
+                slug: "r".into(),
+                work_item: WorkItemInput {
+                    kind: "output".into(),
+                    id: "payment".into(),
+                    station: "build".into(),
+                },
+                open_only: false,
+            }))
+            .unwrap();
+        let v = listed.structured_content.unwrap();
+        assert_eq!(v["annotations"].as_array().unwrap().len(), 1);
+        assert_eq!(v["should"], 1);
+        assert_eq!(v["checkpoint_button_primary"], "request_changes");
+
+        // The agent re-reference payload resolves it to file:line.
+        let payload = server
+            .darkrun_annotation_payload(Parameters(AnnotationListInput {
+                slug: "r".into(),
+                work_item: WorkItemInput {
+                    kind: "output".into(),
+                    id: "payment".into(),
+                    station: "build".into(),
+                },
+                open_only: true,
+            }))
+            .unwrap();
+        let v = payload.structured_content.unwrap();
+        assert_eq!(v["items"][0]["source"]["kind"], "text");
+        assert_eq!(v["items"][0]["source"]["path"], "src/payment.rs");
+        assert_eq!(v["items"][0]["source"]["start_line"], 42);
+    }
+
+    #[test]
+    fn annotation_submit_rejects_bad_work_item_kind() {
+        let (_d, server) = started_server();
+        let res = server
+            .darkrun_annotation_submit(Parameters(AnnotationSubmitInput {
+                slug: "r".into(),
+                author: None,
+                work_item: WorkItemInput {
+                    kind: "nonsense".into(),
+                    id: "x".into(),
+                    station: "build".into(),
+                },
+                artifact: None,
+                anchor: None,
+                comment: "x".into(),
+                expression: None,
+                ask: serde_json::json!({ "kind": "change", "severity": "must" }),
+                suggestion: None,
+            }))
+            .unwrap();
+        assert_eq!(res.is_error, Some(true));
     }
 
     #[test]
