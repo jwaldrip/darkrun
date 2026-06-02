@@ -1463,11 +1463,11 @@
             "type": "object"
           },
           "station_states": {
-            "additionalProperties": {
+            "description": "Per-station status snapshots, in FACTORY ORDER (not alphabetical) — the desktop renders the station strip in this order, so it's a Vec, not a map.",
+            "items": {
               "$ref": "#/definitions/StationStateInfo"
             },
-            "description": "Per-station status snapshots, keyed by station name.",
-            "type": "object"
+            "type": "array"
           },
           "station_summaries": {
             "additionalProperties": {
@@ -2095,11 +2095,11 @@
                 "type": "object"
               },
               "station_states": {
-                "additionalProperties": {
+                "description": "Per-station status snapshots, in FACTORY ORDER (not alphabetical) — the desktop renders the station strip in this order, so it's a Vec, not a map.",
+                "items": {
                   "$ref": "#/definitions/StationStateInfo"
                 },
-                "description": "Per-station status snapshots, keyed by station name.",
-                "type": "object"
+                "type": "array"
               },
               "station_summaries": {
                 "additionalProperties": {

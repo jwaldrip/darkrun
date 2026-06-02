@@ -884,7 +884,7 @@ impl DarkrunServer {
             // A desktop is already connected; its home poller navigates to the run.
             serde_json::json!({ "status": "connected" })
         } else if let Some(addr) = self.announced_addr {
-            match crate::desktop::spawn(self.repo_root.as_ref(), addr.port()) {
+            match crate::desktop::spawn(self.repo_root.as_ref(), addr.port(), Some(&input.slug)) {
                 crate::desktop::Launch::Launched(bin) => serde_json::json!({
                     "status": "launched",
                     "bin": bin.to_string_lossy(),

@@ -6,7 +6,6 @@
 //! and criteria payloads are loose `serde_json::Value`s by design; we probe a
 //! handful of conventional keys and degrade gracefully when one is absent.
 
-use std::collections::BTreeMap;
 
 use darkrun_api::common::{FeedbackSeverity, GateType, SessionStatus};
 use darkrun_api::feedback::FeedbackItem;
@@ -81,18 +80,18 @@ fn station_status(
 /// Project the review payload's ordered `station_states` into the strip's
 /// [`StationItem`] list — the assembly line at the TOP of the review.
 ///
-/// `station_states` is a `BTreeMap` keyed by station name, so iteration order is
-/// stable (alphabetical) — the engine names stations to sort in line order.
-/// `feedback_stations` flags which stations carry open feedback so the strip can
-/// ride an amber dot on them.
+/// `station_states` is an ordered slice in FACTORY order (the engine builds it
+/// from the factory's declared station list), so iteration preserves the station
+/// line order — it is NOT sorted alphabetically. `feedback_stations` flags which
+/// stations carry open feedback so the strip can ride an amber dot on them.
 pub fn station_items(
-    station_states: &BTreeMap<String, StationStateInfo>,
+    station_states: &[StationStateInfo],
     current_state: Option<&RunCurrentState>,
     feedback_stations: &[String],
 ) -> Vec<StationItem> {
     let current = current_state.map(|s| s.station.as_str()).filter(|s| !s.is_empty());
     station_states
-        .values()
+        .iter()
         .map(|info| {
             let status = station_status(info, current);
             let has_feedback = feedback_stations.iter().any(|s| s == &info.station);
@@ -523,17 +522,19 @@ mod tests {
 
     #[test]
     fn station_items_marks_done_current_pending() {
-        let mut states = BTreeMap::new();
-        states.insert("01-frame".into(), station_info("01-frame", true, None));
-        states.insert("02-build".into(), station_info("02-build", false, None));
-        states.insert("03-harden".into(), station_info("03-harden", false, None));
+        // An ordered Vec (factory order), NOT alphabetical — order is preserved.
+        let states = vec![
+            station_info("01-frame", true, None),
+            station_info("02-build", false, None),
+            station_info("03-harden", false, None),
+        ];
         let cur = RunCurrentState {
             station: "02-build".into(),
             ..Default::default()
         };
         let items = station_items(&states, Some(&cur), &["02-build".to_string()]);
         assert_eq!(items.len(), 3);
-        // BTreeMap order is the line order here.
+        // The Vec order is the station line order.
         assert_eq!(items[0].status, StationStatus::Done);
         assert_eq!(items[1].status, StationStatus::Current);
         assert!(items[1].has_feedback);

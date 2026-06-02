@@ -163,6 +163,7 @@ fn spawn_build_then_launch(
     bin: &Path,
     port: u16,
     repo_root: &Path,
+    session: Option<&str>,
 ) -> bool {
     let rel = if profile == "release" { " --release" } else { "" };
     let (out, err) = log_stdio(repo_root);
@@ -173,9 +174,13 @@ fn spawn_build_then_launch(
         // launch through LaunchServices so the app reaches the GUI session.
         let bundle = ensure_bundle(bin).map(|b| b.to_string_lossy().into_owned());
         let log = log_path(repo_root);
+        // Pin to the run so the post-build launch opens straight to its Review.
+        let sess = session
+            .map(|s| format!(" --env DARKRUN_SESSION_ID={s}"))
+            .unwrap_or_default();
         let script = match bundle {
             Ok(bundle) => format!(
-                "cargo build -p darkrun-desktop{rel} && exec open -n {} --env DARKRUN_PORT={port} --stdout {} --stderr {}",
+                "cargo build -p darkrun-desktop{rel} && exec open -n {} --env DARKRUN_PORT={port}{sess} --stdout {} --stderr {}",
                 sh_quote(Path::new(&bundle)),
                 sh_quote(&log),
                 sh_quote(&log),
@@ -208,9 +213,17 @@ fn spawn_build_then_launch(
         cmd.arg("/C").arg(script);
     }
     cmd.current_dir(ws)
-        .env("DARKRUN_PORT", port.to_string())
-        .env_remove("DARKRUN_SESSION_ID")
-        .stdin(Stdio::null())
+        .env("DARKRUN_PORT", port.to_string());
+    // Non-macOS launches inherit the builder's env (macOS uses `open --env` above).
+    match session {
+        Some(s) => {
+            cmd.env("DARKRUN_SESSION_ID", s);
+        }
+        None => {
+            cmd.env_remove("DARKRUN_SESSION_ID");
+        }
+    }
+    cmd.stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
         .spawn()
@@ -254,20 +267,26 @@ pub fn find(repo_root: &Path) -> Option<PathBuf> {
 /// is spawned outside it — a direct `exec` there is killed by AppKit before a
 /// window appears. Elsewhere a direct detached spawn is fine.
 #[cfg(target_os = "macos")]
-fn launch(bin: PathBuf, port: u16, repo_root: &Path) -> Launch {
+fn launch(bin: PathBuf, port: u16, repo_root: &Path, session: Option<&str>) -> Launch {
     let bundle = match ensure_bundle(&bin) {
         Ok(b) => b,
-        Err(_) => return launch_direct(bin, port, repo_root),
+        Err(_) => return launch_direct(bin, port, repo_root, session),
     };
     let log = log_path(repo_root);
     let _ = open_log(repo_root); // ensure .darkrun/ exists for open's redirect
     // `open` blocks only until LaunchServices accepts the launch, so a non-zero
     // status is a real "couldn't start" signal — unlike a bare fork succeeding.
-    let ok = Command::new("open")
-        .arg("-n")
+    let mut cmd = Command::new("open");
+    cmd.arg("-n")
         .arg(&bundle)
         .arg("--env")
-        .arg(format!("DARKRUN_PORT={port}"))
+        .arg(format!("DARKRUN_PORT={port}"));
+    // Pin to the run so the app opens straight to its Review (`open` launches in
+    // a clean launchd env, so DARKRUN_SESSION_ID must be passed explicitly).
+    if let Some(s) = session {
+        cmd.arg("--env").arg(format!("DARKRUN_SESSION_ID={s}"));
+    }
+    let ok = cmd
         .arg("--stdout")
         .arg(&log)
         .arg("--stderr")
@@ -286,17 +305,27 @@ fn launch(bin: PathBuf, port: u16, repo_root: &Path) -> Launch {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn launch(bin: PathBuf, port: u16, repo_root: &Path) -> Launch {
-    launch_direct(bin, port, repo_root)
+fn launch(bin: PathBuf, port: u16, repo_root: &Path, session: Option<&str>) -> Launch {
+    launch_direct(bin, port, repo_root, session)
 }
 
 /// Direct detached spawn (non-macOS, or the macOS bundle fallback). Output goes
-/// to the launch log so a crash is traceable.
-fn launch_direct(bin: PathBuf, port: u16, repo_root: &Path) -> Launch {
+/// to the launch log so a crash is traceable. With `session` set the app is
+/// PINNED to that run (`DARKRUN_SESSION_ID`) so it opens straight to the Review;
+/// `None` opens the unpinned projects home.
+fn launch_direct(bin: PathBuf, port: u16, repo_root: &Path, session: Option<&str>) -> Launch {
     let (out, err) = log_stdio(repo_root);
-    let ok = Command::new(&bin)
-        .env("DARKRUN_PORT", port.to_string())
-        .env_remove("DARKRUN_SESSION_ID")
+    let mut cmd = Command::new(&bin);
+    cmd.env("DARKRUN_PORT", port.to_string());
+    match session {
+        Some(s) => {
+            cmd.env("DARKRUN_SESSION_ID", s);
+        }
+        None => {
+            cmd.env_remove("DARKRUN_SESSION_ID");
+        }
+    }
+    let ok = cmd
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
@@ -315,27 +344,27 @@ fn launch_direct(bin: PathBuf, port: u16, repo_root: &Path) -> Launch {
 /// `target/<profile>/darkrun-desktop` is always used — built on demand for the
 /// host arch (in the background, so this doesn't block) when it isn't compiled
 /// yet. Otherwise the installed sibling binary is launched.
-pub fn spawn(repo_root: &Path, port: u16) -> Launch {
+pub fn spawn(repo_root: &Path, port: u16, session: Option<&str>) -> Launch {
     // Explicit override.
     if let Ok(p) = std::env::var("DARKRUN_DESKTOP") {
         let p = PathBuf::from(p);
         if p.is_file() {
-            return launch(p, port, repo_root);
+            return launch(p, port, repo_root, session);
         }
     }
     // Dev: always the local version — build it for this arch if absent.
     if let Some((ws, profile)) = dev_workspace() {
         let bin = ws.join("target").join(&profile).join(bin_name());
         if bin.is_file() {
-            return launch(bin, port, repo_root);
+            return launch(bin, port, repo_root, session);
         }
-        if spawn_build_then_launch(&ws, &profile, &bin, port, repo_root) {
+        if spawn_build_then_launch(&ws, &profile, &bin, port, repo_root, session) {
             return Launch::Building;
         }
     }
     // Installed plugin: sibling of the engine binary, or the project target dir.
     match find(repo_root) {
-        Some(bin) => launch(bin, port, repo_root),
+        Some(bin) => launch(bin, port, repo_root, session),
         None => Launch::NotFound,
     }
 }

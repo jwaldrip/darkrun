@@ -144,16 +144,23 @@ pub fn HomeApp(cfg: ConnConfig, project_path: Option<PathBuf>) -> Element {
                             engines.set(found);
                         }
                     }
-                    if let Nav::Runs(proj) = &*nav.peek() {
-                        if let Some(port) = proj.port {
-                            let mut probe = base.clone();
-                            probe.port = port;
-                            let focus = wire::fetch_current_focus(&probe).await;
-                            if *last_focus.peek() != focus {
-                                last_focus.set(focus.clone());
-                                if let Some(slug) = focus {
-                                    opened.set(Some(slug));
-                                }
+                    // Probe the active engine for `current` focus — the open
+                    // project's engine when drilled in, else the launch engine
+                    // (base cfg port). This is what lets `darkrun show` jump an
+                    // already-open app straight to the run from the projects view,
+                    // not only from inside a project's run list.
+                    let probe_port = match &*nav.peek() {
+                        Nav::Runs(proj) => proj.port,
+                        Nav::Projects => Some(base.port),
+                    };
+                    if let Some(port) = probe_port {
+                        let mut probe = base.clone();
+                        probe.port = port;
+                        let focus = wire::fetch_current_focus(&probe).await;
+                        if *last_focus.peek() != focus {
+                            last_focus.set(focus.clone());
+                            if let Some(slug) = focus {
+                                opened.set(Some(slug));
                             }
                         }
                     }

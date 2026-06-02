@@ -407,9 +407,10 @@ pub struct ReviewSessionPayload {
     /// Optional mermaid diagram source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mermaid: Option<String>,
-    /// Per-station status snapshots, keyed by station name.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub station_states: BTreeMap<String, StationStateInfo>,
+    /// Per-station status snapshots, in FACTORY ORDER (not alphabetical) — the
+    /// desktop renders the station strip in this order, so it's a Vec, not a map.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub station_states: Vec<StationStateInfo>,
     /// Per-station definition summaries, keyed by station name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub station_summaries: BTreeMap<String, String>,

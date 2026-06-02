@@ -28,7 +28,6 @@
 //! The registry is keyed by `session_id` so a single run can hold several
 //! concurrent visual sessions without clobbering each other.
 
-use std::collections::BTreeMap;
 
 use darkrun_api::session::{
     DirectionArchetype, DirectionSessionPayload, PickerKind, PickerOption, PickerSessionPayload,
@@ -72,28 +71,28 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
 
     let (station_states, current_state) = match state {
         Some(state) => {
-            let mut station_states: BTreeMap<String, StationStateInfo> = BTreeMap::new();
+            // An ORDERED list (factory station order from station_status_summary),
+            // not a map — the desktop renders the strip in this order, so it must
+            // not be re-sorted alphabetically by a map key.
+            let mut station_states: Vec<StationStateInfo> = Vec::new();
             for entry in state.station_status_summary(&factory_stations) {
                 let recorded = state.stations.get(&entry.station);
                 let checkpoint = recorded.and_then(|st| st.checkpoint.as_ref());
-                station_states.insert(
-                    entry.station.clone(),
-                    StationStateInfo {
-                        station: entry.station.clone(),
-                        merged_into_main: matches!(
-                            entry.status,
-                            darkrun_core::domain::Status::Completed
-                        ),
-                        status: enum_token(&entry.status),
-                        phase: enum_token(&entry.phase),
-                        started_at: recorded.and_then(|st| st.started_at.clone()),
-                        completed_at: recorded.and_then(|st| st.completed_at.clone()),
-                        gate_entered_at: checkpoint.and_then(|c| c.entered_at.clone()),
-                        gate_outcome: checkpoint
-                            .and_then(|c| c.outcome.as_ref())
-                            .and_then(enum_token),
-                    },
-                );
+                station_states.push(StationStateInfo {
+                    station: entry.station.clone(),
+                    merged_into_main: matches!(
+                        entry.status,
+                        darkrun_core::domain::Status::Completed
+                    ),
+                    status: enum_token(&entry.status),
+                    phase: enum_token(&entry.phase),
+                    started_at: recorded.and_then(|st| st.started_at.clone()),
+                    completed_at: recorded.and_then(|st| st.completed_at.clone()),
+                    gate_entered_at: checkpoint.and_then(|c| c.entered_at.clone()),
+                    gate_outcome: checkpoint
+                        .and_then(|c| c.outcome.as_ref())
+                        .and_then(enum_token),
+                });
             }
             let current = RunCurrentState {
                 factory: state.factory.clone(),
@@ -103,7 +102,7 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
             };
             (station_states, Some(current))
         }
-        None => (BTreeMap::new(), None),
+        None => (Vec::new(), None),
     };
 
     let build = |session_id: &str| {
@@ -552,15 +551,13 @@ mod tests {
                     assert_eq!(cur.phase, Some(RunPhase::Spec));
 
                     let order: Vec<&str> =
-                        rev.station_states.values().map(|s| s.station.as_str()).collect();
-                    // BTreeMap is name-keyed; the strip's true order is the
-                    // factory's, but every station must be present.
-                    for name in ["frame", "specify", "shape", "build", "prove", "harden"] {
-                        assert!(
-                            rev.station_states.contains_key(name),
-                            "station {name} present in strip, got {order:?}"
-                        );
-                    }
+                        rev.station_states.iter().map(|s| s.station.as_str()).collect();
+                    // An ordered Vec in factory line order — exact, not alphabetical.
+                    assert_eq!(
+                        order,
+                        ["frame", "specify", "shape", "build", "prove", "harden"],
+                        "stations in factory order"
+                    );
                 }
                 other => panic!("expected a review session, got {other:?}"),
             }
@@ -625,15 +622,18 @@ mod tests {
         assert_eq!(cur.phase, Some(RunPhase::Manufacture));
         assert_eq!(cur.factory, "software");
 
-        // The strip carries an entry for every ordered factory station.
-        for name in ["frame", "specify", "shape", "build", "prove", "harden"] {
-            assert!(rev.station_states.contains_key(name), "{name} present");
-        }
+        // The strip carries every factory station, in factory order (not alphabetical).
+        let order: Vec<&str> = rev.station_states.iter().map(|s| s.station.as_str()).collect();
+        assert_eq!(order, ["frame", "specify", "shape", "build", "prove", "harden"]);
         assert_eq!(rev.station_states.len(), 6);
 
         // Completed station: merged, Completed status, Checkpoint phase, gate
         // metadata carried through.
-        let frame = &rev.station_states["frame"];
+        let frame = rev
+            .station_states
+            .iter()
+            .find(|s| s.station == "frame")
+            .expect("frame present");
         assert!(frame.merged_into_main);
         assert_eq!(frame.status.as_deref(), Some("completed"));
         assert_eq!(frame.phase.as_deref(), Some("checkpoint"));
@@ -641,14 +641,21 @@ mod tests {
         assert_eq!(frame.gate_entered_at.as_deref(), Some("2026-05-31T00:00:00Z"));
         assert_eq!(frame.gate_outcome.as_deref(), Some("advanced"));
 
+        let by_name = |n: &str| {
+            rev.station_states
+                .iter()
+                .find(|s| s.station == n)
+                .unwrap_or_else(|| panic!("{n} present"))
+        };
+
         // Active station: not merged, in-progress, Manufacture phase.
-        let specify = &rev.station_states["specify"];
+        let specify = by_name("specify");
         assert!(!specify.merged_into_main);
         assert_eq!(specify.status.as_deref(), Some("in_progress"));
         assert_eq!(specify.phase.as_deref(), Some("manufacture"));
 
         // A not-yet-reached station: pending, Spec phase, nothing started.
-        let harden = &rev.station_states["harden"];
+        let harden = by_name("harden");
         assert!(!harden.merged_into_main);
         assert_eq!(harden.status.as_deref(), Some("pending"));
         assert_eq!(harden.phase.as_deref(), Some("spec"));

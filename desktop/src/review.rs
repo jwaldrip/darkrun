@@ -647,7 +647,7 @@ fn overview_tab(review: &ReviewSessionPayload) -> Element {
             div {
                 div { style: section_title(), "Stations" }
                 div { style: "display:flex;flex-direction:column;gap:6px;margin-top:8px;",
-                    for info in review.station_states.values() {
+                    for info in &review.station_states {
                         div {
                             style: "display:flex;align-items:center;gap:8px;\
                                     font-family:var(--dr-font-mono);font-size:12px;",

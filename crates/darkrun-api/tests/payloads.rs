@@ -1117,9 +1117,9 @@ fn station_state_info_merged_flag_is_mandatory() {
 
 #[test]
 fn station_states_map_in_payload() {
-    let mut states = BTreeMap::new();
-    states.insert(
-        "frame".to_string(),
+    // An ORDERED Vec in factory order (frame before build), NOT alphabetical —
+    // serializes to a JSON array, and the order is preserved on the wire.
+    let states = vec![
         StationStateInfo {
             station: "frame".into(),
             merged_into_main: true,
@@ -1130,9 +1130,6 @@ fn station_states_map_in_payload() {
             gate_entered_at: None,
             gate_outcome: None,
         },
-    );
-    states.insert(
-        "build".to_string(),
         StationStateInfo {
             station: "build".into(),
             merged_into_main: false,
@@ -1143,15 +1140,17 @@ fn station_states_map_in_payload() {
             gate_entered_at: None,
             gate_outcome: None,
         },
-    );
+    ];
     let p = review(ReviewSessionPayload {
         session_id: "ss".into(),
         station_states: states,
         ..Default::default()
     });
     let json = serde_json::to_value(&p).unwrap();
-    assert_eq!(json["station_states"]["frame"]["merged_into_main"], true);
-    assert_eq!(json["station_states"]["build"]["status"], "active");
+    assert_eq!(json["station_states"][0]["station"], "frame");
+    assert_eq!(json["station_states"][0]["merged_into_main"], true);
+    assert_eq!(json["station_states"][1]["station"], "build");
+    assert_eq!(json["station_states"][1]["status"], "active");
     assert_stable(&p);
 }
 
@@ -1763,20 +1762,16 @@ fn review_payload_ad_hoc_false_still_serializes() {
 
 #[test]
 fn review_payload_kitchen_sink_roundtrips() {
-    let mut station_states = BTreeMap::new();
-    station_states.insert(
-        "frame".to_string(),
-        StationStateInfo {
-            station: "frame".into(),
-            merged_into_main: true,
-            status: Some("complete".into()),
-            phase: Some("checkpoint".into()),
-            started_at: Some("t0".into()),
-            completed_at: Some("t1".into()),
-            gate_entered_at: Some("t0.5".into()),
-            gate_outcome: Some("approved".into()),
-        },
-    );
+    let station_states = vec![StationStateInfo {
+        station: "frame".into(),
+        merged_into_main: true,
+        status: Some("complete".into()),
+        phase: Some("checkpoint".into()),
+        started_at: Some("t0".into()),
+        completed_at: Some("t1".into()),
+        gate_entered_at: Some("t0.5".into()),
+        gate_outcome: Some("approved".into()),
+    }];
     let p = review(ReviewSessionPayload {
         session_id: "sink".into(),
         status: SessionStatus::ChangesRequested,

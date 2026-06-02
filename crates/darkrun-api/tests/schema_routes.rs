@@ -1262,22 +1262,20 @@ fn review_payload_station_maps_roundtrip() {
         ..Default::default()
     };
     p.station_summaries.insert("frame".into(), "the frame".into());
-    p.station_states.insert(
-        "frame".into(),
-        StationStateInfo {
-            station: "frame".into(),
-            merged_into_main: true,
-            status: Some("done".into()),
-            phase: Some("checkpoint".into()),
-            started_at: None,
-            completed_at: None,
-            gate_entered_at: None,
-            gate_outcome: Some("approved".into()),
-        },
-    );
+    p.station_states.push(StationStateInfo {
+        station: "frame".into(),
+        merged_into_main: true,
+        status: Some("done".into()),
+        phase: Some("checkpoint".into()),
+        started_at: None,
+        completed_at: None,
+        gate_entered_at: None,
+        gate_outcome: Some("approved".into()),
+    });
     let j = serde_json::to_value(&p).unwrap();
     assert_eq!(j["station_summaries"]["frame"], "the frame");
-    assert_eq!(j["station_states"]["frame"]["merged_into_main"], true);
+    // station_states is an ordered array now, not a map.
+    assert_eq!(j["station_states"][0]["merged_into_main"], true);
     roundtrips_stably(&p);
 }
 
