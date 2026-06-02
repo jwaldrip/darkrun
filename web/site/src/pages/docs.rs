@@ -3,6 +3,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::content::{self, DOCS};
 use crate::route::Route;
 use crate::ui::{Prose, SectionHead};
@@ -51,7 +53,7 @@ fn DocsLayout(active: Option<String>, children: Element) -> Element {
     let side = format!(
         "position:sticky;top:80px;display:flex;flex-direction:column;gap:4px;\
          border-right:1px solid {border};padding-right:16px;",
-        border = tokens::BORDER,
+        border = theme::BORDER,
     );
     rsx! {
         div { style: "{frame}",
@@ -59,7 +61,7 @@ fn DocsLayout(active: Option<String>, children: Element) -> Element {
                 span {
                     style: format!(
                         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:{};margin-bottom:6px;",
-                        tokens::FONT_MONO, tokens::TEXT_FAINT,
+                        tokens::FONT_MONO, theme::TEXT_FAINT,
                     ),
                     "docs"
                 }
@@ -79,7 +81,7 @@ fn DocsLayout(active: Option<String>, children: Element) -> Element {
 /// One sidebar entry; the active page is accent-colored.
 #[component]
 fn SidebarLink(slug: String, title: String, active: bool) -> Element {
-    let color = if active { tokens::ACCENT } else { tokens::TEXT_MUTED };
+    let color = if active { theme::ACCENT } else { theme::TEXT_MUTED };
     let weight = if active { "600" } else { "400" };
     let style = format!(
         "font-family:{sans};font-size:14px;color:{color};font-weight:{weight};\

@@ -1,6 +1,8 @@
 //! darkrun-site — the darkrun.ai website as a Dioxus single-page app.
 //!
-//! Dark-theme only, built on the shared [`darkrun_ui`] design system. The route
+//! Dark by default, light via `prefers-color-scheme`, with a System/Light/Dark
+//! override in the header ([`theme_toggle`]); built on the shared [`darkrun_ui`]
+//! design system. The route
 //! table in [`route::Route`] drives both the in-browser router and the static
 //! SEO generators in [`seo`]. Real content comes from three sources:
 //!
@@ -21,6 +23,7 @@ pub mod layout;
 pub mod pages;
 pub mod route;
 pub mod seo;
+pub mod theme_toggle;
 pub mod ui;
 
 use darkrun_ui::prelude::*;

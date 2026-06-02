@@ -10,6 +10,7 @@ description = "darkrun MCP server + manager — drives a Run through the factory
 [dependencies]
 darkrun-core.workspace = true
 darkrun-api.workspace = true
+darkrun-git.workspace = true
 darkrun-http = { path = "../darkrun-http" }
 darkrun-prompts.workspace = true
 darkrun-harness.workspace = true

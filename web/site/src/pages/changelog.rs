@@ -3,6 +3,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::ui::SectionHead;
 
 /// A single changelog entry.
@@ -42,16 +44,16 @@ pub fn Changelog() -> Element {
                             tokens::FONT_SANS,
                         ),
                         span {
-                            style: format!("font-size:18px;font-weight:700;color:{};", tokens::TEXT),
+                            style: format!("font-size:18px;font-weight:700;color:{};", theme::TEXT),
                             "v{release.version}"
                         }
                         span {
-                            style: format!("font-family:{};font-size:12px;color:{};", tokens::FONT_MONO, tokens::TEXT_FAINT),
+                            style: format!("font-family:{};font-size:12px;color:{};", tokens::FONT_MONO, theme::TEXT_FAINT),
                             "{release.date}"
                         }
                     }
                     ul {
-                        style: format!("margin:0;padding-left:18px;color:{};font-family:{};font-size:14px;line-height:1.7;", tokens::TEXT_MUTED, tokens::FONT_SANS),
+                        style: format!("margin:0;padding-left:18px;color:{};font-family:{};font-size:14px;line-height:1.7;", theme::TEXT_MUTED, tokens::FONT_SANS),
                         for note in release.notes {
                             li { "{note}" }
                         }

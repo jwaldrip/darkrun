@@ -2,6 +2,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::route::Route;
 use crate::ui::SectionHead;
 
@@ -56,7 +58,7 @@ pub fn Templates() -> Element {
                         span {
                             style: format!(
                                 "font-family:{};font-size:16px;font-weight:700;color:{};text-transform:capitalize;",
-                                tokens::FONT_SANS, tokens::TEXT,
+                                tokens::FONT_SANS, theme::TEXT,
                             ),
                             "{slug}"
                         }

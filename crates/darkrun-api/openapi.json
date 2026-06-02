@@ -1753,6 +1753,18 @@
             "description": "The station the run currently sits on.",
             "type": "string"
           },
+          "author": {
+            "description": "The run branch's authoring email, when one could be attributed (the author of the most recent commit on the branch beyond its base). `None` when the branch carries no run-local commits, or authorship was not resolved.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authored_by_me": {
+            "default": false,
+            "description": "Whether the current git identity authored any commit on the run's branch — the engine's \"Mine\" predicate the sidebar filters on. Defaults to `false` so an older producer (or a non-git project) is treated as \"not mine\" rather than failing to decode.",
+            "type": "boolean"
+          },
           "factory": {
             "description": "The factory driving the run (e.g. `software`).",
             "type": "string"

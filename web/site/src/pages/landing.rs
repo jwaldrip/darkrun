@@ -3,6 +3,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::route::Route;
 use crate::ui::{PhaseLegend, SectionHead};
 
@@ -15,12 +17,12 @@ pub fn Landing() -> Element {
         "font-family:{sans};font-size:34px;font-weight:700;line-height:1.15;\
          letter-spacing:-0.02em;color:{text};margin:0;max-width:18ch;",
         sans = tokens::FONT_SANS,
-        text = tokens::TEXT,
+        text = theme::TEXT,
     );
     let sub = format!(
         "font-family:{sans};font-size:18px;color:{muted};margin:0;max-width:60ch;",
         sans = tokens::FONT_SANS,
-        muted = tokens::TEXT_MUTED,
+        muted = theme::TEXT_MUTED,
     );
     let cta = "display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;";
 
@@ -102,19 +104,19 @@ fn StationCard(index: usize, name: String) -> Element {
     let n = format!("{:02}", index + 1);
     let card = format!(
         "background:{raised};border:1px solid {border};border-radius:10px;padding:16px;",
-        raised = tokens::SURFACE_RAISED,
-        border = tokens::BORDER,
+        raised = theme::SURFACE_RAISED,
+        border = theme::BORDER,
     );
     let num = format!(
         "font-family:{mono};font-size:12px;color:{accent};",
         mono = tokens::FONT_MONO,
-        accent = tokens::ACCENT,
+        accent = theme::ACCENT,
     );
     let title = format!(
         "font-family:{sans};font-size:18px;font-weight:700;color:{text};\
          text-transform:capitalize;margin:6px 0 0;",
         sans = tokens::FONT_SANS,
-        text = tokens::TEXT,
+        text = theme::TEXT,
     );
     rsx! {
         div { style: "{card}",

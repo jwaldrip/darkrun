@@ -27,8 +27,76 @@ use darkrun_api::{
 use darkrun_core::domain::{Run, Station, StationPhase, Status, Unit};
 use darkrun_core::state::RunState;
 use serde_json::json;
+use std::path::Path as FsPath;
 
 use crate::state::AppState;
+
+/// The conventional run-work branch for a slug (`darkrun/<slug>`), mirroring the
+/// engine's worktree/branch naming.
+fn run_branch(slug: &str) -> String {
+    format!("darkrun/{slug}")
+}
+
+/// The base branch a run forks from — `default_branch` out of
+/// `.darkrun/settings.yml`, defaulting to `main` when unset or unreadable.
+///
+/// Parsed line-wise (the file is the flat `key: value` document
+/// `darkrun_setup` writes) so this stays free of a YAML dependency.
+fn base_branch(darkrun_root: &FsPath) -> String {
+    let raw = std::fs::read_to_string(darkrun_root.join("settings.yml")).unwrap_or_default();
+    for line in raw.lines() {
+        if let Some(value) = line.trim().strip_prefix("default_branch:") {
+            let value = value.trim().trim_matches(['"', '\'']).trim();
+            if !value.is_empty() {
+                return value.to_string();
+            }
+        }
+    }
+    "main".to_string()
+}
+
+/// Resolves the "Mine" predicate for run branches against one repository,
+/// resolving the current git identity once up front so the per-run check is a
+/// single revwalk.
+struct Authorship {
+    /// The repository root (the parent of `.darkrun`).
+    repo_root: std::path::PathBuf,
+    /// The base branch every run forks from.
+    base: String,
+    /// The effective `user.email`, lowercased — `None` when no identity is
+    /// configured or the project is not a git repo (then nothing is mine).
+    email: Option<String>,
+}
+
+impl Authorship {
+    /// Build the resolver from the state store's `.darkrun` root.
+    fn resolve(darkrun_root: &FsPath) -> Self {
+        // repo_root is the parent of `.darkrun`; fall back to the root itself.
+        let repo_root = darkrun_root
+            .parent()
+            .unwrap_or(darkrun_root)
+            .to_path_buf();
+        let email = darkrun_git::current_identity_email(&repo_root)
+            .ok()
+            .flatten()
+            .map(|e| e.to_ascii_lowercase());
+        Authorship {
+            repo_root,
+            base: base_branch(darkrun_root),
+            email,
+        }
+    }
+
+    /// Whether the current identity authored any commit on the run's branch.
+    /// `false` when there is no configured identity to match.
+    fn mine(&self, slug: &str) -> bool {
+        let Some(email) = self.email.as_deref() else {
+            return false;
+        };
+        darkrun_git::branch_authored_by(&self.repo_root, &self.base, &run_branch(slug), email)
+            .unwrap_or(false)
+    }
+}
 
 /// Render a `serde`-enum value (e.g. [`Status`]) to its wire string. Falls back
 /// to an empty string if the value did not serialize to a bare JSON string —
@@ -70,7 +138,11 @@ fn active_phase(run: &Run, state: Option<&RunState>) -> Option<String> {
 }
 
 /// Project a [`Run`] (+ its derived state, if present) into a [`RunSummary`].
-fn summarize(run: &Run, state: Option<&RunState>) -> RunSummary {
+///
+/// `authored_by_me` is the engine's "Mine" predicate for this run's branch; the
+/// caller resolves it once via [`Authorship`] and threads it in so the
+/// projection stays a pure function.
+fn summarize(run: &Run, state: Option<&RunState>, authored_by_me: bool) -> RunSummary {
     RunSummary {
         slug: run.slug.clone(),
         title: run.title.clone(),
@@ -80,6 +152,10 @@ fn summarize(run: &Run, state: Option<&RunState>) -> RunSummary {
         status: wire_string(&run.frontmatter.status),
         progress: progress_from_state(state),
         started_at: run.frontmatter.started_at.clone(),
+        authored_by_me,
+        // The list path resolves authorship by identity match rather than
+        // pulling the branch's author signature, so leave `author` unset here.
+        author: None,
     }
 }
 
@@ -113,6 +189,10 @@ pub async fn list_runs(State(state): State<AppState>) -> Response {
     let store = &state.store;
     let mut summaries = Vec::new();
 
+    // Resolve the current git identity + base branch once for the whole list so
+    // the per-run "Mine" check is a single revwalk.
+    let authorship = Authorship::resolve(store.root());
+
     if let Ok(slugs) = store.list_runs() {
         for slug in slugs {
             let Ok(run) = store.read_run(&slug) else {
@@ -122,7 +202,8 @@ pub async fn list_runs(State(state): State<AppState>) -> Response {
                 continue;
             }
             let state = store.read_state(&slug).ok().flatten();
-            summaries.push(summarize(&run, state.as_ref()));
+            let mine = authorship.mine(&slug);
+            summaries.push(summarize(&run, state.as_ref(), mine));
         }
     }
 

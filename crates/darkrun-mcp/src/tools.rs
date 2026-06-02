@@ -1527,7 +1527,7 @@ impl DarkrunServer {
         Parameters(input): Parameters<RunListInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         let store = self.store();
-        match runs::list(&store, input.include_archived) {
+        match runs::list(&store, self.repo_root.as_ref(), input.include_archived) {
             Ok(list) => ok_json(&list),
             Err(e) => Ok(err_text(e)),
         }

@@ -1,13 +1,22 @@
 //! darkrun design tokens — the single source of truth for color, type, and
 //! spacing across the desktop app and the website.
 //!
-//! darkrun is **dark only**: there is no light theme. The base is near-black,
-//! surfaces are layered toward the viewer, and a single cool-cyan accent carries
-//! interaction. Each station phase owns a hue so a pipeline reads at a glance.
+//! darkrun follows the **system appearance** (`prefers-color-scheme`) and also
+//! accepts a manual override. The dark theme is the brand default: a near-black
+//! base, surfaces layered toward the viewer, and a single cool-cyan accent that
+//! carries interaction. The light theme mirrors it with a paper-white base and a
+//! higher-contrast teal-blue accent (the dark cyan is too light on white). Each
+//! station phase owns a hue in both themes so a pipeline reads at a glance.
 //!
 //! Two representations stay in lockstep:
 //! - the Rust constants here (for SVG fills, inline styles, computed layout), and
 //! - the [`THEME_CSS`] custom-property block (for class-based component styling).
+//!
+//! The Rust constants are the **dark** set (used wherever a value must be computed
+//! before the browser resolves a custom property — SVG fills, inline styles). A
+//! parallel **light** set ([`LIGHT_*`] / [`*_LIGHT`]) is available for renderers
+//! that need to pick a theme explicitly. Class-based components consume the
+//! `--dr-*` custom properties and theme automatically.
 //!
 //! When a token changes, change it in both places. The [`tokens::tests`] module
 //! guards the obvious drift.
@@ -75,6 +84,61 @@ pub const STATUS_DANGER: &str = "#f85149";
 /// Informational / in progress.
 pub const STATUS_INFO: &str = "#5fd7ff";
 
+// --- Light theme constants ------------------------------------------------
+// The light mirror of the set above, for renderers that must pick a theme
+// explicitly (the class-based components flip automatically via the custom
+// properties). Light derives a higher-contrast accent — the dark cyan washes
+// out on white — and an ink variant for hairline borders/labels on accent.
+
+/// Paper-white canvas — the base layer in the light theme.
+pub const SURFACE_BASE_LIGHT: &str = "#f3f6f9";
+/// The default panel surface in the light theme.
+pub const SURFACE_RAISED_LIGHT: &str = "#ffffff";
+/// A card/inset surface in the light theme.
+pub const SURFACE_OVERLAY_LIGHT: &str = "#eef2f6";
+/// A recessed/sink surface in the light theme (sidebar, wells).
+pub const SURFACE_SINK_LIGHT: &str = "#e7edf3";
+/// A hairline border in the light theme.
+pub const BORDER_LIGHT: &str = "#dce3ea";
+/// A stronger border for focus and active edges in the light theme.
+pub const BORDER_STRONG_LIGHT: &str = "#c2ccd6";
+
+/// Primary text on light surfaces.
+pub const TEXT_LIGHT: &str = "#0e1217";
+/// Secondary / supporting text in the light theme.
+pub const TEXT_MUTED_LIGHT: &str = "#566370";
+/// Dimmed text for metadata and disabled states in the light theme.
+pub const TEXT_FAINT_LIGHT: &str = "#8a97a4";
+
+/// The teal-blue brand accent in the light theme (higher contrast on white).
+pub const ACCENT_LIGHT: &str = "#0e9fd6";
+/// A pressed/active variant of the light accent (used for ink on light fills).
+pub const ACCENT_STRONG_LIGHT: &str = "#0b7fae";
+/// A foreground that reads on top of the light accent.
+pub const ON_ACCENT_LIGHT: &str = "#ffffff";
+
+/// `spec` phase — neutral grey, light theme.
+pub const PHASE_SPEC_LIGHT: Hue = Hue { base: "#6b7884", on: "#ffffff" };
+/// `review` phase — blue, light theme.
+pub const PHASE_REVIEW_LIGHT: Hue = Hue { base: "#3b6fd0", on: "#ffffff" };
+/// `manufacture` phase — teal-blue, light theme (shares the light accent).
+pub const PHASE_MANUFACTURE_LIGHT: Hue = Hue { base: "#0e9fd6", on: "#ffffff" };
+/// `audit` phase — amber, light theme.
+pub const PHASE_AUDIT_LIGHT: Hue = Hue { base: "#b9791a", on: "#ffffff" };
+/// `reflect` phase — teal, light theme.
+pub const PHASE_REFLECT_LIGHT: Hue = Hue { base: "#11a392", on: "#ffffff" };
+/// `checkpoint` phase — magenta, light theme.
+pub const PHASE_CHECKPOINT_LIGHT: Hue = Hue { base: "#b443cf", on: "#ffffff" };
+
+/// Success / completed, light theme.
+pub const STATUS_OK_LIGHT: &str = "#2e9e43";
+/// Caution / awaiting a decision, light theme.
+pub const STATUS_WARN_LIGHT: &str = "#b9791a";
+/// Blocked / failed, light theme.
+pub const STATUS_DANGER_LIGHT: &str = "#d83c33";
+/// Informational / in progress, light theme.
+pub const STATUS_INFO_LIGHT: &str = "#0e9fd6";
+
 // --- Type & spacing -------------------------------------------------------
 
 /// The geometric sans used for UI chrome.
@@ -94,15 +158,30 @@ pub const GLYPH_ACTIVE: char = '\u{25c9}';
 /// The glyph for a not-yet-reached station/phase.
 pub const GLYPH_PENDING: char = '\u{25cb}';
 
-/// The complete dark theme as a `:root { --token: value }` block.
+/// The complete theme as custom-property blocks.
 ///
 /// Mount this once (e.g. in a `<style>` tag or a linked stylesheet) and every
 /// component class below resolves against it. The variable names mirror the
 /// Rust constants so the two never diverge silently.
+///
+/// Theming model (locked):
+/// - The **dark** tokens are the default `:root`, so dark is the brand baseline.
+/// - A `@media (prefers-color-scheme: light)` block applies the **light** tokens,
+///   so the app/site follow the system appearance automatically.
+/// - `:root[data-theme="light"]` / `:root[data-theme="dark"]` are the **manual
+///   override**. Because an attribute selector on `:root` has higher specificity
+///   than the media query's `:root`, the override wins regardless of system
+///   preference. Setting `data-theme` to `light`/`dark` pins the theme; removing
+///   the attribute returns to "System" (the media query / dark default).
+///
+/// The wordmark drives its per-theme look off `--dr-wm-dark-*` / `--dr-wm-run`,
+/// which the light blocks redefine — so the wordmark flips with the theme without
+/// hard-coding either side.
 pub const THEME_CSS: &str = r#":root{
   --dr-surface-base:#07090c;
   --dr-surface-raised:#0e1217;
   --dr-surface-overlay:#161b22;
+  --dr-surface-sink:#04060a;
   --dr-border:#222a33;
   --dr-border-strong:#33404d;
   --dr-text:#e6edf3;
@@ -126,13 +205,125 @@ pub const THEME_CSS: &str = r#":root{
   --dr-space:4px;
   --dr-radius:8px;
   --dr-radius-sm:5px;
+  /* Wordmark, dark theme: "dark" outlined cyan over a base fill (stroke painted
+     under the fill), "run" solid white. */
+  --dr-wm-dark-fill:var(--dr-surface-base);
+  --dr-wm-dark-stroke:var(--dr-accent);
+  --dr-wm-dark-stroke-width:1.5px;
+  --dr-wm-run:var(--dr-text);
+  color-scheme:dark;
+}
+/* The light tokens, factored out so both the media query and the manual override
+   can apply them without duplication. */
+@media (prefers-color-scheme:light){
+  :root{
+    --dr-surface-base:#f3f6f9;
+    --dr-surface-raised:#ffffff;
+    --dr-surface-overlay:#eef2f6;
+    --dr-surface-sink:#e7edf3;
+    --dr-border:#dce3ea;
+    --dr-border-strong:#c2ccd6;
+    --dr-text:#0e1217;
+    --dr-text-muted:#566370;
+    --dr-text-faint:#8a97a4;
+    --dr-accent:#0e9fd6;
+    --dr-accent-strong:#0b7fae;
+    --dr-on-accent:#ffffff;
+    --dr-phase-spec:#6b7884;
+    --dr-phase-review:#3b6fd0;
+    --dr-phase-manufacture:#0e9fd6;
+    --dr-phase-audit:#b9791a;
+    --dr-phase-reflect:#11a392;
+    --dr-phase-checkpoint:#b443cf;
+    --dr-status-ok:#2e9e43;
+    --dr-status-warn:#b9791a;
+    --dr-status-danger:#d83c33;
+    --dr-status-info:#0e9fd6;
+    /* Wordmark, light theme: "dark" SOLID BLACK (--dr-text) with no stroke,
+       "run" the teal accent. */
+    --dr-wm-dark-fill:var(--dr-text);
+    --dr-wm-dark-stroke:transparent;
+    --dr-wm-dark-stroke-width:0;
+    --dr-wm-run:var(--dr-accent);
+    color-scheme:light;
+  }
+}
+/* Manual override — wins over the media query (attribute selector on :root has
+   higher specificity than the bare :root the media query targets). */
+:root[data-theme="dark"]{
+  --dr-surface-base:#07090c;
+  --dr-surface-raised:#0e1217;
+  --dr-surface-overlay:#161b22;
+  --dr-surface-sink:#04060a;
+  --dr-border:#222a33;
+  --dr-border-strong:#33404d;
+  --dr-text:#e6edf3;
+  --dr-text-muted:#9aa7b4;
+  --dr-text-faint:#5b6773;
+  --dr-accent:#5fd7ff;
+  --dr-accent-strong:#33c5f5;
+  --dr-on-accent:#04141b;
+  --dr-phase-spec:#8b98a5;
+  --dr-phase-review:#5b8def;
+  --dr-phase-manufacture:#5fd7ff;
+  --dr-phase-audit:#f0b429;
+  --dr-phase-reflect:#2dd4bf;
+  --dr-phase-checkpoint:#d160e8;
+  --dr-status-ok:#3fb950;
+  --dr-status-warn:#f0b429;
+  --dr-status-danger:#f85149;
+  --dr-status-info:#5fd7ff;
+  --dr-wm-dark-fill:var(--dr-surface-base);
+  --dr-wm-dark-stroke:var(--dr-accent);
+  --dr-wm-dark-stroke-width:1.5px;
+  --dr-wm-run:var(--dr-text);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --dr-surface-base:#f3f6f9;
+  --dr-surface-raised:#ffffff;
+  --dr-surface-overlay:#eef2f6;
+  --dr-surface-sink:#e7edf3;
+  --dr-border:#dce3ea;
+  --dr-border-strong:#c2ccd6;
+  --dr-text:#0e1217;
+  --dr-text-muted:#566370;
+  --dr-text-faint:#8a97a4;
+  --dr-accent:#0e9fd6;
+  --dr-accent-strong:#0b7fae;
+  --dr-on-accent:#ffffff;
+  --dr-phase-spec:#6b7884;
+  --dr-phase-review:#3b6fd0;
+  --dr-phase-manufacture:#0e9fd6;
+  --dr-phase-audit:#b9791a;
+  --dr-phase-reflect:#11a392;
+  --dr-phase-checkpoint:#b443cf;
+  --dr-status-ok:#2e9e43;
+  --dr-status-warn:#b9791a;
+  --dr-status-danger:#d83c33;
+  --dr-status-info:#0e9fd6;
+  --dr-wm-dark-fill:var(--dr-text);
+  --dr-wm-dark-stroke:transparent;
+  --dr-wm-dark-stroke-width:0;
+  --dr-wm-run:var(--dr-accent);
+  color-scheme:light;
 }
 html,body{
   background:var(--dr-surface-base);
   color:var(--dr-text);
   font-family:var(--dr-font-sans);
-  color-scheme:dark;
 }
+/* Theme-aware wordmark (static variants). The "dark" segment paints its stroke
+   under the fill so the outer outline stays clean; in light the stroke collapses
+   to 0 / transparent and the fill becomes solid --dr-text. "run" follows
+   --dr-wm-run (white in dark, teal accent in light). Both flip automatically. */
+.dr-wordmark-themed .dr-wordmark-dark{
+  color:var(--dr-wm-dark-fill);
+  paint-order:stroke;
+  -webkit-text-stroke:var(--dr-wm-dark-stroke-width) var(--dr-wm-dark-stroke);
+  text-stroke:var(--dr-wm-dark-stroke-width) var(--dr-wm-dark-stroke);
+}
+.dr-wordmark-themed .dr-wordmark-run{ color:var(--dr-wm-run); }
 /* Lights-out wordmark (interactive site logo): rest dark, glow on hover, flicker
    out on blur. The "dark" glyphs carry a constant cyan stroke painted under the
    fill; only the fill color + glow change per data-anim state. */
@@ -213,12 +404,43 @@ mod tests {
             PHASE_AUDIT.base,
             PHASE_REFLECT.base,
             PHASE_CHECKPOINT.base,
+            // The light mirror must also appear (in the media query + override).
+            SURFACE_BASE_LIGHT,
+            SURFACE_RAISED_LIGHT,
+            SURFACE_OVERLAY_LIGHT,
+            BORDER_LIGHT,
+            BORDER_STRONG_LIGHT,
+            TEXT_LIGHT,
+            TEXT_MUTED_LIGHT,
+            TEXT_FAINT_LIGHT,
+            ACCENT_LIGHT,
+            ACCENT_STRONG_LIGHT,
+            ON_ACCENT_LIGHT,
+            PHASE_SPEC_LIGHT.base,
+            PHASE_REVIEW_LIGHT.base,
+            PHASE_MANUFACTURE_LIGHT.base,
+            PHASE_AUDIT_LIGHT.base,
+            PHASE_REFLECT_LIGHT.base,
+            PHASE_CHECKPOINT_LIGHT.base,
         ] {
             assert!(
                 THEME_CSS.contains(value),
                 "THEME_CSS is missing token value {value}"
             );
         }
+    }
+
+    #[test]
+    fn theme_css_defines_the_three_theme_scopes() {
+        // Dark default, the media-query light block, and both manual overrides.
+        assert!(THEME_CSS.contains("@media (prefers-color-scheme:light)"));
+        assert!(THEME_CSS.contains(":root[data-theme=\"light\"]"));
+        assert!(THEME_CSS.contains(":root[data-theme=\"dark\"]"));
+    }
+
+    #[test]
+    fn manufacture_light_shares_the_light_accent() {
+        assert_eq!(PHASE_MANUFACTURE_LIGHT.base, ACCENT_LIGHT);
     }
 
     #[test]

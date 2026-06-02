@@ -55,6 +55,18 @@ pub struct RunSummary {
     /// RFC3339 start timestamp, if recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
+    /// Whether the current git identity authored any commit on the run's
+    /// branch — the engine's "Mine" predicate the sidebar filters on. Defaults
+    /// to `false` so an older producer (or a non-git project) is treated as
+    /// "not mine" rather than failing to decode.
+    #[serde(default)]
+    pub authored_by_me: bool,
+    /// The run branch's authoring email, when one could be attributed (the
+    /// author of the most recent commit on the branch beyond its base). `None`
+    /// when the branch carries no run-local commits, or authorship was not
+    /// resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 /// `GET /api/runs` response body: every (non-archived) run on the project as a
@@ -155,6 +167,8 @@ mod tests {
                 total: 6,
             },
             started_at: Some("2026-05-30T00:00:00Z".into()),
+            authored_by_me: true,
+            author: Some("me@example.com".into()),
         }
     }
 
@@ -171,9 +185,28 @@ mod tests {
         assert_eq!(v["progress"]["completed"], 2);
         assert_eq!(v["progress"]["total"], 6);
         assert_eq!(v["started_at"], "2026-05-30T00:00:00Z");
+        assert_eq!(v["authored_by_me"], true);
+        assert_eq!(v["author"], "me@example.com");
 
         let back: RunSummary = serde_json::from_value(v).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn summary_authored_by_me_defaults_false_when_absent() {
+        // An older producer (or non-git project) omits the new fields; the
+        // summary must still decode, defaulting to "not mine".
+        let v = json!({
+            "slug": "x",
+            "title": "X",
+            "factory": "software",
+            "active_station": "frame",
+            "status": "active",
+            "progress": { "completed": 0, "total": 1 }
+        });
+        let back: RunSummary = serde_json::from_value(v).unwrap();
+        assert!(!back.authored_by_me);
+        assert!(back.author.is_none());
     }
 
     #[test]

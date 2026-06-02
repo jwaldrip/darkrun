@@ -15,6 +15,8 @@ use darkrun_api::review_current::{
 };
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::ui::SectionHead;
 
 /// `/review` — the "how review works" explainer.
@@ -41,14 +43,14 @@ pub fn Review() -> Element {
             h2 {
                 style: format!(
                     "font-family:{};font-size:18px;color:{};margin:0 0 6px;",
-                    tokens::FONT_SANS, tokens::TEXT,
+                    tokens::FONT_SANS, theme::TEXT,
                 ),
                 "What the desktop surface shows"
             }
             p {
                 style: format!(
                     "font-family:{};font-size:14px;color:{};margin:0 0 18px;max-width:62ch;",
-                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                    tokens::FONT_SANS, theme::TEXT_MUTED,
                 ),
                 "A representative review, rendered from the real session types. In the app \
                  this is live: the station pipeline, the units and their criteria, declared \
@@ -67,7 +69,7 @@ pub fn Review() -> Element {
 
         div { style: "margin-top:24px;",
             h2 {
-                style: format!("font-family:{};font-size:18px;color:{};margin:0 0 10px;", tokens::FONT_SANS, tokens::TEXT),
+                style: format!("font-family:{};font-size:18px;color:{};margin:0 0 10px;", tokens::FONT_SANS, theme::TEXT),
                 "Units"
             }
             div { style: "display:flex;flex-direction:column;gap:8px;",
@@ -105,19 +107,19 @@ pub fn DesktopNote() -> Element {
     let wrap = format!(
         "border:1px solid {border};border-left:3px solid {accent};border-radius:8px;\
          padding:14px 16px;background:{overlay};",
-        border = tokens::BORDER,
-        accent = tokens::ACCENT,
-        overlay = tokens::SURFACE_OVERLAY,
+        border = theme::BORDER,
+        accent = theme::ACCENT,
+        overlay = theme::SURFACE_OVERLAY,
     );
     let line = format!(
         "font-family:{sans};font-size:14px;color:{text};margin:0;",
         sans = tokens::FONT_SANS,
-        text = tokens::TEXT,
+        text = theme::TEXT,
     );
     let sub = format!(
         "font-family:{sans};font-size:13px;color:{muted};margin:8px 0 0;",
         sans = tokens::FONT_SANS,
-        muted = tokens::TEXT_MUTED,
+        muted = theme::TEXT_MUTED,
     );
     rsx! {
         div { style: "{wrap}",
@@ -129,7 +131,7 @@ pub fn DesktopNote() -> Element {
                 "Run "
                 code {
                     style: format!(
-                        "font-family:{};color:{};", tokens::FONT_MONO, tokens::ACCENT,
+                        "font-family:{};color:{};", tokens::FONT_MONO, theme::ACCENT,
                     ),
                     "darkrun serve"
                 }
@@ -155,7 +157,7 @@ fn FeedbackCounts(pending: u32, addressed: u32, closed: u32, rejected: u32) -> E
             span {
                 style: format!(
                     "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{};",
-                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                    tokens::FONT_MONO, theme::TEXT_FAINT,
                 ),
                 "feedback"
             }
@@ -173,10 +175,10 @@ pub fn ScaffoldNote(text: String) -> Element {
     let style = format!(
         "border:1px dashed {border};border-radius:8px;padding:10px 12px;margin:0 0 20px;\
          font-family:{mono};font-size:12px;color:{muted};background:{raised};",
-        border = tokens::BORDER_STRONG,
+        border = theme::BORDER_STRONG,
         mono = tokens::FONT_MONO,
-        muted = tokens::TEXT_MUTED,
-        raised = tokens::SURFACE_RAISED,
+        muted = theme::TEXT_MUTED,
+        raised = theme::SURFACE_RAISED,
     );
     rsx! {
         div { style: "{style}", "{text}" }

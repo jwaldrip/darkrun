@@ -5,6 +5,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::content::render_markdown;
 use crate::factory_view::{
     flow_stations, humanize, pipeline_slugs, right_size_tiers, role_view, station_index,
@@ -64,7 +66,7 @@ fn FactoryTile(slug: String) -> Element {
                             span {
                                 style: format!(
                                     "font-size:17px;font-weight:700;color:{};text-transform:capitalize;",
-                                    tokens::TEXT,
+                                    theme::TEXT,
                                 ),
                                 "{slug}"
                             }
@@ -78,7 +80,7 @@ fn FactoryTile(slug: String) -> Element {
                         p {
                             style: format!(
                                 "font-family:{};font-size:14px;color:{};margin:0;",
-                                tokens::FONT_SANS, tokens::TEXT_MUTED,
+                                tokens::FONT_SANS, theme::TEXT_MUTED,
                             ),
                             "{desc}"
                         }
@@ -91,7 +93,7 @@ fn FactoryTile(slug: String) -> Element {
             rsx! {
                 Card {
                     span {
-                        style: format!("font-family:{};color:{};", tokens::FONT_MONO, tokens::STATUS_WARN),
+                        style: format!("font-family:{};color:{};", tokens::FONT_MONO, theme::STATUS_WARN),
                         "{slug}: {msg}"
                     }
                 }
@@ -150,7 +152,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
         div { style: "margin-bottom:8px;",
             Link { to: Route::Factories {},
                 span {
-                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "\u{2190} all factories"
                 }
             }
@@ -174,7 +176,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
             p {
                 style: format!(
                     "font-family:{};font-size:12px;color:{};margin:8px 0 0;",
-                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                    tokens::FONT_MONO, theme::TEXT_FAINT,
                 ),
                 "Click a station to open its phase machine and role instructions."
             }
@@ -190,7 +192,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
             p {
                 style: format!(
                     "font-family:{};font-size:13px;color:{};margin:0 0 10px;",
-                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                    tokens::FONT_SANS, theme::TEXT_MUTED,
                 ),
                 "At run start the factory assesses size and may collapse stations. A one-line fix \
                  drops straight to build → prove; bigger work keeps the full line."
@@ -204,7 +206,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
                 p {
                     style: format!(
                         "font-family:{};font-size:13px;color:{};margin:0 0 10px;",
-                        tokens::FONT_SANS, tokens::TEXT_MUTED,
+                        tokens::FONT_SANS, theme::TEXT_MUTED,
                     ),
                     "When a checkpoint routes rework back as drift or feedback, fix-workers take the \
                      repair without re-running the whole station."
@@ -265,7 +267,7 @@ fn StationCard(
                     span {
                         style: format!(
                             "font-size:17px;font-weight:700;color:{};text-transform:capitalize;",
-                            tokens::TEXT,
+                            theme::TEXT,
                         ),
                         "{index + 1}. {humanize(&station)}"
                     }
@@ -273,14 +275,14 @@ fn StationCard(
                 }
                 if !description.is_empty() {
                     p {
-                        style: format!("font-family:{};font-size:14px;color:{};margin:0 0 10px;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                        style: format!("font-family:{};font-size:14px;color:{};margin:0 0 10px;", tokens::FONT_SANS, theme::TEXT_MUTED),
                         "{description}"
                     }
                 }
                 RoleRow { label: "explorers".to_string(), roles: explorers }
                 RoleRow { label: "workers".to_string(), roles: workers }
                 RoleRow { label: "reviewers".to_string(), roles: reviewers }
-                div { style: format!("margin-top:8px;font-family:{};font-size:12px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                div { style: format!("margin-top:8px;font-family:{};font-size:12px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "open station \u{2192}"
                 }
             }
@@ -348,7 +350,7 @@ fn StationBody(
         div { style: "margin-bottom:8px;",
             Link { to: Route::FactoryDetail { slug: factory.clone() },
                 span {
-                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "\u{2190} {factory} factory"
                 }
             }
@@ -379,7 +381,7 @@ fn StationBody(
                 span {
                     style: format!(
                         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{};",
-                        tokens::FONT_MONO, tokens::TEXT_FAINT,
+                        tokens::FONT_MONO, theme::TEXT_FAINT,
                     ),
                     "inputs"
                 }
@@ -397,7 +399,7 @@ fn StationBody(
             p {
                 style: format!(
                     "font-family:{};font-size:12px;color:{};margin:8px 0 0;text-align:center;",
-                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                    tokens::FONT_MONO, theme::TEXT_FAINT,
                 ),
                 "spec → review → manufacture → audit → tests → checkpoint"
             }
@@ -432,14 +434,14 @@ fn StationBody(
             div { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;",
                 CheckpointBadge { kind: ui_checkpoint(station.checkpoint()), filled: true }
                 span {
-                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_SANS, theme::TEXT_MUTED),
                     {checkpoint_note(checkpoint.as_str())}
                 }
             }
         }
 
         // Prev/next pipeline nav.
-        div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", tokens::BORDER),
+        div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", theme::BORDER),
             if let Some(prev) = prev {
                 Link { to: Route::StationDetail { factory: factory.clone(), station: prev.clone() },
                     Button { variant: ButtonVariant::Secondary, "\u{2190} {humanize(&prev)}" }
@@ -471,21 +473,21 @@ fn PhaseSection(
     if roles.is_empty() {
         return rsx! {};
     }
-    let accent = phase.map(|p| p.hue().base).unwrap_or(tokens::ACCENT);
+    let accent = phase.map(|p| p.hue().base).unwrap_or(theme::ACCENT);
     rsx! {
         section { style: "margin:28px 0;",
             h2 {
                 style: format!(
                     "font-family:{};font-size:18px;font-weight:700;color:{};margin:0 0 4px;\
                      border-left:3px solid {};padding-left:10px;",
-                    tokens::FONT_SANS, tokens::TEXT, accent,
+                    tokens::FONT_SANS, theme::TEXT, accent,
                 ),
                 "{heading}"
             }
             p {
                 style: format!(
                     "font-family:{};font-size:13px;color:{};margin:0 0 12px;padding-left:13px;",
-                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                    tokens::FONT_SANS, theme::TEXT_MUTED,
                 ),
                 "{note}"
             }
@@ -511,14 +513,14 @@ fn PhaseSection(
 fn Panel(label: String, children: Element) -> Element {
     let wrap = format!(
         "border:1px solid {};border-radius:10px;padding:16px;margin:16px 0;background:{};",
-        tokens::BORDER,
-        tokens::SURFACE_RAISED,
+        theme::BORDER,
+        theme::SURFACE_RAISED,
     );
     let label_style = format!(
         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;\
          color:{};margin-bottom:12px;",
         tokens::FONT_MONO,
-        tokens::ACCENT,
+        theme::ACCENT,
     );
     rsx! {
         div { style: "{wrap}",
@@ -554,7 +556,7 @@ fn RoleRow(label: String, roles: Vec<String>) -> Element {
             span {
                 style: format!(
                     "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{};min-width:78px;",
-                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                    tokens::FONT_MONO, theme::TEXT_FAINT,
                 ),
                 "{label}"
             }
@@ -571,7 +573,7 @@ fn EmptyState() -> Element {
     rsx! {
         Card {
             p {
-                style: format!("font-family:{};color:{};margin:0;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                style: format!("font-family:{};color:{};margin:0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                 "No factories are embedded in this build."
             }
         }

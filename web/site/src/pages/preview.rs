@@ -15,6 +15,8 @@ use darkrun_api::session::{
 };
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::pages::review::ScaffoldNote;
 use crate::ui::SectionHead;
 
@@ -103,7 +105,7 @@ pub fn Preview() -> Element {
                 h2 {
                     style: format!(
                         "font-family:{};font-size:18px;color:{};margin:0 0 12px;",
-                        tokens::FONT_SANS, tokens::TEXT,
+                        tokens::FONT_SANS, theme::TEXT,
                     ),
                     "Visual question"
                 }
@@ -124,7 +126,7 @@ pub fn Preview() -> Element {
                 h2 {
                     style: format!(
                         "font-family:{};font-size:18px;color:{};margin:0 0 12px;",
-                        tokens::FONT_SANS, tokens::TEXT,
+                        tokens::FONT_SANS, theme::TEXT,
                     ),
                     "Design direction"
                 }
@@ -145,7 +147,7 @@ pub fn Preview() -> Element {
                 h2 {
                     style: format!(
                         "font-family:{};font-size:18px;color:{};margin:0 0 12px;",
-                        tokens::FONT_SANS, tokens::TEXT,
+                        tokens::FONT_SANS, theme::TEXT,
                     ),
                     "Output artifact browser"
                 }
@@ -162,7 +164,7 @@ pub fn Preview() -> Element {
                 h2 {
                     style: format!(
                         "font-family:{};font-size:18px;color:{};margin:0 0 12px;",
-                        tokens::FONT_SANS, tokens::TEXT,
+                        tokens::FONT_SANS, theme::TEXT,
                     ),
                     "Proof — web vitals (visual surface)"
                 }
@@ -174,7 +176,7 @@ pub fn Preview() -> Element {
                 h2 {
                     style: format!(
                         "font-family:{};font-size:18px;color:{};margin:0 0 12px;",
-                        tokens::FONT_SANS, tokens::TEXT,
+                        tokens::FONT_SANS, theme::TEXT,
                     ),
                     "Proof — benchmarks (bench surface)"
                 }

@@ -9,6 +9,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::content::{self, Doc, GUIDES};
 use crate::route::Route;
 use crate::ui::{Prose, SectionHead};
@@ -22,7 +24,7 @@ fn guide(slug: &str) -> Element {
                 span {
                     style: format!(
                         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:{};",
-                        tokens::FONT_MONO, tokens::TEXT_FAINT,
+                        tokens::FONT_MONO, theme::TEXT_FAINT,
                     ),
                     "guide"
                 }
@@ -48,7 +50,7 @@ fn GuideNav(current: String) -> Element {
     let wrap = format!(
         "margin-top:40px;border-top:1px solid {};padding-top:20px;\
          display:flex;gap:10px;flex-wrap:wrap;",
-        tokens::BORDER,
+        theme::BORDER,
     );
     rsx! {
         div { style: "{wrap}",

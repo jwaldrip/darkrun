@@ -1112,7 +1112,7 @@ fn reject_fix_action_targets_blocked_station() {
 #[test]
 fn run_list_returns_started_run() {
     let h = Harness::start("listed");
-    let runs = darkrun_mcp::runs::list(&h.store, true).unwrap();
+    let runs = darkrun_mcp::runs::list(&h.store, h.repo_root(), true).unwrap();
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].slug, "listed");
 }
@@ -1120,14 +1120,14 @@ fn run_list_returns_started_run() {
 #[test]
 fn run_list_summary_carries_factory() {
     let h = Harness::start("listed");
-    let runs = darkrun_mcp::runs::list(&h.store, true).unwrap();
+    let runs = darkrun_mcp::runs::list(&h.store, h.repo_root(), true).unwrap();
     assert_eq!(runs[0].factory, "software");
 }
 
 #[test]
 fn run_list_summary_active_station_frame() {
     let h = Harness::start("listed");
-    let runs = darkrun_mcp::runs::list(&h.store, true).unwrap();
+    let runs = darkrun_mcp::runs::list(&h.store, h.repo_root(), true).unwrap();
     assert_eq!(runs[0].active_station, "frame");
 }
 
@@ -1135,14 +1135,21 @@ fn run_list_summary_active_station_frame() {
 fn run_list_excludes_archived_by_default() {
     let h = Harness::start("listed");
     darkrun_mcp::runs::set_archived(&h.store, "listed", true).unwrap();
-    assert!(darkrun_mcp::runs::list(&h.store, false).unwrap().is_empty());
+    assert!(darkrun_mcp::runs::list(&h.store, h.repo_root(), false)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
 fn run_list_includes_archived_when_requested() {
     let h = Harness::start("listed");
     darkrun_mcp::runs::set_archived(&h.store, "listed", true).unwrap();
-    assert_eq!(darkrun_mcp::runs::list(&h.store, true).unwrap().len(), 1);
+    assert_eq!(
+        darkrun_mcp::runs::list(&h.store, h.repo_root(), true)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -1151,7 +1158,7 @@ fn run_list_multiple_runs_sorted_by_slug() {
     let store = darkrun_core::StateStore::new(dir.path());
     darkrun_mcp::position::run_start(&store, "bravo", "software", None, "continuous").unwrap();
     darkrun_mcp::position::run_start(&store, "alpha", "software", None, "continuous").unwrap();
-    let runs = darkrun_mcp::runs::list(&store, true).unwrap();
+    let runs = darkrun_mcp::runs::list(&store, dir.path(), true).unwrap();
     assert_eq!(runs[0].slug, "alpha");
     assert_eq!(runs[1].slug, "bravo");
 }
@@ -1179,7 +1186,12 @@ fn unarchive_restores_to_default_list() {
     let h = Harness::start("ua");
     darkrun_mcp::runs::set_archived(&h.store, "ua", true).unwrap();
     darkrun_mcp::runs::set_archived(&h.store, "ua", false).unwrap();
-    assert_eq!(darkrun_mcp::runs::list(&h.store, false).unwrap().len(), 1);
+    assert_eq!(
+        darkrun_mcp::runs::list(&h.store, h.repo_root(), false)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

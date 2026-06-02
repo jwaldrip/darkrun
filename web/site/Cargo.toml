@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage = "https://darkrun.ai"
-description = "darkrun.ai — the marketing + docs website, a Dioxus (wasm) single-page app with dioxus-router, dark-theme only, built on the shared darkrun-ui design system"
+description = "darkrun.ai — the marketing + docs website, a Dioxus (wasm) single-page app with dioxus-router, theme-aware (dark default, light via prefers-color-scheme, plus a manual override), built on the shared darkrun-ui design system"
 publish = false
 
 [lib]

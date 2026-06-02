@@ -2,7 +2,10 @@
 //!
 //! These back the `darkrun_run_list` / `darkrun_run_archive` tools. Listing
 //! returns a compact summary per run (slug, title, factory, status, active
-//! station, archived flag) without forcing the caller to read every document.
+//! station, archived flag, and the "Mine" authorship predicate) without forcing
+//! the caller to read every document.
+
+use std::path::Path;
 
 use darkrun_core::domain::Status;
 use darkrun_core::StateStore;
@@ -25,11 +28,52 @@ pub struct RunSummary {
     pub active_station: String,
     /// Whether this run is archived.
     pub archived: bool,
+    /// Whether the current git identity authored any commit on the run's
+    /// branch (`darkrun/<slug>`) beyond its base — the engine's "Mine"
+    /// predicate. `false` when the project is not a git repo, no identity is
+    /// configured, or the branch carries none of the current user's commits.
+    pub authored_by_me: bool,
+}
+
+/// The conventional run-work branch for a slug (`darkrun/<slug>`).
+fn run_branch(slug: &str) -> String {
+    format!("darkrun/{slug}")
+}
+
+/// The base branch runs fork from — `default_branch` out of
+/// `.darkrun/settings.yml`, defaulting to `main` when unset or unreadable.
+/// Parsed line-wise so this needs no YAML dependency.
+fn base_branch(store: &StateStore) -> String {
+    let raw = std::fs::read_to_string(store.root().join("settings.yml")).unwrap_or_default();
+    for line in raw.lines() {
+        if let Some(value) = line.trim().strip_prefix("default_branch:") {
+            let value = value.trim().trim_matches(['"', '\'']).trim();
+            if !value.is_empty() {
+                return value.to_string();
+            }
+        }
+    }
+    "main".to_string()
 }
 
 /// List every run on disk as a summary, sorted by slug. Archived runs are
 /// included unless `include_archived` is false.
-pub fn list(store: &StateStore, include_archived: bool) -> Result<Vec<RunSummary>> {
+///
+/// `repo_root` is the git repository root used to compute the per-run "Mine"
+/// predicate. The current git identity and base branch are resolved once, so
+/// the per-run check is a single revwalk; a non-git project or missing identity
+/// degrades cleanly to every run being "not mine".
+pub fn list(
+    store: &StateStore,
+    repo_root: &Path,
+    include_archived: bool,
+) -> Result<Vec<RunSummary>> {
+    let base = base_branch(store);
+    let email = darkrun_git::current_identity_email(repo_root)
+        .ok()
+        .flatten()
+        .map(|e| e.to_ascii_lowercase());
+
     let mut out = Vec::new();
     for slug in store.list_runs()? {
         let run = match store.read_run(&slug) {
@@ -40,6 +84,10 @@ pub fn list(store: &StateStore, include_archived: bool) -> Result<Vec<RunSummary
         if archived && !include_archived {
             continue;
         }
+        let authored_by_me = email.as_deref().is_some_and(|email| {
+            darkrun_git::branch_authored_by(repo_root, &base, &run_branch(&run.slug), email)
+                .unwrap_or(false)
+        });
         out.push(RunSummary {
             slug: run.slug,
             title: run.title,
@@ -47,6 +95,7 @@ pub fn list(store: &StateStore, include_archived: bool) -> Result<Vec<RunSummary
             status: run.frontmatter.status,
             active_station: run.frontmatter.active_station,
             archived,
+            authored_by_me,
         });
     }
     Ok(out)
@@ -85,24 +134,27 @@ mod tests {
 
     #[test]
     fn list_returns_summaries() {
-        let (_d, store) = store();
+        let (d, store) = store();
         run_start(&store, "a", "software", Some("Alpha".into()), "continuous").unwrap();
         run_start(&store, "b", "software", None, "continuous").unwrap();
-        let runs = list(&store, true).unwrap();
+        let runs = list(&store, d.path(), true).unwrap();
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[0].slug, "a");
         assert_eq!(runs[0].title, "Alpha");
         assert_eq!(runs[0].active_station, "frame");
+        // A bare tempdir is not a git repo, so nothing is attributable: "Mine"
+        // degrades to false rather than erroring.
+        assert!(!runs[0].authored_by_me);
     }
 
     #[test]
     fn archive_hides_run_from_default_list() {
-        let (_d, store) = store();
+        let (d, store) = store();
         run_start(&store, "a", "software", None, "continuous").unwrap();
         set_archived(&store, "a", true).unwrap();
-        assert!(list(&store, false).unwrap().is_empty());
-        assert_eq!(list(&store, true).unwrap().len(), 1);
-        assert!(list(&store, true).unwrap()[0].archived);
+        assert!(list(&store, d.path(), false).unwrap().is_empty());
+        assert_eq!(list(&store, d.path(), true).unwrap().len(), 1);
+        assert!(list(&store, d.path(), true).unwrap()[0].archived);
     }
 
     #[test]
@@ -117,11 +169,68 @@ mod tests {
 
     #[test]
     fn unarchive_restores() {
-        let (_d, store) = store();
+        let (d, store) = store();
         run_start(&store, "a", "software", None, "continuous").unwrap();
         set_archived(&store, "a", true).unwrap();
         set_archived(&store, "a", false).unwrap();
-        assert_eq!(list(&store, false).unwrap().len(), 1);
+        assert_eq!(list(&store, d.path(), false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn mine_flag_tracks_branch_authorship() {
+        use std::process::Command;
+
+        let dir = tempdir().expect("tmp");
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(args)
+                .status()
+                .expect("git")
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        // A real repo with the current identity = me@x.io. `.darkrun/` is left
+        // untracked throughout so checking out a work branch never clobbers the
+        // run documents on disk.
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "me@x.io"]);
+        git(&["config", "user.name", "Me"]);
+        std::fs::write(root.join("README.md"), "# x\n").unwrap();
+        git(&["add", "README.md"]);
+        git(&["commit", "-q", "-m", "base"]);
+
+        // A run whose branch carries a commit I authored.
+        git(&["checkout", "-q", "-b", "darkrun/mine-run"]);
+        std::fs::write(root.join("work.txt"), "work\n").unwrap();
+        git(&["add", "work.txt"]);
+        git(&["commit", "-q", "-m", "work"]);
+
+        // A run whose branch was authored by someone else.
+        git(&["checkout", "-q", "main"]);
+        git(&["checkout", "-q", "-b", "darkrun/their-run"]);
+        git(&["config", "user.email", "other@x.io"]);
+        std::fs::write(root.join("theirs.txt"), "theirs\n").unwrap();
+        git(&["add", "theirs.txt"]);
+        git(&["commit", "-q", "-m", "theirs"]);
+
+        // Back on main with my identity as the "current" one, register both
+        // runs so their documents are on disk for the list.
+        git(&["checkout", "-q", "main"]);
+        git(&["config", "user.email", "me@x.io"]);
+        let store = StateStore::new(root);
+        run_start(&store, "mine-run", "software", None, "continuous").unwrap();
+        run_start(&store, "their-run", "software", None, "continuous").unwrap();
+
+        let runs = list(&store, root, true).unwrap();
+        let by_slug = |slug: &str| runs.iter().find(|r| r.slug == slug).unwrap();
+        assert!(by_slug("mine-run").authored_by_me, "I authored mine-run");
+        assert!(
+            !by_slug("their-run").authored_by_me,
+            "their-run is authored by someone else"
+        );
     }
 
     #[test]

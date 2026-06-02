@@ -6,9 +6,49 @@ use darkrun_ui::prelude::*;
 
 use crate::content::Doc;
 
+/// Theme-aware color references for inline styles.
+///
+/// The shared `darkrun_ui::tokens` color constants are the **dark** hex values —
+/// fine for SVG fills and computed geometry, but baked into a string they never
+/// flip when the theme changes. The site instead points its inline styles at the
+/// `--dr-*` custom properties from [`darkrun_ui::tokens::THEME_CSS`], which the
+/// light/dark blocks (and the `[data-theme]` override) redefine. Using these in a
+/// `style` string means every surface, border, and text color tracks the active
+/// theme automatically.
+///
+/// Fonts and spacing don't change with the theme, so those keep using the plain
+/// `tokens::FONT_*` constants directly.
+pub mod theme {
+    /// Near-black / paper-white canvas.
+    pub const SURFACE_BASE: &str = "var(--dr-surface-base)";
+    /// The default panel surface.
+    pub const SURFACE_RAISED: &str = "var(--dr-surface-raised)";
+    /// A card/inset surface.
+    pub const SURFACE_OVERLAY: &str = "var(--dr-surface-overlay)";
+    /// A hairline border between surfaces.
+    pub const BORDER: &str = "var(--dr-border)";
+    /// A stronger border for focus and active edges.
+    pub const BORDER_STRONG: &str = "var(--dr-border-strong)";
+    /// Primary text.
+    pub const TEXT: &str = "var(--dr-text)";
+    /// Secondary / supporting text.
+    pub const TEXT_MUTED: &str = "var(--dr-text-muted)";
+    /// Dimmed text for metadata.
+    pub const TEXT_FAINT: &str = "var(--dr-text-faint)";
+    /// The brand accent (cyan in dark, teal-blue in light).
+    pub const ACCENT: &str = "var(--dr-accent)";
+    /// A pressed/active variant of the accent.
+    pub const ACCENT_STRONG: &str = "var(--dr-accent-strong)";
+    /// A foreground that reads on top of the accent.
+    pub const ON_ACCENT: &str = "var(--dr-on-accent)";
+    /// Caution / awaiting a decision.
+    pub const STATUS_WARN: &str = "var(--dr-status-warn)";
+}
+
 /// Global website CSS layered on top of [`darkrun_ui::tokens::THEME_CSS`]:
 /// link hovers, the markdown `.dr-prose` typography, and a couple of resets.
-/// Dark-theme only — there is no light variant anywhere.
+/// Everything resolves against the `--dr-*` custom properties, so it tracks the
+/// active theme (system default, or the `[data-theme]` override) automatically.
 pub const GLOBAL_CSS: &str = r#"
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -47,18 +87,18 @@ pub fn SectionHead(kicker: String, title: String, lead: Option<String>) -> Eleme
         "font-family:{mono};font-size:12px;letter-spacing:0.08em;text-transform:uppercase;\
          color:{accent};margin-bottom:8px;",
         mono = tokens::FONT_MONO,
-        accent = tokens::ACCENT,
+        accent = theme::ACCENT,
     );
     let title_style = format!(
         "font-family:{sans};font-size:28px;font-weight:700;letter-spacing:-0.01em;\
          color:{text};margin:0;",
         sans = tokens::FONT_SANS,
-        text = tokens::TEXT,
+        text = theme::TEXT,
     );
     let lead_style = format!(
         "font-family:{sans};font-size:16px;color:{muted};margin:10px 0 0;max-width:64ch;",
         sans = tokens::FONT_SANS,
-        muted = tokens::TEXT_MUTED,
+        muted = theme::TEXT_MUTED,
     );
     rsx! {
         div { style: "margin-bottom:24px;",
@@ -100,7 +140,7 @@ pub fn PhaseLegend() -> Element {
                          border:1px solid {border};border-radius:999px;padding:4px 10px;",
                         mono = tokens::FONT_MONO,
                         base = hue.base,
-                        border = tokens::BORDER,
+                        border = theme::BORDER,
                     );
                     rsx! {
                         span { style: "{chip}",

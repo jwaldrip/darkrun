@@ -11,6 +11,8 @@
 use darkrun_api::{HttpMethod, ROUTES};
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::ui::SectionHead;
 
 /// `/browse` — view a published/remote darkrun workspace in the browser.
@@ -36,19 +38,19 @@ pub fn Browse() -> Element {
             h2 {
                 style: format!(
                     "font-family:{};font-size:18px;color:{};margin:0 0 6px;",
-                    tokens::FONT_SANS, tokens::TEXT,
+                    tokens::FONT_SANS, theme::TEXT,
                 ),
                 "The engine contract"
             }
             p {
                 style: format!(
                     "font-family:{};font-size:14px;color:{};margin:0 0 18px;max-width:62ch;",
-                    tokens::FONT_SANS, tokens::TEXT_MUTED,
+                    tokens::FONT_SANS, theme::TEXT_MUTED,
                 ),
                 "For reference: the HTTP / WS routes a running engine exposes. The desktop app \
                  reads "
                 code {
-                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "GET /api/runs"
                 }
                 " and streams each run over the session socket."
@@ -74,30 +76,30 @@ pub fn Browse() -> Element {
 fn RemoteRepo() -> Element {
     let card = format!(
         "border:1px solid {border};border-radius:12px;padding:18px 20px;background:{raised};",
-        border = tokens::BORDER,
-        raised = tokens::SURFACE_RAISED,
+        border = theme::BORDER,
+        raised = theme::SURFACE_RAISED,
     );
     let input = format!(
         "flex:1;font-family:{mono};font-size:13px;color:{text};background:{surface};\
          border:1px solid {border};border-radius:8px;padding:9px 12px;",
         mono = tokens::FONT_MONO,
-        text = tokens::TEXT,
-        surface = tokens::SURFACE_BASE,
-        border = tokens::BORDER,
+        text = theme::TEXT,
+        surface = theme::SURFACE_BASE,
+        border = theme::BORDER,
     );
     let btn = format!(
         "font-family:{sans};font-size:13px;font-weight:600;color:{on};background:{accent};\
          border:none;border-radius:8px;padding:9px 16px;cursor:pointer;",
         sans = tokens::FONT_SANS,
-        on = tokens::ON_ACCENT,
-        accent = tokens::ACCENT,
+        on = theme::ON_ACCENT,
+        accent = theme::ACCENT,
     );
     rsx! {
         div { style: "{card}",
             div {
                 style: format!(
                     "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{};margin-bottom:10px;",
-                    tokens::FONT_MONO, tokens::TEXT_FAINT,
+                    tokens::FONT_MONO, theme::TEXT_FAINT,
                 ),
                 "browse a remote repository"
             }
@@ -111,10 +113,10 @@ fn RemoteRepo() -> Element {
                 button { style: "{btn}", "data-darkrun-remote-go": "true", "Browse" }
             }
             p {
-                style: format!("font-family:{};font-size:13px;color:{};margin:12px 0 0;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                style: format!("font-family:{};font-size:13px;color:{};margin:12px 0 0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                 "Renders the repo's "
                 code {
-                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, theme::ACCENT),
                     ".darkrun/"
                 }
                 " workspace read-only \u{2014} a shareable link to a run's shape."
@@ -129,9 +131,9 @@ fn DesktopForLocal() -> Element {
     let wrap = format!(
         "margin-top:18px;border:1px solid {border};border-left:3px solid {accent};border-radius:8px;\
          padding:12px 16px;background:{overlay};",
-        border = tokens::BORDER,
-        accent = tokens::ACCENT,
-        overlay = tokens::SURFACE_OVERLAY,
+        border = theme::BORDER,
+        accent = theme::ACCENT,
+        overlay = theme::SURFACE_OVERLAY,
     );
     rsx! {
         div { style: "{wrap}",
@@ -140,10 +142,10 @@ fn DesktopForLocal() -> Element {
                 Badge { tone: Tone::Neutral, "your local runs" }
             }
             p {
-                style: format!("font-family:{};font-size:13px;color:{};margin:0;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                style: format!("font-family:{};font-size:13px;color:{};margin:0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                 "To browse and review your own runs, open the darkrun desktop app \u{2014} run "
                 code {
-                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "darkrun serve"
                 }
                 ". It picks your local workspace and opens any run into its live review on your \
@@ -160,18 +162,18 @@ fn RouteRow(method: String, is_ws: bool, path: String, summary: String, tag: Str
     let row = format!(
         "display:flex;align-items:center;gap:12px;padding:8px 12px;\
          border:1px solid {border};border-radius:8px;background:{raised};",
-        border = tokens::BORDER,
-        raised = tokens::SURFACE_RAISED,
+        border = theme::BORDER,
+        raised = theme::SURFACE_RAISED,
     );
     rsx! {
         div { style: "{row}",
             span { style: "min-width:58px;", Badge { tone, filled: true, "{method}" } }
             code {
-                style: format!("font-family:{};font-size:13px;color:{};min-width:240px;", tokens::FONT_MONO, tokens::TEXT),
+                style: format!("font-family:{};font-size:13px;color:{};min-width:240px;", tokens::FONT_MONO, theme::TEXT),
                 "{path}"
             }
             span {
-                style: format!("font-family:{};font-size:13px;color:{};flex:1;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                style: format!("font-family:{};font-size:13px;color:{};flex:1;", tokens::FONT_SANS, theme::TEXT_MUTED),
                 "{summary}"
             }
             Badge { tone: Tone::Neutral, "{tag}" }

@@ -9,6 +9,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::content::{self, CONCEPTS};
 use crate::factory_view::flow_stations;
 use crate::route::Route;
@@ -80,7 +82,7 @@ pub fn Methodology() -> Element {
             h2 {
                 style: format!(
                     "font-family:{};font-size:22px;color:{};margin:0 0 12px;",
-                    tokens::FONT_SANS, tokens::TEXT,
+                    tokens::FONT_SANS, theme::TEXT,
                 ),
                 "The six phases"
             }
@@ -110,13 +112,13 @@ fn PhaseCard(phase: Phase) -> Element {
                     span {
                         style: format!(
                             "font-family:{};font-size:16px;font-weight:700;color:{};text-transform:capitalize;",
-                            tokens::FONT_SANS, tokens::TEXT,
+                            tokens::FONT_SANS, theme::TEXT,
                         ),
                         "{phase_label(phase)}"
                     }
                 }
                 p {
-                    style: format!("font-family:{};font-size:13px;color:{};margin:0;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                    style: format!("font-family:{};font-size:13px;color:{};margin:0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                     "{phase_beat(phase)}"
                 }
             }
@@ -151,7 +153,7 @@ pub fn PhaseDetail(phase: String) -> Element {
         div { style: "margin-bottom:8px;",
             Link { to: Route::Methodology {},
                 span {
-                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                    style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                     "\u{2190} methodology"
                 }
             }
@@ -166,7 +168,7 @@ pub fn PhaseDetail(phase: String) -> Element {
                 style: format!(
                     "display:inline-flex;align-items:center;gap:6px;font-family:{};font-size:12px;\
                      color:{};border:1px solid {};border-radius:999px;padding:4px 10px;",
-                    tokens::FONT_MONO, hue.base, tokens::BORDER,
+                    tokens::FONT_MONO, hue.base, theme::BORDER,
                 ),
                 span { "{tokens::GLYPH_ACTIVE}" }
                 "{p.name()}"
@@ -197,7 +199,7 @@ pub fn PhaseDetail(phase: String) -> Element {
                         ),
                             Badge { tone: Tone::Accent, filled: true, "{beat.label()}" }
                             span {
-                                style: format!("font-size:13px;color:{};", tokens::TEXT_MUTED),
+                                style: format!("font-size:13px;color:{};", theme::TEXT_MUTED),
                                 "{beat.beat()}"
                             }
                         }
@@ -207,7 +209,7 @@ pub fn PhaseDetail(phase: String) -> Element {
         }
 
         // Prev/next phase nav.
-        div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", tokens::BORDER),
+        div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", theme::BORDER),
             if let Some(prev) = prev {
                 Link { to: Route::PhaseDetail { phase: prev.name().to_string() },
                     Button { variant: ButtonVariant::Secondary, "\u{2190} {phase_label(prev)}" }
@@ -243,14 +245,14 @@ pub fn Lifecycles() -> Element {
 fn ConceptPanel(label: String, children: Element) -> Element {
     let wrap = format!(
         "border:1px solid {};border-radius:10px;padding:16px;margin:8px 0;background:{};",
-        tokens::BORDER,
-        tokens::SURFACE_RAISED,
+        theme::BORDER,
+        theme::SURFACE_RAISED,
     );
     let label_style = format!(
         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;\
          color:{};margin-bottom:12px;",
         tokens::FONT_MONO,
-        tokens::ACCENT,
+        theme::ACCENT,
     );
     rsx! {
         div { style: "{wrap}",
@@ -264,7 +266,7 @@ fn muted_style() -> String {
     format!(
         "font-family:{};font-size:13px;color:{};margin:0 0 12px;",
         tokens::FONT_SANS,
-        tokens::TEXT_MUTED,
+        theme::TEXT_MUTED,
     )
 }
 

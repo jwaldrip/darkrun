@@ -18,14 +18,52 @@
     <link rel="alternate" type="application/atom+xml" title="darkrun" href="/atom.xml" />
     <link rel="alternate" type="application/feed+json" title="darkrun" href="/feed.json" />
     <link rel="icon" type="image/png" href="/assets/favicon.png" />
-    <!-- Dark-theme only: paint the background before wasm mounts so there is no flash of white. -->
+    <!-- Theme-aware first paint: apply the persisted override (System/Light/Dark)
+         and paint the matching base color before wasm mounts, so there is no flash
+         of the wrong theme. The wasm SPA re-applies the same choice on boot. -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("darkrun-theme");
+          if (pref === "light" || pref === "dark") {
+            document.documentElement.setAttribute("data-theme", pref);
+          }
+          var dark =
+            pref === "dark" ||
+            ((!pref || pref === "system") &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#07090c" : "#f3f6f9");
+        } catch (e) {}
+      })();
+    </script>
     <style>
+      /* First-paint colors keyed off the same data-theme / media query the SPA
+         tokens use, so the page never flashes the wrong background. */
       html,
       body {
         margin: 0;
         background: #07090c;
         color: #e6edf3;
         font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      @media (prefers-color-scheme: light) {
+        html,
+        body {
+          background: #f3f6f9;
+          color: #0e1217;
+        }
+      }
+      :root[data-theme="dark"],
+      :root[data-theme="dark"] body {
+        background: #07090c;
+        color: #e6edf3;
+      }
+      :root[data-theme="light"],
+      :root[data-theme="light"] body {
+        background: #f3f6f9;
+        color: #0e1217;
       }
     </style>
   </head>

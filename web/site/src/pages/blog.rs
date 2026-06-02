@@ -3,6 +3,8 @@
 
 use darkrun_ui::prelude::*;
 
+use crate::ui::theme;
+
 use crate::content::{self, POSTS};
 use crate::route::Route;
 use crate::ui::{Prose, SectionHead};
@@ -23,11 +25,11 @@ pub fn Blog() -> Element {
                     style: "text-decoration:none;display:block;",
                     Card {
                         span {
-                            style: format!("font-family:{};font-size:17px;font-weight:700;color:{};", tokens::FONT_SANS, tokens::TEXT),
+                            style: format!("font-family:{};font-size:17px;font-weight:700;color:{};", tokens::FONT_SANS, theme::TEXT),
                             "{post.title}"
                         }
                         p {
-                            style: format!("font-family:{};font-size:14px;color:{};margin:6px 0 0;", tokens::FONT_SANS, tokens::TEXT_MUTED),
+                            style: format!("font-family:{};font-size:14px;color:{};margin:6px 0 0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                             "{post.summary}"
                         }
                     }
@@ -45,7 +47,7 @@ pub fn Post(slug: String) -> Element {
             div { style: "margin-bottom:8px;",
                 Link { to: Route::Blog {},
                     span {
-                        style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, tokens::ACCENT),
+                        style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                         "\u{2190} all posts"
                     }
                 }

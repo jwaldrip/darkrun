@@ -1,11 +1,21 @@
 //! The darkrun wordmark: **dark** in bold + "run" in regular weight.
 //!
+//! The wordmark is **theme-aware** and flips automatically with the active theme,
+//! driven off the `--dr-wm-*` custom properties redefined in
+//! [`crate::tokens::THEME_CSS`]:
+//! - **Dark theme:** "dark" is outlined cyan (a base-color fill with a cyan stroke
+//!   painted underneath via `paint-order:stroke`), "run" is solid white.
+//! - **Light theme:** "dark" goes SOLID BLACK (`--dr-text`) with no stroke, and
+//!   "run" becomes the teal accent (`--dr-accent`).
+//!
 //! Three variants:
 //! - [`WordmarkVariant::Filled`] — solid accent text, used in the desktop app.
 //! - [`WordmarkVariant::Outlined`] — transparent fill with an accent stroke,
 //!   used on the website hero.
-//! - [`WordmarkVariant::OutlinedSolidRun`] — outlined accent "dark" with a solid
-//!   "run", used in the desktop sticky header.
+//! - [`WordmarkVariant::OutlinedSolidRun`] — the theme-aware brand wordmark
+//!   (outlined "dark" + solid "run" in dark; solid-black "dark" + accent "run" in
+//!   light), used in the desktop sticky header. This is the default look that
+//!   tracks the theme.
 
 use dioxus::prelude::*;
 
@@ -80,6 +90,12 @@ pub fn Wordmark(
         };
     }
 
+    // `OutlinedSolidRun` is theme-aware: the colors come from the `--dr-wm-*`
+    // custom properties (via the `.dr-wordmark-themed` class in THEME_CSS), which
+    // the light/dark blocks redefine — so it flips with the theme without
+    // hard-coding either side. The inline styles only carry weight + paint-order.
+    // `Filled`/`Outlined` stay statically dark for the contexts that want them.
+    let themed = matches!(variant, WordmarkVariant::OutlinedSolidRun);
     let (dark_style, run_style) = match variant {
         WordmarkVariant::Filled => (
             format!("color:{};font-weight:800;", tokens::ACCENT),
@@ -99,25 +115,26 @@ pub fn Wordmark(
                 muted = tokens::TEXT_MUTED
             ),
         ),
+        // Outlined "dark" paired with a solid, medium-weight "run". The fill,
+        // stroke, and run color are CSS variables resolved by the theme
+        // (cyan-on-base + white "run" in dark; solid black + accent "run" in
+        // light); only weight + paint-order are fixed here. The class' rule masks
+        // the inner stroke + tight-kerned crossings, leaving a clean outer outline.
         WordmarkVariant::OutlinedSolidRun => (
-            // Outlined accent "dark" paired with a solid, medium-weight "run".
-            // The "dark" glyphs are FILLED with the base color (not transparent)
-            // and painted stroke-under-fill (`paint-order:stroke`), so the fill
-            // masks the inner stroke + the crossings where tight-kerned bold
-            // glyphs overlap — leaving a single clean outer outline.
-            format!(
-                "color:{base};font-weight:800;paint-order:stroke;\
-                 -webkit-text-stroke:1.5px {accent};text-stroke:1.5px {accent};",
-                base = tokens::SURFACE_BASE,
-                accent = tokens::ACCENT
-            ),
-            format!("color:{};font-weight:500;", tokens::TEXT),
+            "font-weight:800;".to_string(),
+            "font-weight:500;".to_string(),
         ),
+    };
+
+    let root_class = if themed {
+        "dr-wordmark dr-wordmark-themed"
+    } else {
+        "dr-wordmark"
     };
 
     rsx! {
         span {
-            class: "dr-wordmark",
+            class: "{root_class}",
             "data-variant": variant.slug(),
             style: "{root_style}",
             "aria-label": "darkrun",

@@ -4,19 +4,23 @@
 use darkrun_ui::prelude::*;
 
 use crate::route::Route;
+use crate::theme_toggle::ThemeToggle;
 use crate::ui;
+use crate::ui::theme;
 
 /// The chrome wrapped around every page: a sticky header with the outlined
 /// wordmark and primary nav, the routed `Outlet`, and a footer.
 #[component]
 pub fn Shell() -> Element {
+    // The base color with ~93% alpha so the blur shows through. `color-mix`
+    // keeps it theme-aware (a hex-alpha suffix can't ride on a `var()`).
     let header = format!(
         "position:sticky;top:0;z-index:10;display:flex;align-items:center;\
          justify-content:space-between;gap:24px;padding:14px 24px;\
-         background:{base}ee;border-bottom:1px solid {border};\
-         backdrop-filter:blur(8px);",
-        base = tokens::SURFACE_BASE,
-        border = tokens::BORDER,
+         background:color-mix(in srgb, {base} 93%, transparent);\
+         border-bottom:1px solid {border};backdrop-filter:blur(8px);",
+        base = theme::SURFACE_BASE,
+        border = theme::BORDER,
     );
     let nav = "display:flex;align-items:center;gap:18px;flex-wrap:wrap;";
     let main = "max-width:980px;margin:0 auto;padding:40px 24px 80px;";
@@ -25,19 +29,20 @@ pub fn Shell() -> Element {
          border-top:1px solid {border};display:flex;gap:24px;flex-wrap:wrap;\
          justify-content:space-between;align-items:center;\
          font-family:{mono};font-size:12px;color:{faint};",
-        border = tokens::BORDER,
+        border = theme::BORDER,
         mono = tokens::FONT_MONO,
-        faint = tokens::TEXT_FAINT,
+        faint = theme::TEXT_FAINT,
     );
     let page_bg = format!(
         "min-height:100vh;background:{base};color:{text};font-family:{sans};",
-        base = tokens::SURFACE_BASE,
-        text = tokens::TEXT,
+        base = theme::SURFACE_BASE,
+        text = theme::TEXT,
         sans = tokens::FONT_SANS,
     );
 
     rsx! {
-        // The dark-only theme custom properties, inlined once for the SPA.
+        // The theme custom properties (dark default + light via prefers-color-scheme
+        // + the [data-theme] override), inlined once for the SPA.
         style { "{tokens::THEME_CSS}" }
         style { "{ui::GLOBAL_CSS}" }
         div { style: "{page_bg}",
@@ -52,6 +57,7 @@ pub fn Shell() -> Element {
                     NavLink { to: Route::Docs {}, label: "Docs" }
                     NavLink { to: Route::Methodology {}, label: "Methodology" }
                     NavLink { to: Route::Blog {}, label: "Blog" }
+                    ThemeToggle {}
                 }
             }
             main { style: "{main}", Outlet::<Route> {} }
@@ -76,7 +82,7 @@ fn NavLink(to: Route, label: &'static str) -> Element {
     let style = format!(
         "font-family:{sans};font-size:14px;color:{muted};text-decoration:none;",
         sans = tokens::FONT_SANS,
-        muted = tokens::TEXT_MUTED,
+        muted = theme::TEXT_MUTED,
     );
     rsx! {
         Link { to, class: "dr-navlink", style: "{style}", "{label}" }

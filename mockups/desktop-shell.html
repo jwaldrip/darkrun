@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>darkrun — desktop shell (sidebar · mine filter · light/dark · mobile)</title>
+<style>
+/* ===== theme tokens: dark (default) + light override ===== */
+.theme{
+  --base:#07090c; --raised:#0e1217; --overlay:#161b22; --sink:#04060a;
+  --border:#222a33; --border-strong:#33404d;
+  --text:#e6edf3; --muted:#9aa7b4; --faint:#5b6773;
+  --accent:#5fd7ff; --accent-ink:#5fd7ff; --on-accent:#04141b;
+  --spec:#8b98a5; --review:#5b8def; --manufacture:#5fd7ff; --audit:#f0b429; --reflect:#2dd4bf; --checkpoint:#d160e8;
+  --ok:#3fb950; --warn:#f0b429; --danger:#f85149;
+  --sel:#5fd7ff1f; --hover:#ffffff0a;
+}
+.theme.light{
+  --base:#f3f6f9; --raised:#ffffff; --overlay:#eef2f6; --sink:#e7edf3;
+  --border:#dce3ea; --border-strong:#c2ccd6;
+  --text:#0e1217; --muted:#566370; --faint:#8a97a4;
+  --accent:#0e9fd6; --accent-ink:#0b7fae; --on-accent:#ffffff;
+  --spec:#6b7884; --review:#3b6fd0; --manufacture:#0e9fd6; --audit:#b9791a; --reflect:#11a392; --checkpoint:#b443cf;
+  --ok:#2e9e43; --warn:#b9791a; --danger:#d83c33;
+  --sel:#0e9fd618; --hover:#0e121708;
+}
+html,body{ margin:0; background:#1a1d22; font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif; color:#9aa7b4; }
+body{ padding:36px 18px 120px; }
+.lead{ width:1180px;max-width:100%;margin:0 auto 6px } .lead h1{ color:#e6edf3;font-size:22px;margin:0 0 4px } .lead h1 b{ color:#5fd7ff } .lead p{ font-size:14px;line-height:1.5;margin:0;max-width:860px }
+.cap{ width:1180px;max-width:100%;margin:40px auto 10px;font-family:ui-monospace,monospace;font-size:12px;color:#5b6773;letter-spacing:.08em;text-transform:uppercase }
+.row2{ width:1180px;max-width:100%;margin:0 auto;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start }
+
+/* ===== window chrome ===== */
+.win{ border-radius:12px;overflow:hidden;box-shadow:0 22px 60px rgba(0,0,0,.5);border:1px solid var(--border-strong);background:var(--base);color:var(--text); }
+.win.desk{ width:760px;max-width:100% } .win.mob{ width:380px;max-width:100% }
+.tbar{ height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--overlay);border-bottom:1px solid var(--border); }
+.lights{ display:flex;gap:8px } .tl{ width:12px;height:12px;border-radius:50% } .l-r{ background:#ff5f57 }.l-y{ background:#febc2e }.l-g{ background:#28c840 }
+.tbar .ttl{ font-size:12.5px;color:var(--muted);font-weight:600 } .tbar .sp{ flex:1 }
+.tbar .act{ width:26px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;border:1px solid var(--border-strong) }
+
+/* wordmark */
+.wm{ font-size:18px;letter-spacing:-1px;line-height:1;display:inline-flex } .wm .d{ font-weight:800;-webkit-text-stroke:1.2px var(--accent);color:var(--base);paint-order:stroke } .wm .r{ font-weight:600;color:var(--text) }
+/* light theme: "dark" goes solid black, "run" the teal-blue accent */
+.light .wm .d{ -webkit-text-stroke:0;text-stroke:0;color:var(--text) } .light .wm .r{ color:var(--accent) }
+
+/* ===== layout: sidebar + main ===== */
+.body{ display:flex;height:520px }
+.side{ width:240px;flex:none;background:var(--sink);border-right:1px solid var(--border);display:flex;flex-direction:column }
+.side .head{ padding:12px 12px 8px;display:flex;align-items:center;justify-content:space-between;gap:8px }
+.seg{ display:flex;margin:2px 12px 8px;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden;font-size:12px }
+.seg div{ flex:1;text-align:center;padding:5px 0;color:var(--muted);cursor:default } .seg div.on{ background:var(--accent);color:var(--on-accent);font-weight:700 }
+.search{ margin:0 12px 10px;display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:var(--faint);font-size:12px }
+.tree{ flex:1;overflow:auto;padding:2px 6px 10px }
+.proj{ margin:2px 0 }
+.proj .ph{ display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;font-size:13px;font-weight:600;color:var(--text);cursor:default } .proj .ph:hover{ background:var(--hover) }
+.proj .ph .car{ color:var(--faint);font-size:10px;width:10px } .proj .ph .ct{ margin-left:auto;font-family:ui-monospace,monospace;font-size:10.5px;color:var(--faint) }
+.runs{ margin:1px 0 4px 14px;border-left:1px solid var(--border);padding-left:6px }
+.run{ display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:12.5px;color:var(--muted);cursor:default } .run:hover{ background:var(--hover) }
+.run.sel{ background:var(--sel);color:var(--text) }
+.dot{ width:7px;height:7px;border-radius:50%;flex:none } .d-live{ background:var(--ok) } .d-rev{ background:var(--warn) } .d-idle{ background:var(--faint) }
+.run .me{ margin-left:auto;font-size:9px;font-family:ui-monospace,monospace;color:var(--accent-ink);border:1px solid var(--accent-ink);border-radius:4px;padding:0 4px }
+.side .foot{ padding:8px 12px;border-top:1px solid var(--border);font-family:ui-monospace,monospace;font-size:11px;color:var(--faint);display:flex;align-items:center;gap:7px }
+
+/* ===== main pane ===== */
+.main{ flex:1;display:flex;flex-direction:column;min-width:0 }
+.mhead{ padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px }
+.mhead .nm{ font-weight:700;font-size:14px } .mhead .crumb{ color:var(--faint);font-size:12px;font-family:ui-monospace,monospace }
+.badge{ display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-family:ui-monospace,monospace;font-size:10.5px;border:1px solid var(--border-strong);color:var(--muted) }
+.badge.ok{ background:var(--ok);color:var(--on-accent);border-color:transparent;font-weight:700 } .badge.warn{ background:var(--warn);color:var(--on-accent);border-color:transparent;font-weight:700 } .badge.info{ background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:700 }
+.mbody{ flex:1;overflow:auto;padding:16px }
+
+/* station strip */
+.stations{ display:flex;justify-content:space-between;max-width:520px;margin:0 auto 4px }
+.st{ display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;flex:1 }
+.st .mk{ width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:11px;font-weight:700;z-index:2;background:var(--base) }
+.st.done .mk{ background:var(--ok);color:var(--on-accent);border:2px solid var(--ok) }
+.st.cur .mk{ color:var(--accent-ink);border:2px solid var(--accent);box-shadow:0 0 0 4px var(--sel);transform:rotate(45deg) } .st.cur .mk span{ transform:rotate(-45deg) }
+.st.todo .mk{ color:var(--faint);border:2px solid var(--border-strong) }
+.st .lb{ font-size:11px } .st.done .lb,.st.cur .lb{ color:var(--text) } .st.todo .lb{ color:var(--faint) }
+.st .cn{ position:absolute;top:13px;left:50%;width:100%;height:2px;z-index:1 } .st.done .cn{ background:var(--ok) } .st.cur .cn{ background:linear-gradient(90deg,var(--accent),var(--border-strong)) } .st.todo .cn{ background:var(--border-strong) } .st:last-child .cn{ display:none }
+.phases{ display:flex;justify-content:center;gap:13px;font-family:ui-monospace,monospace;font-size:10.5px;color:var(--faint);margin:10px 0 14px }
+.ph.cur{ color:var(--text);font-weight:700 } .ph.done{ color:var(--muted) }
+.card{ background:var(--raised);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:12px }
+.h2{ font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:0 0 9px }
+.unit{ display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:12.5px;background:var(--base) }
+.ckbar{ display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--overlay);border:1px solid var(--border);border-left:3px solid var(--checkpoint);border-radius:8px;font-size:12.5px }
+.btn{ font-size:12px;font-weight:600;padding:6px 12px;border-radius:6px;border:1px solid transparent } .btn.ok{ background:var(--ok);color:var(--on-accent) } .btn.od{ background:transparent;border-color:var(--danger);color:var(--danger) } .pr{ flex:1 }
+
+/* mobile */
+.mob .body{ flex-direction:column;height:560px }
+.mob .topnav{ display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border) }
+.mob .topnav .burger{ font-size:16px;color:var(--muted) } .mob .topnav .nm{ font-weight:700;font-size:14px }
+.mob .mbody{ padding:13px }
+.mob .stations{ max-width:none } .mob .st .lb{ display:none }
+.note{ width:1180px;max-width:100%;margin:12px auto 0;font-size:13px;line-height:1.5;padding:11px 15px;border-radius:8px;background:#0d1d27;border:1px solid #5fd7ff44;color:#bfe7f7 } .note b{ color:#5fd7ff }
+.note .h{ font-weight:700;font-family:ui-monospace,monospace;font-size:11px;color:#5fd7ff;text-transform:uppercase }
+</style></head>
+<body>
+
+<div class="lead">
+  <h1><b>darkrun</b> — desktop shell</h1>
+  <p>A native desktop layout (not a centered web page): a unified toolbar, a left sidebar of <b>projects</b> with <b>runs nested under each</b>, a <b>Mine / All</b> filter that scopes runs to the ones you authored (by commit author), and a main pane that fills the window. Mobile collapses the sidebar to a drawer. Shown in dark and light — the app + site follow the system theme.</p>
+</div>
+
+<!-- macro: a sidebar reused in both themes via the theme class on .win -->
+<div class="cap">Desktop · dark &nbsp;|&nbsp; light</div>
+<div class="row2">
+
+  <!-- DESKTOP DARK -->
+  <div class="theme win desk">
+    <div class="tbar"><div class="lights"><div class="tl l-r"></div><div class="tl l-y"></div><div class="tl l-g"></div></div><span class="wm"><span class="d">dark</span><span class="r">run</span></span><span class="sp"></span><div class="act">⌕</div><div class="act">＋</div></div>
+    <div class="body">
+      <aside class="side">
+        <div class="head"><span class="h2" style="margin:0">Projects</span><span class="badge">3</span></div>
+        <div class="seg"><div class="on">Mine</div><div>All</div></div>
+        <div class="search">⌕ <span>search · name, author, status, station…</span></div>
+        <div class="tree">
+          <div class="proj">
+            <div class="ph"><span class="car">▾</span> storefront <span class="ct">3</span></div>
+            <div class="runs">
+              <div class="run sel"><span class="dot d-live"></span> payment-step <span class="me">me</span></div>
+              <div class="run"><span class="dot d-rev"></span> cart-api <span class="me">me</span></div>
+              <div class="run"><span class="dot d-idle"></span> confirm-email <span class="me">me</span></div>
+              <div class="run" style="color:var(--accent-ink)"><span style="width:7px;text-align:center">＋</span> new run…</div>
+            </div>
+          </div>
+          <div class="proj">
+            <div class="ph"><span class="car">▾</span> api-gateway <span class="ct">2</span></div>
+            <div class="runs">
+              <div class="run"><span class="dot d-rev"></span> rate-limits <span class="me">me</span></div>
+              <div class="run"><span class="dot d-idle"></span> auth-revamp <span class="me">me</span></div>
+            </div>
+          </div>
+          <div class="proj"><div class="ph"><span class="car">▸</span> darkrun <span class="ct">1</span></div></div>
+        </div>
+        <div class="foot"><span class="dot d-live"></span> engine · 2 live</div>
+      </aside>
+      <div class="main">
+        <div class="mhead"><span class="nm">payment-step</span><span class="crumb">storefront</span><span style="flex:1"></span><span class="badge ok">live</span><span class="badge" style="border-color:#f8514955;color:#f5a3a3">✎ 6</span></div>
+        <div class="mbody">
+          <div class="stations">
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Frame</div></div>
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Specify</div></div>
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Shape</div></div>
+            <div class="st cur"><span class="cn"></span><div class="mk"><span>4</span></div><div class="lb">Build</div></div>
+            <div class="st todo"><span class="cn"></span><div class="mk">5</div><div class="lb">Prove</div></div>
+            <div class="st todo"><div class="mk">6</div><div class="lb">Harden</div></div>
+          </div>
+          <div class="phases"><span class="ph done">spec</span><span class="ph done">review</span><span class="ph cur">manufacture</span><span class="ph">audit</span><span class="ph">reflect</span><span class="ph">checkpoint</span></div>
+          <div class="card"><div class="h2">Units · Build</div>
+            <div class="unit"><span class="badge ok">done</span> Wire the cart API</div>
+            <div class="unit"><span class="badge info">active</span> Build the payment step</div>
+            <div class="unit"><span class="badge warn">blocked</span> Order confirmation email</div>
+          </div>
+          <div class="ckbar"><span class="badge">checkpoint:ask</span><span class="pr">Build is green — approve to lock, or request changes.</span><span class="btn od">Request changes</span><span class="btn ok">Approve</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DESKTOP LIGHT (same markup, .light) -->
+  <div class="theme light win desk">
+    <div class="tbar"><div class="lights"><div class="tl l-r"></div><div class="tl l-y"></div><div class="tl l-g"></div></div><span class="wm"><span class="d">dark</span><span class="r">run</span></span><span class="sp"></span><div class="act">⌕</div><div class="act">＋</div></div>
+    <div class="body">
+      <aside class="side">
+        <div class="head"><span class="h2" style="margin:0">Projects</span><span class="badge">3</span></div>
+        <div class="seg"><div class="on">Mine</div><div>All</div></div>
+        <div class="search">⌕ <span>search · name, author, status, station…</span></div>
+        <div class="tree">
+          <div class="proj">
+            <div class="ph"><span class="car">▾</span> storefront <span class="ct">3</span></div>
+            <div class="runs">
+              <div class="run sel"><span class="dot d-live"></span> payment-step <span class="me">me</span></div>
+              <div class="run"><span class="dot d-rev"></span> cart-api <span class="me">me</span></div>
+              <div class="run"><span class="dot d-idle"></span> confirm-email <span class="me">me</span></div>
+              <div class="run" style="color:var(--accent-ink)"><span style="width:7px;text-align:center">＋</span> new run…</div>
+            </div>
+          </div>
+          <div class="proj">
+            <div class="ph"><span class="car">▾</span> api-gateway <span class="ct">2</span></div>
+            <div class="runs">
+              <div class="run"><span class="dot d-rev"></span> rate-limits <span class="me">me</span></div>
+              <div class="run"><span class="dot d-idle"></span> auth-revamp <span class="me">me</span></div>
+            </div>
+          </div>
+          <div class="proj"><div class="ph"><span class="car">▸</span> darkrun <span class="ct">1</span></div></div>
+        </div>
+        <div class="foot"><span class="dot d-live"></span> engine · 2 live</div>
+      </aside>
+      <div class="main">
+        <div class="mhead"><span class="nm">payment-step</span><span class="crumb">storefront</span><span style="flex:1"></span><span class="badge ok">live</span><span class="badge" style="border-color:#d83c3355;color:#c0392b">✎ 6</span></div>
+        <div class="mbody">
+          <div class="stations">
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Frame</div></div>
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Specify</div></div>
+            <div class="st done"><span class="cn"></span><div class="mk">✓</div><div class="lb">Shape</div></div>
+            <div class="st cur"><span class="cn"></span><div class="mk"><span>4</span></div><div class="lb">Build</div></div>
+            <div class="st todo"><span class="cn"></span><div class="mk">5</div><div class="lb">Prove</div></div>
+            <div class="st todo"><div class="mk">6</div><div class="lb">Harden</div></div>
+          </div>
+          <div class="phases"><span class="ph done">spec</span><span class="ph done">review</span><span class="ph cur">manufacture</span><span class="ph">audit</span><span class="ph">reflect</span><span class="ph">checkpoint</span></div>
+          <div class="card"><div class="h2">Units · Build</div>
+            <div class="unit"><span class="badge ok">done</span> Wire the cart API</div>
+            <div class="unit"><span class="badge info">active</span> Build the payment step</div>
+            <div class="unit"><span class="badge warn">blocked</span> Order confirmation email</div>
+          </div>
+          <div class="ckbar"><span class="badge">checkpoint:ask</span><span class="pr">Build is green — approve to lock, or request changes.</span><span class="btn od">Request changes</span><span class="btn ok">Approve</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cap">Mobile · dark &nbsp;|&nbsp; light &nbsp;(sidebar → drawer)</div>
+<div class="row2">
+  <!-- MOBILE DARK -->
+  <div class="theme win mob">
+    <div class="tbar"><div class="lights"><div class="tl l-r"></div><div class="tl l-y"></div><div class="tl l-g"></div></div><span class="wm" style="font-size:15px"><span class="d">dark</span><span class="r">run</span></span></div>
+    <div class="body">
+      <div class="topnav"><span class="burger">☰</span><span class="nm">payment-step</span><span style="flex:1"></span><span class="badge ok">live</span></div>
+      <div class="mbody">
+        <div class="stations">
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st cur"><span class="cn"></span><div class="mk"><span>4</span></div></div>
+          <div class="st todo"><span class="cn"></span><div class="mk">5</div></div>
+          <div class="st todo"><div class="mk">6</div></div>
+        </div>
+        <div class="phases"><span class="ph done">spec</span><span class="ph done">rev</span><span class="ph cur">mfg</span><span class="ph">aud</span><span class="ph">ref</span><span class="ph">chk</span></div>
+        <div class="card"><div class="h2">Units · Build</div>
+          <div class="unit"><span class="badge ok">done</span> Wire the cart API</div>
+          <div class="unit"><span class="badge info">active</span> Build the payment step</div>
+        </div>
+        <div class="ckbar"><span class="pr">Build is green.</span><span class="btn ok">Approve</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE DARK — drawer open -->
+  <div class="theme win mob">
+    <div class="tbar"><div class="lights"><div class="tl l-r"></div><div class="tl l-y"></div><div class="tl l-g"></div></div><span class="wm" style="font-size:15px"><span class="d">dark</span><span class="r">run</span></span></div>
+    <div class="body">
+      <div class="topnav"><span class="burger" style="color:var(--accent)">☰</span><span class="nm">Projects</span></div>
+      <div style="padding:8px 0;overflow:auto">
+        <div class="seg" style="margin:2px 14px 10px"><div class="on">Mine</div><div>All</div></div>
+        <div class="tree" style="padding:0 8px">
+          <div class="proj"><div class="ph"><span class="car">▾</span> storefront <span class="ct">3</span></div>
+            <div class="runs">
+              <div class="run sel"><span class="dot d-live"></span> payment-step <span class="me">me</span></div>
+              <div class="run"><span class="dot d-rev"></span> cart-api <span class="me">me</span></div>
+              <div class="run"><span class="dot d-idle"></span> confirm-email <span class="me">me</span></div>
+              <div class="run" style="color:var(--accent-ink)"><span style="width:7px;text-align:center">＋</span> new run…</div>
+            </div>
+          </div>
+          <div class="proj"><div class="ph"><span class="car">▾</span> api-gateway <span class="ct">2</span></div>
+            <div class="runs"><div class="run"><span class="dot d-rev"></span> rate-limits <span class="me">me</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE LIGHT -->
+  <div class="theme light win mob">
+    <div class="tbar"><div class="lights"><div class="tl l-r"></div><div class="tl l-y"></div><div class="tl l-g"></div></div><span class="wm" style="font-size:15px"><span class="d">dark</span><span class="r">run</span></span></div>
+    <div class="body">
+      <div class="topnav"><span class="burger">☰</span><span class="nm">payment-step</span><span style="flex:1"></span><span class="badge ok">live</span></div>
+      <div class="mbody">
+        <div class="stations">
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st done"><span class="cn"></span><div class="mk">✓</div></div>
+          <div class="st cur"><span class="cn"></span><div class="mk"><span>4</span></div></div>
+          <div class="st todo"><span class="cn"></span><div class="mk">5</div></div>
+          <div class="st todo"><div class="mk">6</div></div>
+        </div>
+        <div class="phases"><span class="ph done">spec</span><span class="ph done">rev</span><span class="ph cur">mfg</span><span class="ph">aud</span><span class="ph">ref</span><span class="ph">chk</span></div>
+        <div class="card"><div class="h2">Units · Build</div>
+          <div class="unit"><span class="badge ok">done</span> Wire the cart API</div>
+          <div class="unit"><span class="badge info">active</span> Build the payment step</div>
+        </div>
+        <div class="ckbar"><span class="pr">Build is green.</span><span class="btn ok">Approve</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note"><span class="h">project = repo, runs = worktrees</span> &nbsp; A <b>project is a git repo</b> (not an epic) — its name comes from the repo directory or the <code>name</code> in <code>.darkrun/settings.yml</code>. The items nested under it are the repo's <b>darkrun worktrees / runs</b>: each run is a git worktree on a <code>darkrun/*/*</code> branch. Branches or worktrees that <b>don't match the <code>darkrun/*/*</code></b> scheme are NOT darkrun runs and are hidden from the list.</div>
+<div class="note"><span class="h">new run</span> &nbsp; The <span style="color:#5fd7ff">＋ new run…</span> entry under a repo lets you start a run from the UI — it surfaces the <b>start command to paste</b> into your harness (per-harness, like the no-engine view), so you can kick off a new <code>darkrun/*/*</code> worktree without leaving the app.</div>
+<div class="note"><span class="h">Mine filter</span> &nbsp; <b>Mine / All</b> scopes the run list to runs you authored — matched on the <b>commit author</b> of each run's branch against your git identity (<code>user.email</code>). "All" shows the whole team's runs on shared projects. The <span style="color:#5fd7ff">me</span> tag marks yours. Open: do we match on any commit by you, or only runs where you're the primary author?</div>
+<div class="note"><span class="h">native feel + theming</span> &nbsp; Full-height sidebar + unified toolbar (no centered web hero), list density tuned for desktop, content fills the window and is resizable. The app reads the <b>system</b> appearance (<code>prefers-color-scheme</code>) and themes light/dark to match; the website does the same. Light derives a higher-contrast accent (<code>#0e9fd6</code>) since the dark cyan is too light on white.</div>
+</body></html>

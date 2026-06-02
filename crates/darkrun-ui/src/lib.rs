@@ -54,6 +54,7 @@ pub mod flow;
 pub mod graph;
 pub mod kinds;
 pub mod selection;
+pub mod theme;
 pub mod tokens;
 pub mod view;
 
@@ -113,6 +114,7 @@ pub mod prelude {
         place_box, place_pin, NormBox, PinPoint, SelectMode, SelectionModel,
         VisualMark,
     };
+    pub use crate::theme::{apply_script, ThemeChoice};
     pub use crate::tokens;
     pub use crate::view::{
         classify_vital, format_latency_ms, format_samples, format_throughput, format_vital,

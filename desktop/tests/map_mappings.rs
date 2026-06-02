@@ -220,6 +220,8 @@ fn summary() -> RunSummary {
         status: "active".into(),
         progress: StationProgress { completed: 3, total: 6 },
         started_at: Some("2026-05-30T00:00:00Z".into()),
+        authored_by_me: true,
+        author: Some("me@example.com".into()),
     }
 }
 

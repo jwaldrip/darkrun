@@ -67,6 +67,17 @@ impl Harness {
         }
     }
 
+    /// The repository root backing this harness — the parent of the store's
+    /// `.darkrun` directory. Used by the run-list path to resolve git
+    /// authorship; a bare tempdir is not a git repo, so "Mine" degrades to
+    /// `false` for these fixtures.
+    pub fn repo_root(&self) -> &std::path::Path {
+        self.store
+            .root()
+            .parent()
+            .expect("store root has a parent repo dir")
+    }
+
     /// Tick once; return the action.
     pub fn tick(&self) -> TickResult {
         run_tick(&self.store, &self.slug).expect("tick")
