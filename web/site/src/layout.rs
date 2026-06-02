@@ -46,17 +46,21 @@ pub fn Shell() -> Element {
                     Wordmark { variant: WordmarkVariant::Outlined, size: 22.0 }
                 }
                 nav { style: "{nav}",
+                    NavLink { to: Route::StartHere {}, label: "Start here" }
+                    NavLink { to: Route::HowItWorks {}, label: "How it works" }
                     NavLink { to: Route::Factories {}, label: "Factories" }
                     NavLink { to: Route::Docs {}, label: "Docs" }
                     NavLink { to: Route::Methodology {}, label: "Methodology" }
                     NavLink { to: Route::Blog {}, label: "Blog" }
-                    NavLink { to: Route::Browse {}, label: "Browse" }
                 }
             }
             main { style: "{main}", Outlet::<Route> {} }
             footer { style: "{footer}",
                 span { "darkrun \u{00b7} the dark factory harness" }
-                div { style: "display:flex;gap:18px;",
+                div { style: "display:flex;gap:18px;flex-wrap:wrap;",
+                    NavLink { to: Route::BigPicture {}, label: "Big picture" }
+                    NavLink { to: Route::Workflows {}, label: "Workflows" }
+                    NavLink { to: Route::About {}, label: "About" }
                     NavLink { to: Route::Changelog {}, label: "Changelog" }
                     NavLink { to: Route::Privacy {}, label: "Privacy" }
                     NavLink { to: Route::Terms {}, label: "Terms" }

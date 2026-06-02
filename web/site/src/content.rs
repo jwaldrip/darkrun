@@ -94,6 +94,41 @@ pub const CONCEPTS: &[Doc] = &[
     },
 ];
 
+/// The guide pages: onboarding and the prose-forward explainers
+/// (start-here, how-it-works, big-picture, workflows, about).
+pub const GUIDES: &[Doc] = &[
+    Doc {
+        slug: "start-here",
+        title: "Start here",
+        summary: "Install darkrun and run your first line, end to end.",
+        markdown: include_str!("../content/guides/start-here.md"),
+    },
+    Doc {
+        slug: "how-it-works",
+        title: "How it works",
+        summary: "The engine model: Factory > Station > Unit > Pass, the run loop, and the gates.",
+        markdown: include_str!("../content/guides/how-it-works.md"),
+    },
+    Doc {
+        slug: "big-picture",
+        title: "The big picture",
+        summary: "The dark factory, autonomous agents gated by humans, and where it's heading.",
+        markdown: include_str!("../content/guides/big-picture.md"),
+    },
+    Doc {
+        slug: "workflows",
+        title: "Workflows",
+        summary: "A practical catalog of the common darkrun workflows and commands.",
+        markdown: include_str!("../content/guides/workflows.md"),
+    },
+    Doc {
+        slug: "about",
+        title: "About",
+        summary: "What darkrun is, the philosophy, and the FSL-1.1-ALv2 license.",
+        markdown: include_str!("../content/guides/about.md"),
+    },
+];
+
 /// Blog posts, newest first.
 pub const POSTS: &[Doc] = &[
     Doc {
@@ -123,6 +158,7 @@ mod tests {
     fn every_corpus_has_entries() {
         assert!(!DOCS.is_empty());
         assert!(!CONCEPTS.is_empty());
+        assert!(!GUIDES.is_empty());
         assert!(!POSTS.is_empty());
     }
 
@@ -135,7 +171,7 @@ mod tests {
 
     #[test]
     fn slugs_are_unique_per_corpus() {
-        for corpus in [DOCS, CONCEPTS, POSTS] {
+        for corpus in [DOCS, CONCEPTS, GUIDES, POSTS] {
             let mut slugs: Vec<&str> = corpus.iter().map(|d| d.slug).collect();
             slugs.sort_unstable();
             let len = slugs.len();

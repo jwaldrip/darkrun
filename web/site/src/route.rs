@@ -21,6 +21,17 @@ pub enum Route {
         #[route("/")]
         Landing {},
 
+        #[route("/start-here")]
+        StartHere {},
+        #[route("/how-it-works")]
+        HowItWorks {},
+        #[route("/big-picture")]
+        BigPicture {},
+        #[route("/workflows")]
+        Workflows {},
+        #[route("/about")]
+        About {},
+
         #[route("/factories")]
         Factories {},
         #[route("/factories/:slug")]
@@ -77,6 +88,7 @@ pub use pages::changelog::Changelog;
 pub use pages::concepts::{Glossary, Lifecycles, Methodology, PhaseDetail};
 pub use pages::docs::{DocPage, Docs};
 pub use pages::factories::{FactoryDetail, Factories, StationDetail};
+pub use pages::guides::{About, BigPicture, HowItWorks, StartHere, Workflows};
 pub use pages::landing::Landing;
 pub use pages::legal::{Privacy, Terms};
 pub use pages::misc::{NotFound, Paper, Templates};
@@ -91,6 +103,11 @@ impl Route {
     pub fn all_paths() -> Vec<String> {
         let mut paths = vec![
             "/".to_string(),
+            "/start-here".to_string(),
+            "/how-it-works".to_string(),
+            "/big-picture".to_string(),
+            "/workflows".to_string(),
+            "/about".to_string(),
             "/factories".to_string(),
             "/docs".to_string(),
             "/methodology".to_string(),
@@ -137,7 +154,8 @@ mod tests {
     fn all_paths_covers_the_static_sections() {
         let paths = Route::all_paths();
         for expected in [
-            "/", "/factories", "/docs", "/methodology", "/glossary", "/lifecycles", "/blog",
+            "/", "/start-here", "/how-it-works", "/big-picture", "/workflows", "/about",
+            "/factories", "/docs", "/methodology", "/glossary", "/lifecycles", "/blog",
             "/changelog", "/paper", "/templates", "/browse", "/review", "/preview", "/privacy",
             "/terms",
         ] {

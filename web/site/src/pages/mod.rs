@@ -6,6 +6,7 @@ pub mod changelog;
 pub mod concepts;
 pub mod docs;
 pub mod factories;
+pub mod guides;
 pub mod landing;
 pub mod legal;
 pub mod misc;
