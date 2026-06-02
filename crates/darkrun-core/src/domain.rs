@@ -440,6 +440,19 @@ pub struct Station {
     /// The checkpoint gating this station.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint: Option<Checkpoint>,
+    /// The station's working branch (`darkrun/<slug>/<station>`), set when the
+    /// station is entered and a worktree is forked off run-main. `None` on
+    /// legacy state and outside a git repo. Retained after landing as a record
+    /// of where the station's work happened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// The discrete-mode draft PR/MR opened for this station's external
+    /// Checkpoint (the hosting provider's ref — a number or URL). Set when the
+    /// manager opens the station's draft PR via the hosting client; the gate
+    /// resolves when this PR is detected merged. `None` for non-discrete runs and
+    /// when no hosting client could open one (best-effort await fallback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_ref: Option<String>,
     /// RFC3339 start timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,

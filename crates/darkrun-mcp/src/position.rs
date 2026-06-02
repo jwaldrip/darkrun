@@ -495,14 +495,67 @@ fn next_in_plan(factory: &FactoryDef, state: &RunState, station: &str) -> Option
     plan.get(idx + 1).cloned()
 }
 
+/// How a run resolves its per-station Checkpoint gates — the DISCRETE axis,
+/// orthogonal to the right-sizing plan. Derived from the run's `mode` at start
+/// and snapshotted into `RunState` so the (pure) cursor never re-parses the mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscreteMode {
+    /// Non-discrete: every station's gate resolves in-process (auto/ask/await).
+    /// The station branch lands onto run-main the moment its gate clears.
+    Off,
+    /// Fully discrete: EVERY station opens a per-station draft PR/MR
+    /// (`darkrun/<slug>/<station>` -> `darkrun/<slug>/main`) and its gate
+    /// resolves when a human merges that PR. No station lands in-process.
+    Full,
+    /// Discrete-hybrid: continuous within stations EXCEPT those whose factory
+    /// checkpoint is `external` — those open a per-station PR the human merges.
+    Hybrid,
+}
+
+/// Resolve the [`DiscreteMode`] for a run-sizing `mode` string. `discrete` /
+/// `discrete-hybrid` (any `-`/`_`/space spelling) opt into the PR-merge gate;
+/// every other mode is non-discrete.
+pub fn resolve_discrete(mode: &str) -> DiscreteMode {
+    match mode.trim().to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+        "discrete" => DiscreteMode::Full,
+        "discrete_hybrid" => DiscreteMode::Hybrid,
+        _ => DiscreteMode::Off,
+    }
+}
+
+/// Resolve a station's EFFECTIVE Checkpoint kind for a run — the single place
+/// the gate axes compose, so the cursor and every gate-aware caller agree.
+///
+/// Precedence:
+/// 1. `auto_gates` (a right-sized fast-path run) downgrades every gate to `Auto`.
+/// 2. Otherwise the DISCRETE axis applies:
+///    - [`RunState::discrete`] without `discrete_hybrid` → `External` for EVERY
+///      station (full discrete: each station gets a PR the human merges).
+///    - `discrete_hybrid` → the factory kind, so only stations the factory marks
+///      `external` open a PR; the rest resolve in-process as declared.
+/// 3. Plain runs use the factory-declared kind.
+fn effective_checkpoint_kind(state: &RunState, def: &crate::factory::StationDef) -> CheckpointKind {
+    if state.auto_gates {
+        return CheckpointKind::Auto;
+    }
+    if state.discrete && !state.discrete_hybrid {
+        // Full discrete: every station resolves on a human PR merge.
+        return CheckpointKind::External;
+    }
+    // Hybrid and plain runs alike defer to the factory's declared kind.
+    def.checkpoint
+}
+
 /// Resolve a run-sizing `mode` into `(station_plan, auto_gates)` — the
 /// right-sizing pass at run start.
 ///
 /// The plan is the factory's stations filtered to those the mode keeps, in
-/// factory order. `full`/`standard`/`continuous`/unknown → the full plan (empty
-/// sentinel) with the factory's own gates. A mode whose kept stations don't
-/// exist in the factory falls back to the full plan, so right-sizing can never
-/// strand a run with no stations. Right-sized modes run with `auto` gates.
+/// factory order. `full`/`standard`/`continuous`/`discrete`/`discrete-hybrid`/
+/// unknown → the full plan (empty sentinel) with the factory's own gates. A mode
+/// whose kept stations don't exist in the factory falls back to the full plan,
+/// so right-sizing can never strand a run with no stations. Right-sized modes
+/// run with `auto` gates; discrete modes keep the factory's gates (their gate
+/// resolution is the DISCRETE axis, resolved separately by [`resolve_discrete`]).
 fn resolve_template(mode: &str, factory: &FactoryDef) -> (Vec<String>, bool) {
     let keep: &[&str] = match mode.trim().to_ascii_lowercase().as_str() {
         // Small work: build + prove only — skip framing/design and hardening.
@@ -511,7 +564,7 @@ fn resolve_template(mode: &str, factory: &FactoryDef) -> (Vec<String>, bool) {
         "bugfix" => &["specify", "build", "prove"],
         // Structural change: keep the design pressure-test, build, prove.
         "refactor" => &["shape", "build", "prove"],
-        // Full traversal with the factory's own gates.
+        // Full traversal with the factory's own gates (continuous/discrete/…).
         _ => return (Vec::new(), false),
     };
     let plan: Vec<String> = factory
@@ -776,21 +829,23 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             station: station.clone(),
         },
         StationPhase::Checkpoint => {
-            // A right-sized run with `auto_gates` downgrades every gate to
-            // `auto`; otherwise the station's factory-defined kind applies.
-            let kind = if state.auto_gates {
-                CheckpointKind::Auto
-            } else {
-                def.checkpoint
-            };
+            let kind = effective_checkpoint_kind(&state, def);
             // An `external` gate hands off to an external review surface (a
             // PR/MR) rather than a local prompt — a distinct action so the
-            // agent gets focused "open/annotate the review" instructions.
+            // agent gets focused "open/annotate the review" instructions. In
+            // DISCRETE mode the manager has typically already opened the
+            // station's draft PR (recorded on `Station.pr_ref`); surface it on
+            // the action's `target` so the agent/UI shows which PR to merge.
             if matches!(kind, CheckpointKind::External) {
+                let target = state
+                    .stations
+                    .get(&station)
+                    .and_then(|st| st.pr_ref.clone())
+                    .unwrap_or_default();
                 RunAction::ExternalReviewRequested {
                     run: slug.to_string(),
                     station: station.clone(),
-                    target: String::new(),
+                    target,
                 }
             } else {
                 RunAction::Checkpoint {
@@ -990,6 +1045,103 @@ pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Resu
     Ok(Some(rendered))
 }
 
+/// DISCRETE-mode gate resolution: a station at its `external` gate opens, then
+/// polls, a draft PR/MR through the hosting client. The station's gate resolves
+/// when the PR is detected MERGED. Run on each tick BEFORE deriving so a merge
+/// advances the cursor immediately.
+///
+/// The four cases:
+///
+/// 1. No PR yet + hosting available: open a draft PR and record
+///    `Station.pr_ref`; the gate keeps holding as `ExternalReviewRequested`.
+/// 2. PR open, not merged: hold.
+/// 3. PR merged: complete the station and advance the cursor. The human's merge
+///    already landed station-branch -> run-main, so this does NOT land in-process.
+/// 4. No hosting client: no PR is opened; the `external` gate surfaces as
+///    `ExternalReviewRequested` for the operator to resolve manually (the
+///    await-style fallback).
+///
+/// Best-effort: any hosting failure leaves the gate holding, never crashing the
+/// tick. A no-op for non-discrete runs and stations not at an external gate.
+fn resolve_discrete_gate<H: crate::hosting::Hosting>(
+    store: &StateStore,
+    slug: &str,
+    hosting: &H,
+) -> Result<()> {
+    let run = store.read_run(slug)?;
+    let factory = match resolve_factory(&run.frontmatter.factory) {
+        Some(f) => f,
+        None => return Ok(()),
+    };
+    let mut state = match store.read_state(slug)? {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    if !state.discrete {
+        return Ok(());
+    }
+    let station = match current_station(&factory, &state) {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    // The gate only resolves discretely once the station is actually AT its
+    // checkpoint with an effective `external` kind.
+    if station_phase(&state, &station) != StationPhase::Checkpoint {
+        return Ok(());
+    }
+    let def = match factory.station(&station) {
+        Some(d) => d,
+        None => return Ok(()),
+    };
+    if !matches!(effective_checkpoint_kind(&state, def), CheckpointKind::External) {
+        return Ok(());
+    }
+
+    let existing_ref = state.stations.get(&station).and_then(|st| st.pr_ref.clone());
+    match existing_ref {
+        // No PR yet: open one (best-effort) and record it; keep holding.
+        None => {
+            if !hosting.available() {
+                return Ok(()); // await fallback — operator resolves by hand.
+            }
+            let head = crate::lifecycle::station_branch(slug, &station);
+            let base = crate::lifecycle::run_main_branch(slug);
+            let req = crate::hosting::OpenRequest {
+                head,
+                base,
+                title: run.title.clone(),
+                body: format!(
+                    "Opened by the darkrun **{station}** station's discrete Checkpoint. \
+                     Merge to advance the run."
+                ),
+            };
+            if let Some(pr_ref) = hosting.open_draft(&req) {
+                if let Some(st) = state.stations.get_mut(&station) {
+                    st.pr_ref = Some(pr_ref);
+                    store.write_state(slug, &state)?;
+                }
+            }
+            Ok(())
+        }
+        // PR exists: poll it. A merge resolves the gate and advances the cursor.
+        Some(pr_ref) => {
+            if matches!(hosting.merge_state(&pr_ref), crate::hosting::MergeState::Merged) {
+                let now = Utc::now().to_rfc3339();
+                complete_station(&mut state, &factory, &station, &now)?;
+                store.write_state(slug, &state)?;
+                // The human's PR merge already landed the station onto run-main,
+                // so there is NO in-process land here. If that was the final
+                // station, land the run onto base.
+                crate::drift::record_station_witnesses(store, slug, &station)?;
+                if current_station(&factory, &state).is_none() {
+                    crate::lifecycle::land_run(store, slug);
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Drive one workflow tick: derive the position, then ADVANCE the station's
 /// phase write-cache so the next tick moves forward.
 ///
@@ -1008,10 +1160,28 @@ pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Resu
 /// - `Reflect` -> `Checkpoint`.
 /// - `Checkpoint` with an `auto` gate -> advance to the next station's `Spec`;
 ///   non-auto gates hold until [`checkpoint_decide`].
+///
+/// Discrete-mode runs additionally resolve `external` gates via
+/// [`resolve_discrete_gate`] (the hosting PR open/merge) before the derive.
 pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
+    let repo_root = cascade_repo_root(store);
+    let hosting = crate::hosting::CliHosting::resolve(&repo_root);
+    run_tick_with_hosting(store, slug, &hosting)
+}
+
+/// [`run_tick`] with an injected [`Hosting`] client — the seam discrete-mode
+/// tests use to drive PR open/merge without a live `gh`/`glab`.
+pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
+    store: &StateStore,
+    slug: &str,
+    hosting: &H,
+) -> Result<TickResult> {
     // Sweep first: re-hash every locked artifact so a silent mutation surfaces
     // as a drift entry that Track C (inside derive_position) then preempts.
     crate::drift::sweep(store, slug)?;
+    // Discrete gate: open / poll the station's PR before deriving, so a merge
+    // detected this tick advances the cursor immediately.
+    resolve_discrete_gate(store, slug, hosting)?;
     let position = derive_position(store, slug)?;
 
     let action = match &position.action {
@@ -1052,9 +1222,22 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
 
     let now = Utc::now().to_rfc3339();
 
+    // Track whether THIS tick is the first entry of a station (Pending ->
+    // InProgress on the Spec phase) so we can fork its branch after persisting,
+    // and whether a station just COMPLETED so we can land it after persisting.
+    // Both are git side-effects kept OUT of the state mutation + out of the pure
+    // derive_position; they run on the side once state.json is written.
+    let mut entered_station: Option<String> = None;
+    let mut landed_station: Option<String> = None;
+
     match action {
         RunAction::Spec { station, .. } => {
             let st = ensure_station(&mut state, &factory, station)?;
+            // First entry of this station: fork its per-station branch (universal
+            // across modes). Detected by the Pending -> InProgress transition.
+            if matches!(st.status, Status::Pending) {
+                entered_station = Some(station.clone());
+            }
             st.status = Status::InProgress;
             st.phase = StationPhase::Review;
             if st.started_at.is_none() {
@@ -1099,6 +1282,12 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
                 complete_station(&mut state, &factory, station, &now)?;
                 // Snapshot the locked artifacts so the sweep can witness drift.
                 crate::drift::record_station_witnesses(store, slug, station)?;
+                // Non-discrete in-process land: the verified station branch
+                // merges to run-main here. (Discrete stations resolve on a human
+                // PR merge — a later phase — and don't land in-process.)
+                if !state.discrete {
+                    landed_station = Some(station.clone());
+                }
             }
         }
         RunAction::ExternalReviewRequested { station, .. } => {
@@ -1118,7 +1307,38 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
         _ => {}
     }
 
+    // Did completing a station empty the plan? If so the run is ready to seal,
+    // so the run-main -> base land follows the final station's land.
+    let run_now_complete = landed_station.is_some()
+        && current_station(&factory, &state).is_none();
+
     store.write_state(slug, &state)?;
+
+    // Run the branch side-effects AFTER state is persisted, so the durable
+    // record reflects the decision and the lifecycle reads a consistent disk.
+    run_branch_side_effects(store, slug, entered_station, landed_station, run_now_complete)?;
+    Ok(())
+}
+
+/// Apply the per-tick branch lifecycle side-effects. All best-effort + non-fatal
+/// (a non-git project no-ops cleanly); the side-effects run only after state is
+/// persisted so they never block the manager's forward progress.
+fn run_branch_side_effects(
+    store: &StateStore,
+    slug: &str,
+    entered_station: Option<String>,
+    landed_station: Option<String>,
+    run_now_complete: bool,
+) -> Result<()> {
+    if let Some(station) = entered_station {
+        enter_station_and_record(store, slug, &station)?;
+    }
+    if let Some(station) = landed_station {
+        crate::lifecycle::land_station(store, slug, &station);
+    }
+    if run_now_complete {
+        crate::lifecycle::land_run(store, slug);
+    }
     Ok(())
 }
 
@@ -1143,6 +1363,8 @@ fn ensure_station<'a>(
                     entered_at: None,
                     outcome: None,
                 }),
+                branch: None,
+                pr_ref: None,
                 started_at: None,
                 completed_at: None,
             },
@@ -1202,6 +1424,9 @@ pub fn run_start(
 
     // Right-size: the plan is the mode's station subset (empty = full factory).
     let (plan, auto_gates) = resolve_template(mode, &factory);
+    // Discrete axis (orthogonal to the plan): does each station's gate resolve
+    // on a human PR/MR merge?
+    let discrete_mode = resolve_discrete(mode);
     let first_name = plan
         .first()
         .cloned()
@@ -1227,18 +1452,50 @@ pub fn run_start(
     };
     store.write_run(&run)?;
 
-    // Seed state at the plan's first station, Spec phase.
+    // Seed state at the plan's first station, Spec phase. Snapshot the base
+    // branch so the run-completion land has a stable target even if settings
+    // change mid-run.
+    let base = crate::lifecycle::resolve_base_branch(store);
     let mut state = RunState {
         factory: factory_name.to_string(),
         active_station: first_name.clone(),
         plan,
         auto_gates,
+        discrete: matches!(discrete_mode, DiscreteMode::Full | DiscreteMode::Hybrid),
+        discrete_hybrid: matches!(discrete_mode, DiscreteMode::Hybrid),
+        base_branch: Some(base),
         ..Default::default()
     };
     ensure_station(&mut state, &factory, &first_name)?;
     store.write_state(slug, &state)?;
 
+    // Branch hierarchy (universal across modes): fork the run's stable base
+    // branch, then enter the first station. Best-effort + non-fatal — a non-git
+    // project no-ops cleanly, so run_start still succeeds.
+    crate::lifecycle::ensure_run_main(store, slug);
+    enter_station_and_record(store, slug, &first_name)?;
+
     Ok(run)
+}
+
+/// Enter a station's branch + worktree (universal per-station fork) and record
+/// the resulting branch on `Station.branch`. Best-effort: outside a git repo the
+/// lifecycle no-ops and no branch is recorded.
+fn enter_station_and_record(store: &StateStore, slug: &str, station: &str) -> Result<()> {
+    let outcome = crate::lifecycle::enter_station(store, slug, station);
+    if outcome.performed {
+        // The lifecycle returns the station branch name in `note` on success.
+        if let Some(branch) = outcome.note {
+            let mut state = store.read_state(slug)?.unwrap_or_default();
+            if let Some(st) = state.stations.get_mut(station) {
+                if st.branch.as_deref() != Some(branch.as_str()) {
+                    st.branch = Some(branch);
+                    store.write_state(slug, &state)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Apply an operator decision to the active station's Checkpoint.
@@ -1260,10 +1517,18 @@ pub fn checkpoint_decide(
         .ok_or_else(|| McpError::NoActiveStation(slug.to_string()))?;
 
     let now = Utc::now().to_rfc3339();
+    let mut landed_station: Option<String> = None;
+    let mut run_now_complete = false;
     if approved {
         complete_station(&mut state, &factory, &station, &now)?;
         // Snapshot the locked artifacts so the sweep can witness drift.
         crate::drift::record_station_witnesses(store, slug, &station)?;
+        // Non-discrete in-process land of the just-verified station; discrete
+        // stations land via the human's PR merge (a later phase).
+        if !state.discrete {
+            landed_station = Some(station.clone());
+            run_now_complete = current_station(&factory, &state).is_none();
+        }
     } else {
         let st = ensure_station(&mut state, &factory, &station)?;
         // Hold the station; route rework back through the feedback track.
@@ -1297,6 +1562,11 @@ pub fn checkpoint_decide(
         }
     }
     store.write_state(slug, &state)?;
+
+    // Land the just-verified station (and the run, if it was the last) AFTER
+    // state is persisted. The next station's branch is forked when its Spec
+    // tick first enters it inside the re-tick below.
+    run_branch_side_effects(store, slug, None, landed_station, run_now_complete)?;
 
     // Re-tick so the caller sees the new cursor position immediately.
     run_tick(store, slug)
@@ -1396,6 +1666,103 @@ mod tests {
         assert!(!state.stations.contains_key("specify"));
         assert!(!state.stations.contains_key("shape"));
         assert!(!state.stations.contains_key("harden"));
+    }
+
+    /// In a real git repo, a run walks the universal branch hierarchy: run_start
+    /// forks darkrun/<slug>/main; each station forks darkrun/<slug>/<station>
+    /// (recorded on Station.branch) and lands it back to run-main once verified,
+    /// removing the station branch + worktree; at run completion run-main lands
+    /// onto the base.
+    #[test]
+    fn git_run_walks_the_branch_hierarchy() {
+        use std::process::Command;
+        let dir = tempdir().expect("tmp");
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(args)
+                .status()
+                .expect("git")
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "test@darkrun.ai"]);
+        git(&["config", "user.name", "darkrun test"]);
+        std::fs::write(root.join(".gitignore"), ".darkrun/\n").unwrap();
+        std::fs::write(root.join("README.md"), "# x\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "base"]);
+
+        let store = StateStore::new(root);
+        run_start(&store, "q", "software", None, "quick").expect("start");
+
+        // run-main forked off the base at run start.
+        let run_main_exists = |b: &str| {
+            Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["rev-parse", "--verify", &format!("refs/heads/{b}")])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        assert!(run_main_exists("darkrun/q/main"), "run-main forked at start");
+
+        // The first station's branch was forked + recorded.
+        let state = store.read_state("q").unwrap().unwrap();
+        assert_eq!(
+            state.stations["build"].branch.as_deref(),
+            Some("darkrun/q/build"),
+            "first station's branch recorded on entry"
+        );
+        assert!(run_main_exists("darkrun/q/build"));
+
+        // Drive to sealed, doing the agent's part each tick.
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            assert!(guard < 100, "git hierarchy run failed to converge");
+            let t = run_tick(&store, "q").expect("tick");
+            match &t.action {
+                RunAction::Sealed { .. } => break,
+                RunAction::Spec { station, .. } => {
+                    let unit = Unit {
+                        slug: format!("{station}-u"),
+                        frontmatter: darkrun_core::domain::UnitFrontmatter {
+                            status: Status::Pending,
+                            station: Some(station.clone()),
+                            ..Default::default()
+                        },
+                        title: "u".into(),
+                        body: String::new(),
+                    };
+                    store.write_unit("q", &unit).expect("write unit");
+                }
+                RunAction::Manufacture { units, .. } => {
+                    for u in units {
+                        let mut done = store.read_unit("q", u).unwrap();
+                        done.frontmatter.status = Status::Completed;
+                        store.write_unit("q", &done).unwrap();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Once landed + sealed, the per-station branches are gone (merged into
+        // run-main and removed) — only run-main survives.
+        assert!(
+            !run_main_exists("darkrun/q/build"),
+            "landed station branch removed"
+        );
+        assert!(
+            !run_main_exists("darkrun/q/prove"),
+            "landed station branch removed"
+        );
+        assert!(run_main_exists("darkrun/q/main"), "run-main persists");
     }
 
     #[test]
@@ -1808,5 +2175,230 @@ mod tests {
             !out.contains("darkrun verify web") && !out.contains("darkrun bench"),
             "unclassified run carries no proof route:\n{out}"
         );
+    }
+
+    // ── Discrete + discrete-hybrid modes ─────────────────────────────────────
+
+    use crate::hosting::{Hosting, MergeState, OpenRequest};
+    use std::cell::RefCell;
+
+    /// A scripted hosting client for the discrete-mode tests: records the
+    /// open-draft calls and returns a fixed merge state per poll.
+    struct MockHosting {
+        available: bool,
+        /// The provider ref `open_draft` hands back (and that `merge_state`
+        /// keys off). `None` makes `open_draft` fail (the await fallback).
+        pr_ref: Option<String>,
+        /// What `merge_state` returns for the recorded ref.
+        state: MergeState,
+        /// Every `open_draft` request, in call order (for assertions).
+        opened: RefCell<Vec<OpenRequest>>,
+    }
+
+    impl MockHosting {
+        fn new(state: MergeState) -> Self {
+            Self {
+                available: true,
+                pr_ref: Some("42".into()),
+                state,
+                opened: RefCell::new(Vec::new()),
+            }
+        }
+        fn unavailable() -> Self {
+            Self {
+                available: false,
+                pr_ref: None,
+                state: MergeState::Unknown,
+                opened: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Hosting for MockHosting {
+        fn available(&self) -> bool {
+            self.available
+        }
+        fn open_draft(&self, req: &OpenRequest) -> Option<String> {
+            self.opened.borrow_mut().push(req.clone());
+            self.pr_ref.clone()
+        }
+        fn merge_state(&self, _pr_ref: &str) -> MergeState {
+            self.state
+        }
+    }
+
+    /// `discrete` mode snapshots the discrete flag (not hybrid) and keeps the
+    /// full factory plan with the factory's own gates.
+    #[test]
+    fn discrete_mode_sets_discrete_flag_full_plan() {
+        let (_d, store) = store();
+        run_start(&store, "d", "software", None, "discrete").expect("start");
+        let state = store.read_state("d").unwrap().unwrap();
+        assert!(state.discrete, "discrete mode sets the discrete flag");
+        assert!(!state.discrete_hybrid, "plain discrete is not hybrid");
+        assert!(state.plan.is_empty(), "discrete walks the full factory");
+        assert!(!state.auto_gates, "discrete keeps real gates");
+        assert_eq!(state.active_station, "frame");
+    }
+
+    /// `discrete-hybrid` mode sets BOTH flags (any `-`/`_` spelling).
+    #[test]
+    fn discrete_hybrid_mode_sets_both_flags() {
+        let (_d, store) = store();
+        run_start(&store, "h", "software", None, "discrete-hybrid").expect("start");
+        let state = store.read_state("h").unwrap().unwrap();
+        assert!(state.discrete);
+        assert!(state.discrete_hybrid);
+        // The underscore spelling resolves the same.
+        assert_eq!(resolve_discrete("discrete_hybrid"), DiscreteMode::Hybrid);
+        assert_eq!(resolve_discrete("discrete"), DiscreteMode::Full);
+        assert_eq!(resolve_discrete("continuous"), DiscreteMode::Off);
+    }
+
+    /// In FULL discrete every station's effective gate is `external` — even
+    /// `frame` (factory `ask`) and `build` (factory `auto`).
+    #[test]
+    fn full_discrete_makes_every_gate_external() {
+        let factory = resolve_factory("software").unwrap();
+        let state = RunState {
+            discrete: true,
+            ..Default::default()
+        };
+        for name in ["frame", "build", "harden"] {
+            let def = factory.station(name).unwrap();
+            assert_eq!(
+                effective_checkpoint_kind(&state, def),
+                CheckpointKind::External,
+                "full discrete makes {name} external"
+            );
+        }
+    }
+
+    /// In HYBRID only the factory-declared `external` stations are external;
+    /// the rest keep their factory kind.
+    #[test]
+    fn hybrid_keeps_factory_gates_except_external_stations() {
+        let factory = resolve_factory("software").unwrap();
+        let state = RunState {
+            discrete: true,
+            discrete_hybrid: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            effective_checkpoint_kind(&state, factory.station("frame").unwrap()),
+            CheckpointKind::Ask,
+            "hybrid keeps frame's ask gate"
+        );
+        assert_eq!(
+            effective_checkpoint_kind(&state, factory.station("build").unwrap()),
+            CheckpointKind::Auto,
+            "hybrid keeps build's auto gate"
+        );
+        assert_eq!(
+            effective_checkpoint_kind(&state, factory.station("harden").unwrap()),
+            CheckpointKind::External,
+            "hybrid still opens a PR on harden's external gate"
+        );
+    }
+
+    /// Drive a discrete-mode `frame` station to its checkpoint without git, so
+    /// the gate surfaces. (No worktrees needed — the gate logic is what's under
+    /// test; the hosting client is mocked.)
+    fn drive_discrete_frame_to_gate(store: &StateStore, hosting: &MockHosting) -> RunAction {
+        for _ in 0..12 {
+            let t = run_tick_with_hosting(store, "d", hosting).expect("tick");
+            match &t.action {
+                RunAction::Spec { station, .. } => {
+                    // Seed one completed unit so Manufacture clears straight to Audit.
+                    let unit = Unit {
+                        slug: format!("{station}-u"),
+                        frontmatter: darkrun_core::domain::UnitFrontmatter {
+                            status: Status::Completed,
+                            station: Some(station.clone()),
+                            ..Default::default()
+                        },
+                        title: "u".into(),
+                        body: String::new(),
+                    };
+                    store.write_unit("d", &unit).expect("unit");
+                }
+                RunAction::ExternalReviewRequested { .. } => return t.action,
+                _ => {}
+            }
+        }
+        panic!("never reached the discrete external gate");
+    }
+
+    /// Full discrete: the first station opens a draft PR at its gate (recorded
+    /// on `Station.pr_ref` and echoed on the action `target`) and HOLDS until a
+    /// merge is detected. The hosting client gets a station-branch -> run-main
+    /// draft request.
+    #[test]
+    fn discrete_station_opens_pr_and_holds() {
+        let (_d, store) = store();
+        run_start(&store, "d", "software", None, "discrete").expect("start");
+        let hosting = MockHosting::new(MergeState::Open);
+
+        let action = drive_discrete_frame_to_gate(&store, &hosting);
+        // The gate surfaces as an external review carrying the opened PR ref.
+        assert!(
+            matches!(&action, RunAction::ExternalReviewRequested { station, target, .. }
+                if station == "frame" && target == "42"),
+            "expected external review with PR ref, got {action:?}"
+        );
+        // A draft PR was opened station-branch -> run-main exactly once.
+        let opened = hosting.opened.borrow();
+        assert_eq!(opened.len(), 1, "opened exactly one draft PR");
+        assert_eq!(opened[0].head, "darkrun/d/frame");
+        assert_eq!(opened[0].base, "darkrun/d/main");
+        // Recorded on the station for the merge poll.
+        let state = store.read_state("d").unwrap().unwrap();
+        assert_eq!(state.stations["frame"].pr_ref.as_deref(), Some("42"));
+        // Still in-progress (the gate holds until merge).
+        assert_eq!(state.stations["frame"].status, Status::InProgress);
+    }
+
+    /// Full discrete: once the PR is MERGED the manager advances — the station
+    /// completes and the cursor moves to the next station's Spec. The merge
+    /// resolves the gate (no in-process land; the human's merge already landed).
+    #[test]
+    fn discrete_pr_merge_resolves_the_gate_and_advances() {
+        let (_d, store) = store();
+        run_start(&store, "d", "software", None, "discrete").expect("start");
+
+        // First, reach the gate and open the PR (state = Open).
+        let open_host = MockHosting::new(MergeState::Open);
+        let at_gate = drive_discrete_frame_to_gate(&store, &open_host);
+        assert!(matches!(at_gate, RunAction::ExternalReviewRequested { .. }));
+
+        // Now the human merges the PR. The next tick detects the merge and
+        // advances to the next station (specify) at Spec.
+        let merged_host = MockHosting::new(MergeState::Merged);
+        let advanced = run_tick_with_hosting(&store, "d", &merged_host).expect("tick");
+        assert!(
+            matches!(&advanced.action, RunAction::Spec { station, .. } if station == "specify"),
+            "merge should advance to the next station, got {:?}",
+            advanced.action
+        );
+        let state = store.read_state("d").unwrap().unwrap();
+        assert_eq!(state.stations["frame"].status, Status::Completed);
+        assert_eq!(state.active_station, "specify");
+    }
+
+    /// No hosting client → no PR is opened; the discrete gate degrades to a
+    /// plain `external` review the operator resolves manually (await fallback).
+    #[test]
+    fn discrete_without_hosting_falls_back_to_manual_review() {
+        let (_d, store) = store();
+        run_start(&store, "d", "software", None, "discrete").expect("start");
+        let hosting = MockHosting::unavailable();
+        let action = drive_discrete_frame_to_gate(&store, &hosting);
+        assert!(
+            matches!(&action, RunAction::ExternalReviewRequested { target, .. } if target.is_empty()),
+            "no hosting → external review with no PR ref, got {action:?}"
+        );
+        assert!(hosting.opened.borrow().is_empty(), "no PR opened without hosting");
+        let state = store.read_state("d").unwrap().unwrap();
+        assert!(state.stations["frame"].pr_ref.is_none());
     }
 }

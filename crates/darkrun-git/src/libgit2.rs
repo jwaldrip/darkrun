@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 
 use git2::{Repository, StatusOptions, WorktreeAddOptions};
 
-use crate::backend::{CreateOptions, GitBackend, WorktreeInfo};
+use crate::backend::{CreateOptions, GitBackend, MergeOutcome, WorktreeInfo};
 use crate::error::{GitError, Result};
+use crate::shell::ShellBackend;
 
 /// A [`GitBackend`] driven entirely in-process by libgit2.
 pub struct Libgit2Backend {
@@ -33,6 +34,20 @@ impl Libgit2Backend {
     fn repo(&self) -> Result<Repository> {
         Repository::discover(&self.repo_root)
             .map_err(|_| GitError::NotARepo(self.repo_root.clone()))
+    }
+
+    /// The shell backend used for the engine-protected merge trio.
+    ///
+    /// The merge / restore / commit primitives operate inside an ephemeral
+    /// station-or-run worktree and must match the reference's exact, battle-
+    /// tested `git` semantics (a `--no-ff --no-commit` merge, a `checkout <ref>
+    /// -- <path>` restore, a `commit --no-edit`). Driving that trio through
+    /// libgit2's index/merge machinery is both fiddly and version-sensitive
+    /// across worktrees, so we route it through the shell path — the libgit2
+    /// backend stays authoritative only for the read-side branch/ancestor
+    /// queries it does cleanly in-process.
+    fn shell(&self) -> Result<ShellBackend> {
+        ShellBackend::open(&self.repo_root)
     }
 }
 
@@ -163,6 +178,65 @@ impl GitBackend for Libgit2Backend {
             .exclude_submodules(true);
         let statuses = repo.statuses(Some(&mut opts))?;
         Ok(statuses.is_empty())
+    }
+
+    fn branch_exists(&self, name: &str) -> Result<bool> {
+        let repo = self.repo()?;
+        let exists = repo.find_branch(name, git2::BranchType::Local).is_ok();
+        Ok(exists)
+    }
+
+    fn create_branch(&self, name: &str, from_ref: &str) -> Result<()> {
+        let repo = self.repo()?;
+        // Idempotent: leave an existing branch in place.
+        if repo.find_branch(name, git2::BranchType::Local).is_ok() {
+            return Ok(());
+        }
+        let commit = repo.revparse_single(from_ref)?.peel_to_commit()?;
+        repo.branch(name, &commit, false)?;
+        Ok(())
+    }
+
+    fn is_ancestor(&self, maybe_ancestor: &str, descendant: &str) -> Result<bool> {
+        let repo = self.repo()?;
+        let anc = repo.revparse_single(maybe_ancestor)?.peel_to_commit()?.id();
+        let desc = repo.revparse_single(descendant)?.peel_to_commit()?.id();
+        if anc == desc {
+            return Ok(true);
+        }
+        // `graph_descendant_of(desc, anc)` is true iff anc is a strict ancestor
+        // of desc — the equality case above covers the inclusive end.
+        Ok(repo.graph_descendant_of(desc, anc).unwrap_or(false))
+    }
+
+    // The mutating merge trio routes through the shell backend (see `shell()`).
+
+    fn merge_no_commit(&self, worktree_path: &Path, source_ref: &str) -> Result<MergeOutcome> {
+        self.shell()?.merge_no_commit(worktree_path, source_ref)
+    }
+
+    fn merge_in_progress(&self, worktree_path: &Path) -> Result<bool> {
+        self.shell()?.merge_in_progress(worktree_path)
+    }
+
+    fn checkout_paths(&self, worktree_path: &Path, from_ref: &str, paths: &[String]) -> Result<()> {
+        self.shell()?.checkout_paths(worktree_path, from_ref, paths)
+    }
+
+    fn add_paths(&self, worktree_path: &Path, paths: &[String]) -> Result<()> {
+        self.shell()?.add_paths(worktree_path, paths)
+    }
+
+    fn commit(&self, worktree_path: &Path, message: &str) -> Result<()> {
+        self.shell()?.commit(worktree_path, message)
+    }
+
+    fn ls_tree(&self, worktree_path: &Path, from_ref: &str, prefix: &str) -> Result<Vec<String>> {
+        self.shell()?.ls_tree(worktree_path, from_ref, prefix)
+    }
+
+    fn unresolved_paths(&self, worktree_path: &Path) -> Result<Vec<String>> {
+        self.shell()?.unresolved_paths(worktree_path)
     }
 }
 

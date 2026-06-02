@@ -58,6 +58,8 @@ pub mod error;
 pub mod factory;
 pub mod feedback;
 pub mod gate;
+pub mod hosting;
+pub mod lifecycle;
 pub mod meta;
 pub mod position;
 pub mod proof;
@@ -82,6 +84,10 @@ pub use annotation::{
 pub use change::{change_request_intent, ChangeRequestIntent};
 pub use error::{McpError, Result};
 pub use factory::{list_factories, resolve_factory, FactoryDef, StationDef};
+pub use lifecycle::{
+    enter_station, ensure_run_main, land_run, land_station, resolve_base_branch, run_main_branch,
+    station_branch, LifecycleOutcome,
+};
 pub use position::{
     checkpoint_decide, derive_position, render_prompt, run_start, run_tick, Position, PromptContext,
     RunAction, TickResult, Track,

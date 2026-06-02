@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::backend::{CreateOptions, GitBackend, WorktreeInfo};
+use crate::backend::{CreateOptions, GitBackend, MergeOutcome, WorktreeInfo};
 use crate::error::{GitError, Result};
 
 /// A [`GitBackend`] that shells out to the `git` executable.
@@ -135,6 +135,154 @@ impl GitBackend for ShellBackend {
         let out = self.run(&["status", "--porcelain"])?;
         Ok(out.trim().is_empty())
     }
+
+    fn branch_exists(&self, name: &str) -> Result<bool> {
+        // `rev-parse --verify <name>` exits non-zero when the ref is absent;
+        // qualify it as a head so a same-named tag/file can't masquerade.
+        let qualified = format!("refs/heads/{name}");
+        Ok(self
+            .run(&["rev-parse", "--quiet", "--verify", &qualified])
+            .map(|o| !o.trim().is_empty())
+            .unwrap_or(false))
+    }
+
+    fn create_branch(&self, name: &str, from_ref: &str) -> Result<()> {
+        // Idempotent: leave an existing branch in place (the lifecycle re-enters
+        // a station whose branch already forked).
+        if self.branch_exists(name)? {
+            return Ok(());
+        }
+        self.run(&["branch", name, from_ref])?;
+        Ok(())
+    }
+
+    fn is_ancestor(&self, maybe_ancestor: &str, descendant: &str) -> Result<bool> {
+        // `merge-base --is-ancestor` exits 0 when true, 1 when false.
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.repo_root)
+            .args(["merge-base", "--is-ancestor", maybe_ancestor, descendant])
+            .output()
+            .map_err(GitError::BareIo)?;
+        Ok(output.status.success())
+    }
+
+    fn merge_no_commit(&self, worktree_path: &Path, source_ref: &str) -> Result<MergeOutcome> {
+        let wt = worktree_path.to_string_lossy().to_string();
+        // `--no-commit --no-ff` stages the merge and leaves MERGE_HEAD set when
+        // a merge actually started; "Already up to date" exits 0, sets nothing.
+        let merge_err = run_in(&wt, &["merge", source_ref, "--no-ff", "--no-commit"]).err();
+
+        if !self.merge_in_progress(worktree_path)? {
+            // Either a clean no-op (already up to date) or a hard pre-merge
+            // refusal (e.g. dirty tree). If git threw with no merge started,
+            // surface it as a non-ok outcome.
+            if let Some(err) = merge_err {
+                return Ok(MergeOutcome {
+                    ok: false,
+                    performed: false,
+                    conflict_paths: Vec::new(),
+                    message: Some(err.to_string()),
+                });
+            }
+            return Ok(MergeOutcome {
+                ok: true,
+                performed: false,
+                conflict_paths: Vec::new(),
+                message: None,
+            });
+        }
+
+        // A merge is staged. The caller (engine_protected_merge) re-asserts
+        // engine state, re-scans conflicts, then commits.
+        Ok(MergeOutcome {
+            ok: true,
+            performed: true,
+            conflict_paths: Vec::new(),
+            message: None,
+        })
+    }
+
+    fn merge_in_progress(&self, worktree_path: &Path) -> Result<bool> {
+        let wt = worktree_path.to_string_lossy().to_string();
+        Ok(run_in(&wt, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"])
+            .map(|o| !o.trim().is_empty())
+            .unwrap_or(false))
+    }
+
+    fn checkout_paths(&self, worktree_path: &Path, from_ref: &str, paths: &[String]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let wt = worktree_path.to_string_lossy().to_string();
+        let mut args: Vec<&str> = vec!["checkout", from_ref, "--"];
+        args.extend(paths.iter().map(|s| s.as_str()));
+        // Best-effort per the reference: a no-op checkout on an absent path
+        // must not abort the restore sweep.
+        let _ = run_in(&wt, &args);
+        Ok(())
+    }
+
+    fn add_paths(&self, worktree_path: &Path, paths: &[String]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let wt = worktree_path.to_string_lossy().to_string();
+        let mut args: Vec<&str> = vec!["add", "--"];
+        args.extend(paths.iter().map(|s| s.as_str()));
+        let _ = run_in(&wt, &args);
+        Ok(())
+    }
+
+    fn commit(&self, worktree_path: &Path, message: &str) -> Result<()> {
+        let wt = worktree_path.to_string_lossy().to_string();
+        run_in(&wt, &["commit", "--no-edit", "-m", message])?;
+        Ok(())
+    }
+
+    fn ls_tree(&self, worktree_path: &Path, from_ref: &str, prefix: &str) -> Result<Vec<String>> {
+        let wt = worktree_path.to_string_lossy().to_string();
+        let out = run_in(
+            &wt,
+            &["ls-tree", "-r", "--name-only", from_ref, "--", prefix],
+        )
+        .unwrap_or_default();
+        Ok(out
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect())
+    }
+
+    fn unresolved_paths(&self, worktree_path: &Path) -> Result<Vec<String>> {
+        let wt = worktree_path.to_string_lossy().to_string();
+        let out = run_in(&wt, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
+        Ok(out
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect())
+    }
+}
+
+/// Run `git -C <dir> <args>` against an arbitrary working tree (not the
+/// backend's bound repo root) — the merge/restore/commit trio operates inside a
+/// station/run worktree, not the primary checkout.
+fn run_in(dir: &str, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(GitError::BareIo)?;
+    if !output.status.success() {
+        return Err(GitError::Command {
+            args: args.iter().map(|s| s.to_string()).collect(),
+            status: output.status,
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 /// Parse `git worktree list --porcelain` output into [`WorktreeInfo`] records.

@@ -2003,6 +2003,8 @@ fn sample_station() -> Station {
         status: Status::Active,
         phase: StationPhase::Manufacture,
         checkpoint: None,
+        branch: None,
+        pr_ref: None,
         started_at: None,
         completed_at: None,
     }
@@ -2074,6 +2076,8 @@ fn station_full_roundtrips() {
             entered_at: Some("t1".into()),
             outcome: Some(CheckpointOutcome::Advanced),
         }),
+        branch: None,
+        pr_ref: None,
         started_at: Some("t0".into()),
         completed_at: Some("t2".into()),
     };
@@ -2139,6 +2143,8 @@ fn station_yaml_roundtrips() {
         status: Status::Blocked,
         phase: StationPhase::Audit,
         checkpoint: None,
+        branch: None,
+        pr_ref: None,
         started_at: Some("t".into()),
         completed_at: None,
     };
@@ -2497,6 +2503,8 @@ fn double_roundtrip_is_idempotent_for_station() {
             entered_at: Some("t".into()),
             outcome: Some(CheckpointOutcome::Awaiting),
         }),
+        branch: None,
+        pr_ref: None,
         started_at: Some("t0".into()),
         completed_at: None,
     };
@@ -2878,6 +2886,8 @@ fn station_with_each_checkpoint_kind_roundtrips() {
                 entered_at: None,
                 outcome: None,
             }),
+            branch: None,
+            pr_ref: None,
             started_at: None,
             completed_at: None,
         };

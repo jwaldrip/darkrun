@@ -22,24 +22,33 @@ use crate::factory::resolve_factory;
 use crate::position::derive_position;
 use crate::position::RunAction;
 
-/// The branch prefix the engine forks run work onto, mirroring the worktree
-/// naming convention (`darkrun/<slug>`).
-const BRANCH_PREFIX: &str = "darkrun";
+use crate::lifecycle::{run_main_branch, station_branch};
 
 /// A fully-derived description of the change request an external Checkpoint
 /// wants opened. Pure data — no network, no credentials, no git remote.
 ///
-/// The CLI combines this with the repo's parsed remote coordinates (the base
-/// branch and provider come from there) and the stored credential to actually
-/// open the PR/MR.
+/// Under the branch hierarchy a DISCRETE station PR runs station-branch
+/// (`darkrun/<slug>/<station>`) -> run-main (`darkrun/<slug>/main`) as a DRAFT;
+/// the run-completion PR runs run-main -> the provider default. The CLI combines
+/// this with the repo's parsed remote coordinates and the stored credential to
+/// actually open the PR/MR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeRequestIntent {
     /// The run this change request delivers.
     pub run: String,
     /// The station whose external Checkpoint triggered the handoff.
     pub station: String,
-    /// The source branch carrying the run's work (the PR/MR head).
+    /// The source branch carrying the work (the PR/MR head) — the station
+    /// branch for a discrete station PR.
     pub head: String,
+    /// The branch the change request targets (the PR/MR base) — run-main for a
+    /// discrete station PR. Empty when the CLI should resolve the provider
+    /// default branch (the run-completion PR).
+    #[serde(default)]
+    pub base: String,
+    /// Whether to open the change request as a draft (discrete station PRs do).
+    #[serde(default)]
+    pub draft: bool,
     /// The change-request title.
     pub title: String,
     /// The change-request body (markdown).
@@ -47,9 +56,14 @@ pub struct ChangeRequestIntent {
 }
 
 impl ChangeRequestIntent {
-    /// The default head branch for a run slug: `darkrun/<slug>`.
-    pub fn default_branch(slug: &str) -> String {
-        format!("{BRANCH_PREFIX}/{slug}")
+    /// The run's stable base branch: `darkrun/<slug>/main`.
+    pub fn run_main_branch(slug: &str) -> String {
+        run_main_branch(slug)
+    }
+
+    /// A station's working branch: `darkrun/<slug>/<station>`.
+    pub fn station_branch(slug: &str, station: &str) -> String {
+        station_branch(slug, station)
     }
 }
 
@@ -99,7 +113,13 @@ pub fn change_request_intent(
         )));
     }
 
-    let head = head_override.unwrap_or_else(|| ChangeRequestIntent::default_branch(slug));
+    // Under the hierarchy a station's external Checkpoint opens a draft PR from
+    // its own branch into the run's stable base: darkrun/<slug>/<station> ->
+    // darkrun/<slug>/main. `head_override` still pins an explicit source branch
+    // (e.g. the live git branch) for the caller that knows better.
+    let head =
+        head_override.unwrap_or_else(|| ChangeRequestIntent::station_branch(slug, &station));
+    let base = ChangeRequestIntent::run_main_branch(slug);
     let title = run.title.clone();
     let body = build_body(&run.title, &station, &def.kills, &run.body);
 
@@ -107,6 +127,8 @@ pub fn change_request_intent(
         run: slug.to_string(),
         station,
         head,
+        base,
+        draft: true,
         title,
         body,
     })
@@ -241,7 +263,10 @@ mod tests {
         let intent = change_request_intent(&store, "r", None).expect("intent");
         assert_eq!(intent.run, "r");
         assert_eq!(intent.station, "harden");
-        assert_eq!(intent.head, "darkrun/r");
+        // Hierarchy: the station's draft PR runs station-branch -> run-main.
+        assert_eq!(intent.head, "darkrun/r/harden");
+        assert_eq!(intent.base, "darkrun/r/main");
+        assert!(intent.draft, "discrete station PRs open as draft");
         assert_eq!(intent.title, "Ship the thing");
         assert!(intent.body.contains("harden"));
         assert!(intent.body.contains("works-in-dev-dies-in-prod"));
@@ -282,7 +307,14 @@ mod tests {
     }
 
     #[test]
-    fn default_branch_uses_prefix() {
-        assert_eq!(ChangeRequestIntent::default_branch("my-run"), "darkrun/my-run");
+    fn hierarchy_branch_helpers() {
+        assert_eq!(
+            ChangeRequestIntent::run_main_branch("my-run"),
+            "darkrun/my-run/main"
+        );
+        assert_eq!(
+            ChangeRequestIntent::station_branch("my-run", "harden"),
+            "darkrun/my-run/harden"
+        );
     }
 }

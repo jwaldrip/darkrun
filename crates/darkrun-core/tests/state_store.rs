@@ -67,6 +67,8 @@ fn station(name: &str, status: Status, phase: StationPhase) -> Station {
         status,
         phase,
         checkpoint: None,
+        branch: None,
+        pr_ref: None,
         started_at: None,
         completed_at: None,
     }

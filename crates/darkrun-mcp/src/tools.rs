@@ -157,7 +157,11 @@ pub struct RunStartInput {
     /// Optional human-readable title.
     #[serde(default)]
     pub title: Option<String>,
-    /// Run sizing mode. Defaults to `continuous`.
+    /// Run sizing + gate mode. Defaults to `continuous`. One of: `full`/
+    /// `continuous` (whole line, factory gates), `quick`/`bugfix`/`refactor`
+    /// (right-sized station subsets), `discrete` (full line, every station's
+    /// Checkpoint resolves on a human PR/MR merge), or `discrete-hybrid`
+    /// (continuous except a per-station PR on external-review stations).
     #[serde(default = "default_mode")]
     pub mode: String,
 }

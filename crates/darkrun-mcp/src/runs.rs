@@ -35,25 +35,16 @@ pub struct RunSummary {
     pub authored_by_me: bool,
 }
 
-/// The conventional run-work branch for a slug (`darkrun/<slug>`).
+/// The run's stable accumulating branch for a slug, used as the authorship head
+/// (`darkrun/<slug>/main` — the per-run base every landed station fans into).
 fn run_branch(slug: &str) -> String {
-    format!("darkrun/{slug}")
+    crate::lifecycle::run_main_branch(slug)
 }
 
-/// The base branch runs fork from — `default_branch` out of
-/// `.darkrun/settings.yml`, defaulting to `main` when unset or unreadable.
-/// Parsed line-wise so this needs no YAML dependency.
+/// The base branch runs fork from — the shared [`resolve_base_branch`] helper
+/// (`default_branch` out of `.darkrun/settings.yml`, defaulting to `main`).
 fn base_branch(store: &StateStore) -> String {
-    let raw = std::fs::read_to_string(store.root().join("settings.yml")).unwrap_or_default();
-    for line in raw.lines() {
-        if let Some(value) = line.trim().strip_prefix("default_branch:") {
-            let value = value.trim().trim_matches(['"', '\'']).trim();
-            if !value.is_empty() {
-                return value.to_string();
-            }
-        }
-    }
-    "main".to_string()
+    crate::lifecycle::resolve_base_branch(store)
 }
 
 /// List every run on disk as a summary, sorted by slug. Archived runs are
@@ -192,37 +183,40 @@ mod tests {
                 .success();
             assert!(ok, "git {args:?} failed");
         };
-        // A real repo with the current identity = me@x.io. `.darkrun/` is left
-        // untracked throughout so checking out a work branch never clobbers the
-        // run documents on disk.
+        // A real repo with the current identity = me@x.io. `.darkrun/` is
+        // gitignored so the per-station worktrees the lifecycle forks never
+        // clobber the run documents on disk.
         git(&["init", "-q", "-b", "main"]);
         git(&["config", "user.email", "me@x.io"]);
         git(&["config", "user.name", "Me"]);
+        std::fs::write(root.join(".gitignore"), ".darkrun/\n").unwrap();
         std::fs::write(root.join("README.md"), "# x\n").unwrap();
-        git(&["add", "README.md"]);
+        git(&["add", "README.md", ".gitignore"]);
         git(&["commit", "-q", "-m", "base"]);
 
-        // A run whose branch carries a commit I authored.
-        git(&["checkout", "-q", "-b", "darkrun/mine-run"]);
+        // Register both runs. run_start forks each run's stable branch
+        // (darkrun/<slug>/main) off `main` — the authorship head under the
+        // hierarchy.
+        let store = StateStore::new(root);
+        run_start(&store, "mine-run", "software", None, "continuous").unwrap();
+        run_start(&store, "their-run", "software", None, "continuous").unwrap();
+
+        // A commit I authored on mine-run's run-main branch.
+        git(&["checkout", "-q", "darkrun/mine-run/main"]);
         std::fs::write(root.join("work.txt"), "work\n").unwrap();
         git(&["add", "work.txt"]);
         git(&["commit", "-q", "-m", "work"]);
 
-        // A run whose branch was authored by someone else.
-        git(&["checkout", "-q", "main"]);
-        git(&["checkout", "-q", "-b", "darkrun/their-run"]);
+        // A commit authored by someone else on their-run's run-main branch.
+        git(&["checkout", "-q", "darkrun/their-run/main"]);
         git(&["config", "user.email", "other@x.io"]);
         std::fs::write(root.join("theirs.txt"), "theirs\n").unwrap();
         git(&["add", "theirs.txt"]);
         git(&["commit", "-q", "-m", "theirs"]);
 
-        // Back on main with my identity as the "current" one, register both
-        // runs so their documents are on disk for the list.
+        // Back on main with my identity as the "current" one for the list.
         git(&["checkout", "-q", "main"]);
         git(&["config", "user.email", "me@x.io"]);
-        let store = StateStore::new(root);
-        run_start(&store, "mine-run", "software", None, "continuous").unwrap();
-        run_start(&store, "their-run", "software", None, "continuous").unwrap();
 
         let runs = list(&store, root, true).unwrap();
         let by_slug = |slug: &str| runs.iter().find(|r| r.slug == slug).unwrap();

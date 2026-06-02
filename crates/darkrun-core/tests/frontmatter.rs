@@ -1063,6 +1063,8 @@ fn roundtrip_station_through_envelope() {
             entered_at: Some("2026-05-30T00:00:00Z".into()),
             outcome: Some(CheckpointOutcome::Paused),
         }),
+        branch: None,
+        pr_ref: None,
         started_at: Some("2026-05-30T00:00:00Z".into()),
         completed_at: None,
     };
@@ -1092,6 +1094,8 @@ fn roundtrip_station_each_phase() {
             status: Status::Pending,
             phase,
             checkpoint: None,
+            branch: None,
+            pr_ref: None,
             started_at: None,
             completed_at: None,
         };
@@ -1119,6 +1123,8 @@ fn roundtrip_checkpoint_each_kind() {
                 entered_at: None,
                 outcome: None,
             }),
+            branch: None,
+            pr_ref: None,
             started_at: None,
             completed_at: None,
         };
@@ -1146,6 +1152,8 @@ fn roundtrip_checkpoint_each_outcome() {
                 entered_at: None,
                 outcome: Some(outcome),
             }),
+            branch: None,
+            pr_ref: None,
             started_at: None,
             completed_at: None,
         };
@@ -1167,6 +1175,8 @@ fn roundtrip_station_skips_none_checkpoint() {
         status: Status::Pending,
         phase: StationPhase::Spec,
         checkpoint: None,
+        branch: None,
+        pr_ref: None,
         started_at: None,
         completed_at: None,
     };
@@ -1186,6 +1196,8 @@ fn roundtrip_station_idempotent() {
             entered_at: Some("2026-05-30T00:00:00Z".into()),
             outcome: Some(CheckpointOutcome::Advanced),
         }),
+        branch: None,
+        pr_ref: None,
         started_at: Some("2026-05-30T00:00:00Z".into()),
         completed_at: Some("2026-05-30T02:00:00Z".into()),
     };
@@ -2013,6 +2025,8 @@ fn serialize_station_emits_snake_case_phase() {
         status: Status::Pending,
         phase: StationPhase::Manufacture,
         checkpoint: None,
+        branch: None,
+        pr_ref: None,
         started_at: None,
         completed_at: None,
     };

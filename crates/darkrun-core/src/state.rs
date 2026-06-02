@@ -53,6 +53,26 @@ pub struct RunState {
     /// per-station gates.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_gates: bool,
+    /// When `true`, this run is in DISCRETE mode: each station's checkpoint
+    /// resolves on a human PR/MR merge rather than in-process. Snapshotted at
+    /// run start from the mode so the (pure) cursor can resolve the External
+    /// gate without re-parsing the mode string. (The discrete gate-resolution
+    /// itself is a later phase; the branch hierarchy is universal regardless.)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discrete: bool,
+    /// When `true`, this run is in DISCRETE-HYBRID mode: it runs continuous
+    /// (in-process gate resolution) within stations EXCEPT those whose factory
+    /// checkpoint is `external`, which open a per-station draft PR/MR that the
+    /// human merges. Snapshotted at run start alongside `discrete` so the (pure)
+    /// cursor resolves each station's gate without re-parsing the mode string.
+    /// Only meaningful when `discrete` is also set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discrete_hybrid: bool,
+    /// The base branch this run's `darkrun/<slug>/main` forked from, snapshotted
+    /// at run start so the run-completion land has a stable target even if
+    /// `settings.yml` changes mid-run. Absent on legacy state (resolved live).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
     /// Per-station derived state, keyed by station name.
     #[serde(default)]
     pub stations: BTreeMap<String, Station>,
@@ -453,6 +473,8 @@ mod tests {
             status,
             phase,
             checkpoint: None,
+            branch: None,
+            pr_ref: None,
             started_at: None,
             completed_at: None,
         }
@@ -517,6 +539,49 @@ mod tests {
             assert_eq!(s.status, Status::Pending);
             assert_eq!(s.phase, StationPhase::Spec);
         }
+    }
+
+    #[test]
+    fn new_hierarchy_fields_default_and_round_trip() {
+        // Legacy state with none of the new fields still deserializes, with the
+        // new fields taking their defaults.
+        let legacy = r#"{"factory":"software","active_station":"build","stations":{}}"#;
+        let state: RunState = serde_json::from_str(legacy).expect("legacy deserializes");
+        assert!(!state.discrete, "discrete defaults to false");
+        assert!(state.base_branch.is_none(), "base_branch defaults to None");
+
+        // A station record without `branch` deserializes with branch = None.
+        let st_json = r#"{"station":"build","status":"completed","phase":"checkpoint"}"#;
+        let st: Station = serde_json::from_str(st_json).expect("legacy station deserializes");
+        assert!(st.branch.is_none());
+
+        // Round-trip the new fields when set.
+        let mut state = RunState {
+            discrete: true,
+            base_branch: Some("trunk".into()),
+            ..Default::default()
+        };
+        state.stations.insert(
+            "build".into(),
+            station("build", Status::InProgress, StationPhase::Manufacture),
+        );
+        if let Some(b) = state.stations.get_mut("build") {
+            b.branch = Some("darkrun/r/build".into());
+        }
+        let json = serde_json::to_string(&state).unwrap();
+        let back: RunState = serde_json::from_str(&json).unwrap();
+        assert!(back.discrete);
+        assert_eq!(back.base_branch.as_deref(), Some("trunk"));
+        assert_eq!(
+            back.stations.get("build").unwrap().branch.as_deref(),
+            Some("darkrun/r/build")
+        );
+
+        // Defaults are skipped on the wire (no migration churn for existing state).
+        let plain = RunState::default();
+        let plain_json = serde_json::to_string(&plain).unwrap();
+        assert!(!plain_json.contains("discrete"));
+        assert!(!plain_json.contains("base_branch"));
     }
 
     #[test]
