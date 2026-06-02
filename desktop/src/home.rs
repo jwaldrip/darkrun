@@ -90,6 +90,8 @@ enum Selection {
     Run { port: u16, slug: String, project: String },
     /// A project with no live engine — show the per-harness one-step command.
     NoEngine { name: String, path: String },
+    /// The settings page (theme, …), opened from the toolbar gear.
+    Settings,
 }
 
 /// The desktop shell: toolbar + sidebar + main pane.
@@ -216,6 +218,23 @@ pub fn HomeApp(
         });
     }
 
+    // Apply the persisted theme override on launch. The control that *changes* it
+    // now lives in the Settings page, which isn't mounted at startup — so the
+    // shell itself re-applies the saved `[data-theme]` so a pinned Light/Dark
+    // survives a relaunch without the user opening Settings first.
+    use_effect(move || {
+        spawn(async move {
+            if let Ok(label) = document::eval(&format!(
+                "return (localStorage.getItem('{THEME_STORAGE_KEY}') || 'system');"
+            ))
+            .join::<String>()
+            .await
+            {
+                let _ = document::eval(&apply_script(ThemeChoice::from_label(&label)));
+            }
+        });
+    });
+
     // Reading `refresh` ties a re-render to a clone/register so a freshly-written
     // `project.json` shows without waiting for the poller.
     let _ = refresh.read();
@@ -228,7 +247,7 @@ pub fn HomeApp(
         // compaction the mockup's mobile frame shows. Scoped to `.dr-shell-*`.
         style { "{SHELL_CSS}" }
         div { class: "dr-shell",
-            Toolbar { drawer_open }
+            Toolbar { drawer_open, selection }
             div { class: "dr-shell-body",
                 Sidebar {
                     projects: projects.clone(),
@@ -263,6 +282,11 @@ fn engine_display_name(e: &DiscoveredEngine) -> String {
 /// frame. The desktop window is resizable, so this rides a viewport media query
 /// inside the webview rather than any window event.
 const SHELL_CSS: &str = r#"
+/* Reset the webview's default 8px body margin so the shell sits flush to the
+   window edges (otherwise it's inset on all sides AND 100vh overflows into a
+   scrollbar). The website has its own reset; the desktop needs this one. */
+html,body{ margin:0; padding:0; height:100%; }
+*{ box-sizing:border-box; }
 .dr-shell{ display:flex; flex-direction:column; height:100vh; overflow:hidden;
   background:var(--dr-surface-base); color:var(--dr-text);
   font-family:var(--dr-font-sans); }
@@ -292,22 +316,41 @@ const SHELL_CSS: &str = r#"
 /// override control, and (on a narrow window) a hamburger that toggles the
 /// sidebar drawer.
 #[component]
-fn Toolbar(drawer_open: Signal<bool>) -> Element {
+fn Toolbar(drawer_open: Signal<bool>, selection: Signal<Selection>) -> Element {
+    // On macOS the title bar is transparent + fullsize-content, so this toolbar
+    // sits at the very top with the traffic lights floating over its left — pad
+    // left to clear them. The bar is a window drag region (`-webkit-app-region`);
+    // the interactive controls opt back out with `no-drag`.
+    let left_pad = if cfg!(target_os = "macos") { 78 } else { 14 };
     let bar = format!(
         "height:44px;flex:none;display:flex;align-items:center;gap:12px;\
-         padding:0 14px;background:{overlay};border-bottom:1px solid {border};",
+         padding:0 14px 0 {left_pad}px;background:{overlay};\
+         border-bottom:1px solid {border};-webkit-app-region:drag;user-select:none;",
         overlay = tokens::var::SURFACE_OVERLAY,
         border = tokens::var::BORDER,
     );
     let burger = format!(
         "appearance:none;background:transparent;border:1px solid {border};\
          border-radius:7px;width:30px;height:26px;align-items:center;\
-         justify-content:center;color:{muted};font-size:15px;cursor:pointer;",
+         justify-content:center;color:{muted};font-size:15px;cursor:pointer;\
+         -webkit-app-region:no-drag;",
         border = tokens::var::BORDER_STRONG,
         muted = tokens::var::TEXT_MUTED,
     );
+    // The settings gear — opens the settings page (theme, …) in the main pane.
+    let on_settings = matches!(*selection.read(), Selection::Settings);
+    let gear = format!(
+        "appearance:none;background:{bg};border:1px solid {border};\
+         border-radius:7px;width:30px;height:26px;display:inline-flex;align-items:center;\
+         justify-content:center;color:{color};font-size:14px;cursor:pointer;\
+         -webkit-app-region:no-drag;",
+        bg = if on_settings { tokens::var::SURFACE_OVERLAY } else { "transparent" },
+        border = tokens::var::BORDER_STRONG,
+        color = if on_settings { tokens::var::ACCENT } else { tokens::var::TEXT_MUTED },
+    );
 
     let mut drawer_open = drawer_open;
+    let mut selection = selection;
     rsx! {
         header { style: "{bar}",
             button {
@@ -322,7 +365,15 @@ fn Toolbar(drawer_open: Signal<bool>) -> Element {
             }
             Wordmark { variant: WordmarkVariant::OutlinedSolidRun, size: 22.0 }
             span { style: "flex:1;" }
-            ThemeControl {}
+            // The gear opts out of the drag region so it stays clickable.
+            button {
+                class: "dr-shell-settings",
+                style: "{gear}",
+                "aria-label": "Settings",
+                title: "Settings",
+                onclick: move |_| selection.set(Selection::Settings),
+                "\u{2699}"
+            }
         }
     }
 }
@@ -868,9 +919,52 @@ fn MainPane(
                 NoEngine { name, path }
             }
         },
+        Selection::Settings => rsx! {
+            MainHeader { name: "Settings".to_string(), crumb: "appearance & preferences".to_string() }
+            SettingsPage {}
+        },
         Selection::None => rsx! {
             Welcome { projects: projects.clone(), refresh }
         },
+    }
+}
+
+/// The settings page — opened from the toolbar gear. Houses the theme override
+/// (moved out of the toolbar) and is the home for future preferences.
+#[component]
+fn SettingsPage() -> Element {
+    let wrap = "padding:20px;display:flex;flex-direction:column;gap:8px;max-width:560px;";
+    let card = format!(
+        "background:{surface};border:1px solid {border};border-radius:10px;padding:16px;\
+         display:flex;flex-direction:column;gap:14px;",
+        surface = tokens::var::SURFACE_OVERLAY,
+        border = tokens::var::BORDER,
+    );
+    let label = format!(
+        "font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:{faint};\
+         font-family:{mono};",
+        faint = tokens::var::TEXT_FAINT,
+        mono = tokens::FONT_MONO,
+    );
+    let row = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
+    let name = format!("font-size:14px;font-weight:600;color:{text};", text = tokens::var::TEXT);
+    let hint = format!(
+        "font-size:12px;color:{muted};margin:0;",
+        muted = tokens::var::TEXT_MUTED,
+    );
+    rsx! {
+        div { style: "{wrap}",
+            div { style: "{label}", "Appearance" }
+            div { style: "{card}",
+                div { style: "{row}",
+                    div { style: "display:flex;flex-direction:column;gap:3px;",
+                        span { style: "{name}", "Theme" }
+                        p { style: "{hint}", "System follows your OS appearance; Light and Dark pin it." }
+                    }
+                    ThemeControl {}
+                }
+            }
+        }
     }
 }
 

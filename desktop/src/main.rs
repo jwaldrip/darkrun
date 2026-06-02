@@ -32,6 +32,18 @@ fn main() {
         .with_inner_size(LogicalSize::new(1040.0, 760.0))
         .with_focused(true)
         .with_visible(true);
+    // macOS: drop the separate title bar and let the content fill up to the top,
+    // so the shell toolbar (the wordmark + theme control) IS the title bar, with
+    // the traffic lights floating over its left. The toolbar carries an
+    // `-webkit-app-region:drag` region so the window stays draggable by it.
+    #[cfg(target_os = "macos")]
+    let window = {
+        use dioxus::desktop::tao::platform::macos::WindowBuilderExtMacOS;
+        window
+            .with_titlebar_transparent(true)
+            .with_title_hidden(true)
+            .with_fullsize_content_view(true)
+    };
     dioxus::LaunchBuilder::desktop()
         .with_cfg(Config::new().with_window(window))
         .launch(app);

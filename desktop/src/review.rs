@@ -88,14 +88,17 @@ pub fn ReviewApp(cfg: ConnConfig) -> Element {
         }
     });
 
-    let shell = "padding:20px 24px;display:flex;flex-direction:column;gap:16px;\
-                 max-width:880px;margin:0 auto;";
+    // Fill the main pane (the shell already provides the chrome + gutters); a
+    // generous max-width keeps long lines readable without leaving a centered
+    // moat of padding on a wide window.
+    let shell = "padding:14px 18px;display:flex;flex-direction:column;gap:12px;\
+                 max-width:1000px;";
 
     rsx! {
         div { style: "{shell}",
             // The wordmark + app chrome live in the shell toolbar now, so the
             // review pane shows only its content plus a slim connection indicator.
-            div { style: "display:flex;justify-content:flex-end;align-items:center;",
+            div { style: "display:flex;justify-content:flex-end;align-items:center;min-height:0;",
                 LinkBadge { link: link.read().clone() }
             }
             match payload.read().clone() {

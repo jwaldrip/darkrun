@@ -130,15 +130,23 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 #[cfg(target_os = "macos")]
 const APP_ICON: &[u8] = include_bytes!("../assets/AppIcon.icns");
 
+/// The bundle's inner executable path for a given `.app`.
+#[cfg(target_os = "macos")]
+fn bundle_exe(bundle: &Path) -> PathBuf {
+    bundle.join("Contents").join("MacOS").join("darkrun-desktop")
+}
+
 /// Materialize (idempotently) a tiny `.app` wrapper next to `bin` so `open` can
-/// hand the launch to LaunchServices. The `Contents/MacOS` executable is a
-/// symlink to the real binary — so the bundle never goes stale across rebuilds,
-/// and it's valid to create even before `cargo build` has produced `bin` (the
-/// dev cold-build path): the symlink simply resolves once the build lands.
-/// Returns the `.app` path.
+/// hand the launch to LaunchServices. Writes only the plist + icon + dirs (cheap,
+/// and valid even before the binary is built); the executable itself is placed by
+/// [`sync_bundle_exe`] / the build script. Returns the `.app` path.
+///
+/// The `Contents/MacOS` executable must be a **real copy** of the binary, NOT a
+/// symlink: macOS resolves the main bundle from the executable's path, so a
+/// symlink pointing at a binary *outside* the `.app` loses the bundle association
+/// and the Dock falls back to a generic icon.
 #[cfg(target_os = "macos")]
 fn ensure_bundle(bin: &Path) -> std::io::Result<PathBuf> {
-    use std::os::unix::fs::symlink;
     let dir = bin.parent().unwrap_or_else(|| Path::new("."));
     let bundle = dir.join("darkrun-desktop.app");
     let macos = bundle.join("Contents").join("MacOS");
@@ -147,10 +155,36 @@ fn ensure_bundle(bin: &Path) -> std::io::Result<PathBuf> {
     let resources = bundle.join("Contents").join("Resources");
     std::fs::create_dir_all(&resources)?;
     std::fs::write(resources.join("AppIcon.icns"), APP_ICON)?;
-    let link = macos.join("darkrun-desktop");
-    let _ = std::fs::remove_file(&link); // refresh the symlink target
-    symlink(bin, &link)?;
     Ok(bundle)
+}
+
+/// Copy `bin` into the bundle's `Contents/MacOS` (replacing any stale symlink or
+/// older copy) so the launched app is a self-contained bundle with our icon. A
+/// no-op when the copy is already current (same size + mtime), to avoid a 40 MB
+/// copy on every launch. `touch`es the bundle so LaunchServices re-reads it.
+#[cfg(target_os = "macos")]
+fn sync_bundle_exe(bundle: &Path, bin: &Path) -> std::io::Result<()> {
+    if !bin.is_file() {
+        return Ok(());
+    }
+    let exe = bundle_exe(bundle);
+    let current = std::fs::symlink_metadata(&exe);
+    let needs_copy = match (&current, bin.metadata()) {
+        // Re-copy if the dest is a symlink, a different size, or older than `bin`.
+        (Ok(c), Ok(b)) => {
+            c.file_type().is_symlink()
+                || c.len() != b.len()
+                || c.modified().ok() < b.modified().ok()
+        }
+        _ => true,
+    };
+    if needs_copy {
+        let _ = std::fs::remove_file(&exe);
+        std::fs::copy(bin, &exe)?;
+        // Bump the bundle mtime so LaunchServices refreshes the cached icon.
+        let _ = Command::new("touch").arg(bundle).status();
+    }
+    Ok(())
 }
 
 /// Spawn a **detached** `cargo build -p darkrun-desktop && <launch>` so the build
@@ -179,11 +213,20 @@ fn spawn_build_then_launch(
             .map(|s| format!(" --env DARKRUN_SESSION_ID={s}"))
             .unwrap_or_default();
         let script = match bundle {
+            // After the build, copy the freshly-built binary INTO the bundle (a
+            // real executable, not a symlink) so macOS keeps the bundle/icon
+            // association, then `touch` the .app so LaunchServices re-reads it
+            // (busting a stale icon cache), then launch.
             Ok(bundle) => format!(
-                "cargo build -p darkrun-desktop{rel} && exec open -n {} --env DARKRUN_PORT={port}{sess} --stdout {} --stderr {}",
-                sh_quote(Path::new(&bundle)),
-                sh_quote(&log),
-                sh_quote(&log),
+                "cargo build -p darkrun-desktop{rel} && rm -f {exe} && cp {bin} {exe} && touch {bnd} && \
+                 exec open -n {bnd} --env DARKRUN_PORT={port}{sess} --stdout {log} --stderr {log}",
+                bin = sh_quote(bin),
+                // `rm` first so we replace any stale symlink instead of copying
+                // *through* it onto the source binary (which would leave the
+                // symlink — and the broken icon — in place).
+                exe = sh_quote(&bundle_exe(Path::new(&bundle))),
+                bnd = sh_quote(Path::new(&bundle)),
+                log = sh_quote(&log),
             ),
             // Bundle couldn't be written — fall back to a direct exec.
             Err(_) => format!(
@@ -272,6 +315,9 @@ fn launch(bin: PathBuf, port: u16, repo_root: &Path, session: Option<&str>) -> L
         Ok(b) => b,
         Err(_) => return launch_direct(bin, port, repo_root, session),
     };
+    // Put a real copy of the binary inside the bundle (replacing any stale
+    // symlink) so the Dock shows our icon; a no-op when already current.
+    let _ = sync_bundle_exe(&bundle, &bin);
     let log = log_path(repo_root);
     let _ = open_log(repo_root); // ensure .darkrun/ exists for open's redirect
     // `open` blocks only until LaunchServices accepts the launch, so a non-zero
