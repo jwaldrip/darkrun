@@ -26,7 +26,7 @@ pub fn Landing() -> Element {
 
     rsx! {
         section { style: "{hero}",
-            Wordmark { variant: WordmarkVariant::Outlined, size: 64.0 }
+            Wordmark { variant: WordmarkVariant::OutlinedSolidRun, size: 64.0, interactive: true }
             h1 { style: "{tagline}", "An agentic assembly line for your business." }
             p { style: "{sub}",
                 "darkrun is a dark factory harness: it runs your agents lights-out as an ordered "

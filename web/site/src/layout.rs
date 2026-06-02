@@ -43,7 +43,7 @@ pub fn Shell() -> Element {
         div { style: "{page_bg}",
             header { style: "{header}",
                 Link { to: Route::Landing {},
-                    Wordmark { variant: WordmarkVariant::Outlined, size: 22.0 }
+                    Wordmark { variant: WordmarkVariant::OutlinedSolidRun, size: 22.0, interactive: true }
                 }
                 nav { style: "{nav}",
                     NavLink { to: Route::StartHere {}, label: "Start here" }

@@ -42,7 +42,44 @@ impl WordmarkVariant {
 pub fn Wordmark(
     #[props(default = WordmarkVariant::Filled)] variant: WordmarkVariant,
     #[props(default = 24.0)] size: f64,
+    /// Lights-out interaction (website logo): rest in the dark-filled outline,
+    /// glow blue on hover, flicker back out on blur. Ignores `variant` (always
+    /// the outlined-dark + solid-run look). Color/glow are driven by the
+    /// `data-anim` state in `THEME_CSS` so they override the inline stroke cleanly.
+    #[props(default = false)]
+    interactive: bool,
 ) -> Element {
+    let root_style = format!(
+        "font-family:{font};font-size:{size}px;letter-spacing:-0.02em;\
+         line-height:1;display:inline-flex;align-items:baseline;",
+        font = tokens::FONT_SANS,
+    );
+
+    if interactive {
+        let mut state = use_signal(|| "rest");
+        // Constant stroke + paint-order inline; the fill color + glow come from
+        // THEME_CSS keyed on data-anim (rest -> lit -> flicker), so the keyframes
+        // can override without fighting an inline `color`.
+        let dark_const = format!(
+            "font-weight:800;paint-order:stroke;\
+             -webkit-text-stroke:1.5px {accent};text-stroke:1.5px {accent};",
+            accent = tokens::ACCENT,
+        );
+        let run_style = format!("color:{};font-weight:500;", tokens::TEXT);
+        return rsx! {
+            span {
+                class: "dr-wordmark dr-wordmark-anim",
+                "data-anim": "{state}",
+                style: "{root_style}",
+                "aria-label": "darkrun",
+                onmouseenter: move |_| state.set("lit"),
+                onmouseleave: move |_| state.set("flicker"),
+                span { class: "dr-wordmark-dark", style: "{dark_const}", "dark" }
+                span { class: "dr-wordmark-run", style: "{run_style}", "run" }
+            }
+        };
+    }
+
     let (dark_style, run_style) = match variant {
         WordmarkVariant::Filled => (
             format!("color:{};font-weight:800;", tokens::ACCENT),
@@ -64,20 +101,19 @@ pub fn Wordmark(
         ),
         WordmarkVariant::OutlinedSolidRun => (
             // Outlined accent "dark" paired with a solid, medium-weight "run".
+            // The "dark" glyphs are FILLED with the base color (not transparent)
+            // and painted stroke-under-fill (`paint-order:stroke`), so the fill
+            // masks the inner stroke + the crossings where tight-kerned bold
+            // glyphs overlap — leaving a single clean outer outline.
             format!(
-                "color:transparent;font-weight:800;\
-                 -webkit-text-stroke:1px {accent};text-stroke:1px {accent};",
+                "color:{base};font-weight:800;paint-order:stroke;\
+                 -webkit-text-stroke:1.5px {accent};text-stroke:1.5px {accent};",
+                base = tokens::SURFACE_BASE,
                 accent = tokens::ACCENT
             ),
             format!("color:{};font-weight:500;", tokens::TEXT),
         ),
     };
-
-    let root_style = format!(
-        "font-family:{font};font-size:{size}px;letter-spacing:-0.02em;\
-         line-height:1;display:inline-flex;align-items:baseline;",
-        font = tokens::FONT_SANS,
-    );
 
     rsx! {
         span {

@@ -133,6 +133,31 @@ html,body{
   font-family:var(--dr-font-sans);
   color-scheme:dark;
 }
+/* Lights-out wordmark (interactive site logo): rest dark, glow on hover, flicker
+   out on blur. The "dark" glyphs carry a constant cyan stroke painted under the
+   fill; only the fill color + glow change per data-anim state. */
+.dr-wordmark-anim .dr-wordmark-dark{ color:#07090c; text-shadow:none; }
+.dr-wordmark-anim[data-anim="lit"] .dr-wordmark-dark{
+  color:#5fd7ff; text-shadow:0 0 22px #5fd7ffcc, 0 0 6px #5fd7ff;
+  transition:color .12s ease, text-shadow .12s ease;
+}
+.dr-wordmark-anim[data-anim="flicker"] .dr-wordmark-dark{ animation:dr-lightsout 1.3s ease both; }
+@keyframes dr-lightsout{
+  0%   { color:#5fd7ff; text-shadow:0 0 22px #5fd7ffcc, 0 0 6px #5fd7ff; }
+  18%  { color:#5fd7ff; text-shadow:0 0 20px #5fd7ffbb; }
+  24%  { color:#07090c; text-shadow:none; }
+  30%  { color:#5fd7ff; text-shadow:0 0 16px #5fd7ff99; }
+  36%  { color:#07090c; text-shadow:none; }
+  44%  { color:#3a8aa0; text-shadow:0 0 6px #5fd7ff44; }
+  50%  { color:#07090c; text-shadow:none; }
+  58%  { color:#1c4a58; text-shadow:none; }
+  64%  { color:#07090c; text-shadow:none; }
+  100% { color:#07090c; text-shadow:none; }
+}
+@media (prefers-reduced-motion:reduce){
+  .dr-wordmark-anim[data-anim="flicker"] .dr-wordmark-dark{ animation:none; color:#07090c; }
+  .dr-wordmark-anim[data-anim="lit"] .dr-wordmark-dark{ transition:none; }
+}
 "#;
 
 /// The six station phases, in canonical order, each with its name and hue.

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>darkrun — lights out (hover)</title>
+<style>
+html,body{ background:#07090c; margin:0; height:100%;
+  display:flex; align-items:center; justify-content:center; flex-direction:column; gap:26px;
+  font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif; }
+.wm{ font-size:170px; letter-spacing:-6px; line-height:1; user-select:none; }
+.r{ font-weight:500; color:#e6edf3; }
+
+/* constant cyan stroke painted UNDER the fill; only fill color + glow change */
+.d{
+  font-weight:800;
+  -webkit-text-stroke:1.6px #5fd7ff; text-stroke:1.6px #5fd7ff;
+  paint-order:stroke;
+  color:#07090c;                      /* rest: lights out */
+}
+.wm[data-anim="lit"] .d{
+  color:#5fd7ff; text-shadow:0 0 22px #5fd7ffcc, 0 0 6px #5fd7ff;
+  transition:color .12s ease, text-shadow .12s ease;
+}
+.wm[data-anim="flicker"] .d{ animation:lightsout 1.3s ease both; }
+
+@keyframes lightsout{
+  0%   { color:#5fd7ff; text-shadow:0 0 22px #5fd7ffcc, 0 0 6px #5fd7ff; }
+  18%  { color:#5fd7ff; text-shadow:0 0 20px #5fd7ffbb; }
+  24%  { color:#07090c; text-shadow:none; }
+  30%  { color:#5fd7ff; text-shadow:0 0 16px #5fd7ff99; }
+  36%  { color:#07090c; text-shadow:none; }
+  44%  { color:#3a8aa0; text-shadow:0 0 6px #5fd7ff44; }
+  50%  { color:#07090c; text-shadow:none; }
+  58%  { color:#1c4a58; }
+  64%  { color:#07090c; }
+  100% { color:#07090c; text-shadow:none; }
+}
+@media (prefers-reduced-motion: reduce){ .wm[data-anim="flicker"] .d{ animation:none; color:#07090c; } }
+.hint{ font-family:ui-monospace,monospace; font-size:12px; color:#5b6773; }
+</style></head>
+<body>
+  <div class="wm" id="wm" data-anim="rest"
+       onmouseenter="this.dataset.anim='lit'"
+       onmouseleave="this.dataset.anim='flicker'">
+    <span class="d">dark</span><span class="r">run</span>
+  </div>
+  <div class="hint">rest = dark · hover = glow · leave = flicker out</div>
+</body></html>

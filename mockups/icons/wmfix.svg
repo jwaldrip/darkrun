@@ -1,0 +1,14 @@
+<svg width="900" height="420" viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="420" fill="#07090c"/>
+  <style>.lbl{font-family:Arial;font-size:16px;fill:#5b6773}</style>
+  <!-- BROKEN: transparent fill + stroke (the inner crossings show) -->
+  <text x="40" y="160" font-family="'Helvetica Neue',Arial,sans-serif" font-size="150" letter-spacing="-5">
+    <tspan fill="none" stroke="#5fd7ff" stroke-width="2" font-weight="800">dark</tspan><tspan fill="#e6edf3" font-weight="500">run</tspan>
+  </text>
+  <text x="40" y="200" class="lbl">broken: transparent fill, stroke on top</text>
+  <!-- FIXED: dark fill + stroke + paint-order:stroke (fill covers inner crossings) -->
+  <text x="40" y="360" font-family="'Helvetica Neue',Arial,sans-serif" font-size="150" letter-spacing="-5" paint-order="stroke">
+    <tspan fill="#07090c" stroke="#5fd7ff" stroke-width="4" font-weight="800">dark</tspan><tspan fill="#e6edf3" font-weight="500">run</tspan>
+  </text>
+  <text x="40" y="400" class="lbl">fixed: dark fill + paint-order:stroke</text>
+</svg>

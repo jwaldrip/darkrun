@@ -20,9 +20,11 @@
        (horizontal is already centered by the symmetric pipeline). -->
   <g transform="translate(0, -28)">
     <!-- dr monogram (d bold accent, r regular text), centered on the tile axis -->
+    <!-- "d" outlined (cyan stroke + dark fill, painted stroke-under-fill to match
+         the wordmark's lights-out "dark"); "r" solid white. -->
     <text x="512" y="600" font-family="Inter, 'Segoe UI', system-ui, sans-serif"
-          font-size="500" text-anchor="middle" letter-spacing="20">
-      <tspan fill="#5fd7ff" font-weight="800">d</tspan><tspan fill="#e6edf3" font-weight="500">r</tspan>
+          font-size="500" text-anchor="middle" letter-spacing="20" paint-order="stroke">
+      <tspan fill="#0a0e12" stroke="#5fd7ff" stroke-width="20" font-weight="800">d</tspan><tspan fill="#e6edf3" font-weight="500">r</tspan>
     </text>
 
     <!-- assembly-line pipeline: active station between two pending -->
