@@ -44,22 +44,72 @@ per-station. Locked artifacts are **written to disk** under `stations/<station>/
 artifacts/` — today darkrun only passes the artifact name as a prompt variable and
 never persists it (a miss).
 
-## 2. State derivation (no snapshot)
+## 2. Frontmatter contract — the on-disk schema (the de-facto spec)
 
-Station phase is derived in this order (a pure function):
-`elaborate` (elaboration.md missing/unverified, or zero units) → `review` (any
-unit missing a required pre-exec `reviews.<role>` stamp) → `manufacture`/execute
-(any unit not at its terminal Pass beat) → `audit`/`gate` (any unit missing a
-required `approvals.<role>` stamp) → past-gate (all signed, awaiting merge).
+There is no version field; the schema IS this protected-field set, enforced by the
+write guard + a checksum tamper detector (§14). These are the signals the
+derivation reads — darkrun units/feedback today carry almost none of them.
 
-The signals live in **unit frontmatter** and **feedback frontmatter** — which
-darkrun units do NOT yet carry:
-- unit: `iterations[]` ({worker, started_at, result, pass}), `reviews.<role>`,
-  `approvals.<role>`, `inputs[]`, `outputs[]`, `depends_on[]`, `started_at`.
-- feedback: `closed_at`/`closed_by` (non-null = closed). Station iteration
-  history is **derived from closed feedback**, not a separate log.
+**unit** (`stations/<station>/units/<unit>.md`):
+```yaml
+name, type, status            # status: pending|active|completed (display only)
+depends_on: []                # DAG edges — the wave scheduler sequences on these
+pass: 0                       # current Pass number (was "bolt")
+worker: ""                    # current worker in the Pass loop (was "hat")
+model?, applicable_skills?
+inputs: []                    # consumed artifact paths ([] = reads nothing; ABSENCE is an error)
+outputs: []                   # produced paths — auto-populated from the unit worktree git diff
+quality_gates: [ {name, command, dir?} ]   # build-class units MUST declare (empty [] allowed, explicit)
+iterations: [ {worker, started_at, result, pass} ]   # result: advance|reject|null
+reviews:   { <role>: {at} | null }    # PRE-exec spec/adversarial stamps
+approvals: { <role>: {at} | null }    # POST-exec gate stamps (incl. user, quality_gates)
+input_witnesses: { <path>: <sha256> } # per-slot drift witnesses (the signed-over inputs)
+started_at?, completed_at?
+```
+`iterations`/`reviews`/`approvals`/`input_witnesses` are **engine-managed** (FSM
+fields, agent cannot write them); `outputs`/`quality_gates` stay agent-editable AFTER
+a unit is active (the sanctioned path to fix a gate command / missed output — it
+changes how/what is *verified*, not the workflow). Every other field is forward-only
+immutable once active.
 
-Run/SPA/desktop all read the same derivation, so they can never disagree.
+**feedback** (`stations/<station>/feedback/NN-slug.md`, or run-root for closeout):
+```yaml
+id/num, title, status, origin, severity   # see §15 for the enums
+station: ""                                # "" = run/closeout scope
+source_ref                                 # back-ref to origin (e.g. reviewer run id / drift:<kind>:<file>:<sha>)
+triaged_at                                 # null blocks the pre-tick gate
+resolution: question|inline_fix|stage_revisit | null
+targets: { unit, invalidates: [] }
+iterations: [ {worker, started_at, result, pass} ]   # the fix-loop Pass history
+closed_by, closed_at                       # non-null closed_at = closed (the lifecycle witness)
+replies: [], closure_reply, closure_reply_unread
+```
+
+**run** (`run.md`): `factory, mode, active_station, status, started_at,
+completed_at, sealed_at, follows?, brief?` (`active_station` is a write-only cache,
+never read for state). **station** (`STATION.md`): `workers: []`, `fix_workers: []`,
+`reviewers: []`, `checkpoint: auto|ask|external|await`, `locked_artifact`, `inputs:
+[]`, `optional?`, `elaboration?`.
+
+## 2b. State derivation algorithm (no snapshot)
+
+Verified `derivePhase(units, workers, reviewRoles, approvalRoles, mode,
+elaborationVerified)` — a pure function, computed live every tick:
+```
+1. elaborate gate (skipped in auto): elaborationVerified==false → "elaborate";
+   ==null (artifact missing) AND zero units → "elaborate"
+2. zero units → "elaborate" (decompose pending)
+3. review:  any unit missing any required reviews.<role>  → "review"      (PRE-exec)
+4. execute: any unit whose LAST iteration is not (result==advance AND
+            worker==workers[last])  → "execute" (manufacture)             [if workers nonempty]
+5. gate:    any unit missing any required approvals.<role> → "gate" (audit)(POST-exec)
+6. else → null (all signed; past gate, awaiting the station→run-main merge)
+```
+Order is load-bearing: review MUST be checked before execute (a not-yet-spec-signed
+unit has empty iterations and would mislabel as execute). Station selection =
+`findCurrentStage` = first station whose units aren't all signed; the cursor walks
+the same signal so engine/SPA/desktop can never disagree. Station iteration history
+is **derived from closed feedback** (sort by `closed_at`), not a separate log.
 
 ## 3. The three-track cursor
 
@@ -161,6 +211,15 @@ on <default>).
 - **the final station checkpoint fires BEFORE the final merge** (the merge is
   unreachable while any approval stamp is null).
 
+**The Pass loop (manufacture, per unit):** the unit's workers run in order; each
+appends an `iterations[]` entry `{worker, started_at, result, pass}` with
+`result: advance|reject`. A worker carries a `role: plan|build|verify`. An `advance`
+moves to the next worker; a `reject` (a Challenge/verify worker rejecting) **bounces
+to the nearest preceding `build` worker**, incrementing the Pass. The unit is
+complete when the **last** worker `advance`s (`last.result==advance &&
+last.worker==workers[last]`) — that triggers quality-gate #1 then the unit→station
+merge. Loop guards (§12) cap the Pass count and catch stuck-reject chains.
+
 ## 8. Inputs / outputs threading + verification
 
 Enforced at THREE points, all via an `output_exists` primitive:
@@ -254,6 +313,84 @@ dispatch-build time; one slot per logical prompt, overwrite-on-rerun.
   dry-run-first, git-clean-gated, keyed by directory existence (not a version field).
   If darkrun wants explicit versioned forward-migration of its own StateStore, that
   is net-new beyond the predecessor.
+
+## 15. Cursor action vocabulary
+
+`run_next` returns ONE structured next-action per tick (the agent performs it, then
+re-ticks). The verified action set (darkrun's `RunAction`):
+```
+elaborate_loop {signals_unmet[]}     discovery + decompose; multi-signal payload (§16)
+dispatch_review {dispatches[]}        PRE-exec reviewers (spec serial, then adversarial fan-out)
+write_brief {phase: pre|post}         the brief(pre) / outcome(post) artifact
+user_gate {gate_kind: spec|approval}  the REVIEW gate / the CHECKPOINT
+start_unit_hat / start_feedback_hat   dispatch a worker in a unit / fix Pass loop
+dispatch_quality_gates {scope}        run the quality gates (station or intent scope)
+dispatch_approval {dispatches[]}      POST-exec reviewers (approval stamps)
+record_observations                   write observations.md (post-checkpoint)
+complete_stage                        the station→run-main merge (semantic, not a VCS verb)
+intent_review                         run-level adversarial reviewers
+record_reflection / pending_seal      run-close reflection + await landing on <default>
+seal_intent / sealed                  finalize the run
+close_feedback / feedback_question    feedback-track resolutions
+unit_inputs_not_declared / unit_outputs_empty_iterations / merge_conflict   structural guards
+```
+The action's name is semantic — `complete_stage` *means* "this station is done"; the
+git merge is an implementation detail the engine performs underneath.
+
+## 16. Elaborate-loop signals
+
+`elaborate_loop` carries a `signals_unmet[]` payload (the agent may satisfy any in
+any order; re-tick re-derives). The verified signal set:
+```
+{signal: discovery, agent, units[]}   one per explorer template missing on disk
+                                       (each runs in its own discovery worktree, §5)
+{signal: conversation}                elaboration.md captured (the pre-decompose capture)
+{signal: verify_conversation}         elaboration.md FM verified_at stamped → gates elaborate→review
+{signal: decompose}                   units created with completion criteria + DAG
+{signal: verify_decompose}            decomposition verified
+```
+Plus a keep-or-drop offer the first time an `optional` station is reached. Autopilot
+drops conversation/verify_conversation/verify_decompose (auto-keeps optional stations)
+but still emits the full set in the optional-offer path so a headless harness can't
+deadlock.
+
+## 17. Feedback lifecycle (the enums)
+
+```
+status:   pending → fixing → addressed → closed     (the fix path)
+          pending → answered            (question resolved by a reply, no code delta)
+          pending → non_actionable      (valid but no fix — out-of-scope / immutable target)
+          pending → rejected            (invalid finding, dismissed by a worker)
+          pending|fixing → escalated    (agent-FB bolt cap exceeded → human waypoint)
+   Only pending/fixing block the station gate; escalated is a waypoint, not a blocker.
+origin:   adversarial-review | studio-review | engine-review | drift | discovery |
+          external-pr | external-mr | user-visual | user-chat | user-question | user-revisit
+severity: blocker (stops the gate) > high > medium > low (nit)   — drives fix-loop order
+resolution: question | inline_fix | stage_revisit   (router defaults to stage_revisit)
+```
+Each closed feedback IS one completed revisit cycle — station iteration history is
+derived from `closed_at`, not a separate log. A reviewer finding files feedback that
+**invalidates** the relevant `approvals.<role>` (resets it to null), so the run can't
+seal until reviewers re-sign over the fix.
+
+## 18. Checkpoint kinds + gate resolution
+
+A station's `checkpoint:` (its gate kind) and how the `user_gate{approval}` resolves
+per mode:
+```
+auto      — advance with no human (right-sized small work; auto mode)
+ask        — internal review session; the human approves in the desktop app
+external   — hand off to an external surface (PR/MR/deploy sign-off) and AWAIT it
+await      — block until a decision arrives
+```
+- **continuous:** every `ask` checkpoint pops an internal review session in the app.
+- **discrete:** each station opens a real draft PR (base = run-main); **merging the
+  PR is the approval signal**. `discrete-hybrid:` per-station PR only for stations
+  whose `review:` is `external`.
+- **auto(pilot):** per-station `user` gates removed (the cursor drives through);
+  `external`/`await` still pause it; the run-level final user gate is always present.
+Right-sizing at run start may collapse/skip stations and downgrade checkpoints to
+`auto` — the work decides the shape, no manual mode pick required.
 
 ---
 
