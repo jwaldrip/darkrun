@@ -15,6 +15,21 @@ darkrun must drop `state.json` entirely — NOT keep it as a cache. Phase/status
 outcome are derived on demand from per-unit FM (`iterations[]`, `reviews{}`,
 `approvals{}`) + feedback `closed_at` + branch-merge state.
 
+### Contents
+
+1. On-disk layout · 2. Frontmatter contract · 2b. State-derivation algorithm ·
+3. Three-track cursor · 4. Pretick · 5. Branch hierarchy + engine-protected merges ·
+6. Drift (witness model) · 7. Reviews / quality / checkpoint ordering + role classes ·
+8. Inputs/outputs threading + verification · 9. Knowledge / shared memory ·
+10. Overrides cascade · 11. Generated prompts · 12. Loop guards · 13. Modes ·
+14. Spec / consistency / migratability · 15. Cursor action vocabulary ·
+16. Elaborate-loop signals · 17. Feedback lifecycle + fix loop ·
+18. Checkpoint kinds + right-sizing · 19. Locks / concurrency · 20. Write guard /
+ownership · 21. Human gate / session surface · then the Gap summary + Build order.
+
+Every claim is verified against the predecessor source; this doc is the authoritative,
+build-ready target for the run-organization rewrite.
+
 ---
 
 ## 1. On-disk layout
@@ -509,3 +524,28 @@ the ONLY interactive face darkrun drives — never a browser/Playwright flow.
     proof-write carve-out + HOLD-if-cant-run; PR-interaction).
 19. No unit `closes:` field / fix-chain feedback threading (fix Pass → closed_at).
 20. Right-sizing is only optional-station keep/drop + mode trimming (no size oracle).
+
+## Build order (gaps → phases)
+
+The 20 gaps land in six committable phases, each green before the next:
+
+1. **On-disk layout + migration** — gaps 1, 2, 7, 17. `stations/<station>/{units,
+   feedback,brief,artifacts,decisions}`, run-level closeout feedback, run-root
+   journals, persisted artifacts; migrate `darkrun-sim`.
+2. **Derive-from-disk** — gaps 4, 5, 15. Unit/feedback FM signals (§2), the pure
+   `derivePhase` (§2b), drop `state.json`, the write guard (§20).
+3. **Three-track cursor + pretick + loop guards** — gaps 8, 16. Tracks C→B→A, the
+   pretick sequence (§4), the multi-layer guards (§12), checkpoint→gate resolution.
+4. **Branch/worktree engine + locks** — gaps 9, 14. Per-unit/discovery/fix-chain
+   worktrees on the per-station branches, engine-protected merges, the lock model.
+5. **Reviews + artifacts** — gaps 3, 6, 11, 18. Spec→adversarial→quality→checkpoint
+   ordering, role classes, run-level reviewers, brief/outcome/observations/
+   elaboration, per-slot witnesses.
+6. **Threading, overrides, prompts, shared memory** — gaps 10, 12, 13, 19, 20. The
+   3-point i/o verification + scope + wave scheduler, the override cascade, prompt
+   persistence, the reflection→overlay loop, the fix-loop `closes:` threading,
+   right-sizing.
+
+**This spec is complete.** It is the authoritative, build-ready target for the
+run-organization rewrite — every section verified against the predecessor source,
+every gap mapped to a phase.
