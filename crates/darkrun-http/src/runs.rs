@@ -240,10 +240,11 @@ pub async fn get_run(State(state): State<AppState>, Path(slug): Path<String>) ->
 
     let state = store.read_state(&slug).ok().flatten();
 
-    // Stations in declared order: the derived state's BTreeMap is keyed by
-    // station name, but the per-station `started_at` (when present) gives the
-    // true walk order. Sort by start time, falling back to name for stations
-    // not yet started so the ordering is total and deterministic.
+    // Stations in walk order (by `started_at`), with each station's lifecycle
+    // status derived through the SHARED `darkrun_core::derive::station_status`
+    // (index-relative to the active station) — the same path the engine wire
+    // payload and the desktop use — so the website agrees with every surface. The
+    // active station keeps its recorded status so a `Blocked` nuance isn't lost.
     let mut stations: Vec<RunDetailStation> = state
         .as_ref()
         .map(|s| s.stations.values().map(detail_station).collect())
@@ -254,6 +255,16 @@ pub async fn get_run(State(state): State<AppState>, Path(slug): Path<String>) ->
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => a.name.cmp(&b.name),
     });
+    let active_index = stations
+        .iter()
+        .position(|s| s.name == run.frontmatter.active_station);
+    for (i, st) in stations.iter_mut().enumerate() {
+        if let Status::Active = darkrun_core::derive::station_status(i, active_index) {
+            // active station: keep its recorded status string
+        } else {
+            st.status = wire_string(&darkrun_core::derive::station_status(i, active_index));
+        }
+    }
 
     // Units on the active station only.
     let active = &run.frontmatter.active_station;

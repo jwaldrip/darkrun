@@ -41,7 +41,7 @@ use darkrun_git::{Git, GitBackend};
 use serde::Serialize;
 
 use crate::error::{McpError, Result};
-use crate::factory::{resolve_factory, FactoryDef};
+use crate::factory::{resolve_factory, FactoryDef, StationDef};
 
 /// Which of the three tracks produced the current action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -488,6 +488,40 @@ fn station_phase(state: &RunState, station: &str) -> StationPhase {
         .unwrap_or(StationPhase::Spec)
 }
 
+/// Derive a station's phase from its on-disk units via the **shared**
+/// [`darkrun_core::derive::derive_station_phase`] — the same pure logic the HTTP
+/// browse and the website run, so every surface agrees.
+///
+/// Returns `None` until the engine stamps the per-unit derivation signals
+/// (`reviews`/`approvals`/`iterations`); the caller then falls back to the
+/// recorded phase. As signal-stamping lands this becomes the authoritative,
+/// cross-surface phase. (The pure derivation has no `Reflect` sub-step — that
+/// stays an engine artifact-presence beat between `Audit` and `Checkpoint`.)
+fn derived_station_phase(su: &[&Unit], def: &StationDef, autopilot: bool) -> Option<StationPhase> {
+    let has_signals = su.iter().any(|u| {
+        !u.frontmatter.reviews.is_empty()
+            || !u.frontmatter.approvals.is_empty()
+            || !u.frontmatter.iterations.is_empty()
+    });
+    if !has_signals {
+        return None;
+    }
+    let owned: Vec<Unit> = su.iter().map(|u| (*u).clone()).collect();
+    let review_roles = def.reviewers.clone();
+    let mut approval_roles = def.reviewers.clone();
+    if !autopilot {
+        approval_roles.push("user".to_string());
+    }
+    Some(darkrun_core::derive::derive_station_phase(
+        &owned,
+        &def.workers,
+        &review_roles,
+        &approval_roles,
+        Some(true),
+        autopilot,
+    ))
+}
+
 /// The ordered station names this run walks: its explicit right-sized `plan`,
 /// or the full factory plan when none is recorded (full-size / legacy runs).
 fn run_plan(factory: &FactoryDef, state: &RunState) -> Vec<String> {
@@ -801,11 +835,16 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     }
 
     // ── Track A: run — walk the active station's phase machine ───────────
-    let phase = station_phase(&state, &station);
     let def = factory
         .station(&station)
         .ok_or_else(|| McpError::UnknownStation(station.clone()))?;
     let su = station_units(&units, &station);
+    // The phase comes from the SHARED pure derivation over on-disk unit signals
+    // (the same `darkrun_core::derive` the HTTP browse and website run); until the
+    // engine stamps those signals it falls back to the recorded/imperative phase.
+    let autopilot = run.frontmatter.mode.contains("auto");
+    let phase = derived_station_phase(&su, def, autopilot)
+        .unwrap_or_else(|| station_phase(&state, &station));
 
     let spec_action = || RunAction::Spec {
         run: slug.to_string(),
