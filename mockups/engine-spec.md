@@ -125,9 +125,29 @@ elaborationVerified)` — a pure function, computed live every tick:
 ```
 Order is load-bearing: review MUST be checked before execute (a not-yet-spec-signed
 unit has empty iterations and would mislabel as execute). Station selection =
-`findCurrentStage` = first station whose units aren't all signed; the cursor walks
-the same signal so engine/SPA/desktop can never disagree. Station iteration history
-is **derived from closed feedback** (sort by `closed_at`), not a separate log.
+`findCurrentStage` = first station whose units aren't all signed. Station iteration
+history is **derived from closed feedback** (sort by `closed_at`), not a separate log.
+
+### 2c. ONE shared derivation crate (engine + http + desktop + website)
+
+This is the structural invariant that makes "they can never disagree" true, and the
+predecessor's key move: the pure derivation lives in **one wasm-safe crate**
+(`darkrun-core` — already a dependency of `darkrun-mcp`, `darkrun-http`, the desktop,
+AND `web/site`), mirroring the predecessor's `packages/shared/derived-stage-state.ts`.
+The **engine** (cursor walk), the **HTTP browse** endpoints, and the **desktop** all
+call the SAME `derive_station_phase(units, review_roles, approval_roles, …)` over the
+SAME on-disk frontmatter, deriving independently — so there is no snapshot for them
+to drift from.
+
+**Today darkrun does NOT do this.** `RunState::station_status_summary` /
+`active_phase` (`darkrun-core/state.rs`) read the **recorded `st.phase` from the
+`state.json` snapshot**; the engine (`position.rs`) computes it and `write_state`s the
+snapshot, and http/desktop read that snapshot. So the cursor logic is **not** shared
+across the three the way the predecessor shares it — it's "engine derives once,
+persists, others read." Dropping `state.json` (gap 5) means: move the pure
+`derive_station_phase` into `darkrun-core`, have the engine/http/desktop all run it
+over the unit/feedback FM, and delete the snapshot reads. The website (wasm, no live
+engine) runs the same crate over its static fixtures / the API payload.
 
 ## 3. The three-track cursor
 
@@ -506,8 +526,10 @@ the ONLY interactive face darkrun drives — never a browser/Playwright flow.
 2. Locked artifacts never written → persist under `stations/<station>/artifacts/`.
 3. Brief/outcome only a viz label → real `brief.md` (phase pre/post) + observations.
 4. Units carry no `reviews`/`approvals`/`iterations`/`input_witnesses` → add them.
-5. `state.json` snapshot → DROP it entirely; derive phase from on-disk signals
-   (the predecessor's migrator deletes the file — there is no cache).
+5. `state.json` snapshot → DROP it entirely; move the pure `derive_station_phase`
+   into the shared `darkrun-core` crate and have the engine, HTTP, and desktop all
+   run it over on-disk FM (today the engine writes the snapshot, others read it —
+   the cursor logic is NOT shared across the three; §2c).
 6. Run-level `witnesses.json` → per-slot witnesses.
 7. No `decisions.jsonl`, no `elaboration.md`, no per-station `knowledge`/`discovery`.
 8. No three-track cursor priority / no multi-layer loop guards.
@@ -524,6 +546,10 @@ the ONLY interactive face darkrun drives — never a browser/Playwright flow.
     proof-write carve-out + HOLD-if-cant-run; PR-interaction).
 19. No unit `closes:` field / fix-chain feedback threading (fix Pass → closed_at).
 20. Right-sizing is only optional-station keep/drop + mode trimming (no size oracle).
+21. The cursor/derivation logic is NOT shared across engine/http/desktop (each reads
+    the `state.json` snapshot, not one pure derive-from-disk in `darkrun-core`; §2c).
+    The website + desktop projections must be updated to ingest the per-station
+    structure once it lands.
 
 ## Build order (gaps → phases)
 
@@ -532,8 +558,10 @@ The 20 gaps land in six committable phases, each green before the next:
 1. **On-disk layout + migration** — gaps 1, 2, 7, 17. `stations/<station>/{units,
    feedback,brief,artifacts,decisions}`, run-level closeout feedback, run-root
    journals, persisted artifacts; migrate `darkrun-sim`.
-2. **Derive-from-disk** — gaps 4, 5, 15. Unit/feedback FM signals (§2), the pure
-   `derivePhase` (§2b), drop `state.json`, the write guard (§20).
+2. **Derive-from-disk (shared crate)** — gaps 4, 5, 15, 21. Unit/feedback FM signals
+   (§2), the pure `derive_station_phase` moved into `darkrun-core` (§2c) and run by
+   the engine, HTTP, AND desktop over on-disk FM; drop `state.json`; the write guard
+   (§20). The HTTP/desktop/website projections switch to the per-station structure.
 3. **Three-track cursor + pretick + loop guards** — gaps 8, 16. Tracks C→B→A, the
    pretick sequence (§4), the multi-layer guards (§12), checkpoint→gate resolution.
 4. **Branch/worktree engine + locks** — gaps 9, 14. Per-unit/discovery/fix-chain
