@@ -471,94 +471,57 @@ fn shape_checkpoint_is_ask() {
 }
 
 #[test]
-fn build_checkpoint_is_auto() {
-    assert_eq!(st("build").checkpoint, CheckpointKind::Auto);
+fn build_checkpoint_is_ask() {
+    assert_eq!(st("build").checkpoint, CheckpointKind::Ask);
 }
 
 #[test]
-fn prove_checkpoint_is_auto() {
-    assert_eq!(st("prove").checkpoint, CheckpointKind::Auto);
+fn prove_checkpoint_is_ask() {
+    assert_eq!(st("prove").checkpoint, CheckpointKind::Ask);
 }
 
 #[test]
-fn harden_checkpoint_is_external() {
-    assert_eq!(st("harden").checkpoint, CheckpointKind::External);
+fn harden_checkpoint_is_ask() {
+    assert_eq!(st("harden").checkpoint, CheckpointKind::Ask);
 }
 
 #[test]
-fn external_checkpoint_only_at_harden() {
-    let externals: Vec<String> = sw()
-        .stations
-        .iter()
-        .filter(|s| s.checkpoint == CheckpointKind::External)
-        .map(|s| s.name.clone())
-        .collect();
-    assert_eq!(externals, vec!["harden"]);
-}
-
-#[test]
-fn final_station_uses_external_checkpoint() {
+fn final_station_uses_ask_checkpoint() {
     let f = sw();
     let last = f.stations.last().unwrap();
-    assert_eq!(last.checkpoint, CheckpointKind::External);
+    assert_eq!(last.checkpoint, CheckpointKind::Ask);
 }
 
 #[test]
-fn ask_checkpoints_are_the_planning_trio() {
+fn every_station_gates_ask() {
+    // The software factory gates the operator at every station by default; the
+    // auto / external downgrades are applied by mode (quick / discrete) via
+    // `effective_checkpoint_kind`, not baked into the factory plan.
     let asks: Vec<String> = sw()
         .stations
         .iter()
         .filter(|s| s.checkpoint == CheckpointKind::Ask)
         .map(|s| s.name.clone())
         .collect();
-    assert_eq!(asks, vec!["frame", "specify", "shape"]);
+    assert_eq!(
+        asks,
+        vec!["frame", "specify", "shape", "build", "prove", "harden"]
+    );
 }
 
 #[test]
-fn auto_checkpoints_are_build_and_prove() {
-    let autos: Vec<String> = sw()
-        .stations
-        .iter()
-        .filter(|s| s.checkpoint == CheckpointKind::Auto)
-        .map(|s| s.name.clone())
-        .collect();
-    assert_eq!(autos, vec!["build", "prove"]);
-}
-
-#[test]
-fn no_station_uses_await_checkpoint() {
-    assert!(sw()
-        .stations
-        .iter()
-        .all(|s| s.checkpoint != CheckpointKind::Await));
+fn no_station_uses_auto_external_or_await_checkpoint() {
+    assert!(sw().stations.iter().all(|s| matches!(
+        s.checkpoint,
+        CheckpointKind::Ask
+    )));
 }
 
 #[test]
 fn checkpoint_kinds_in_order() {
-    use CheckpointKind::{Ask, Auto, External};
+    use CheckpointKind::Ask;
     let kinds: Vec<CheckpointKind> = sw().stations.iter().map(|s| s.checkpoint).collect();
-    assert_eq!(kinds, vec![Ask, Ask, Ask, Auto, Auto, External]);
-}
-
-#[test]
-fn checkpoint_progression_is_ask_then_auto_then_external() {
-    // Gates relax across the plan: human-gated planning, then automatic
-    // manufacturing, then an external release gate. No regressions.
-    let kinds: Vec<CheckpointKind> = sw().stations.iter().map(|s| s.checkpoint).collect();
-    let rank = |k: &CheckpointKind| match k {
-        CheckpointKind::Ask => 0,
-        CheckpointKind::Auto => 1,
-        CheckpointKind::External => 2,
-        CheckpointKind::Await => 3,
-    };
-    for w in kinds.windows(2) {
-        assert!(
-            rank(&w[0]) <= rank(&w[1]),
-            "checkpoint rank should not decrease: {:?} -> {:?}",
-            w[0],
-            w[1]
-        );
-    }
+    assert_eq!(kinds, vec![Ask, Ask, Ask, Ask, Ask, Ask]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,7 +991,7 @@ fn distinct_stations_are_not_equal() {
 #[test]
 fn station_def_differs_when_checkpoint_differs() {
     let mut s = st("build");
-    s.checkpoint = CheckpointKind::Ask;
+    s.checkpoint = CheckpointKind::Auto;
     assert_ne!(s, st("build"));
 }
 

@@ -4,7 +4,7 @@ description: Harden for production — security, operability, and a rollout plan
 explorers: [threat, operability]
 workers: [hardener, red_teamer, releaser]
 reviewers: [security, readiness]
-checkpoint: external
+checkpoint: ask
 locked_artifact: release.md
 inputs: [frame.md, spec.md, design.md, proof.md, code]
 ---
@@ -46,6 +46,7 @@ runbook. This is the production sign-off record.
 
 ## Checkpoint
 
-**external.** Shipping to production is a human decision made outside the factory
-(a release approval, a PR merge, a deploy sign-off), so Harden hands off to an
-external surface and **awaits** the go/no-go.
+**ask.** Shipping to production is a human decision: the operator reviews the
+release record — hardening done, residual risk named, rollout/runbook ready —
+and gives the go/no-go. A discrete run promotes this gate to an **external**
+handoff (a release approval, a PR merge, a deploy sign-off) instead.

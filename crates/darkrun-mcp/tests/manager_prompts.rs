@@ -255,9 +255,12 @@ fn checkpoint_prompt_branches_on_kind() {
     let ask = t.prompt.expect("prompt");
     assert!(ask.contains("a human must approve"), "ask copy missing:\n{ask}");
 
-    // `auto` gate (build) → no-human copy.
+    // `auto` gate (a downgraded build gate) → no-human copy.
     let (_d2, store2) = fresh("r2");
     at_phase(&store2, "r2", "build", StationPhase::Checkpoint);
+    let mut s = store2.read_state("r2").unwrap().unwrap();
+    s.auto_gates = true;
+    store2.write_state("r2", &s).unwrap();
     let t2 = run_tick(&store2, "r2").expect("tick");
     let auto = t2.prompt.expect("prompt");
     assert!(auto.contains("no human in the loop"), "auto copy missing:\n{auto}");
@@ -265,9 +268,14 @@ fn checkpoint_prompt_branches_on_kind() {
 }
 
 #[test]
-fn checkpoint_prompt_external_for_harden() {
+fn checkpoint_prompt_external_for_discrete_station() {
+    // Every station gates `ask` by default; the external-review copy renders for
+    // a discrete run (where the gate resolves External).
     let (_d, store) = fresh("r");
     at_phase(&store, "r", "harden", StationPhase::Checkpoint);
+    let mut s = store.read_state("r").unwrap().unwrap();
+    s.discrete = true;
+    store.write_state("r", &s).unwrap();
     let t = run_tick(&store, "r").expect("tick");
     let prompt = t.prompt.expect("prompt");
     assert!(prompt.contains("external"), "external gate copy missing:\n{prompt}");

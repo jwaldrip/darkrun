@@ -148,15 +148,15 @@ fn frame_station_checkpoint_labels_as_ask() {
 }
 
 #[test]
-fn build_station_checkpoint_labels_as_auto() {
+fn build_station_checkpoint_labels_as_ask() {
     let f = darkrun_content::load_validated("software").unwrap();
     let build = f.station("build").unwrap();
-    assert_eq!(checkpoint_label(build.checkpoint()), "auto");
+    assert_eq!(checkpoint_label(build.checkpoint()), "ask");
 }
 
 #[test]
-fn harden_station_checkpoint_labels_as_external() {
+fn harden_station_checkpoint_labels_as_ask() {
     let f = darkrun_content::load_validated("software").unwrap();
     let harden = f.station("harden").unwrap();
-    assert_eq!(checkpoint_label(harden.checkpoint()), "external");
+    assert_eq!(checkpoint_label(harden.checkpoint()), "ask");
 }

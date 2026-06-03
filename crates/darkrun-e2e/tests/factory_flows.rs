@@ -262,11 +262,12 @@ fn reject_feedback_blocks_then_unblocks_run_track() {
 fn reject_records_blocked_outcome_per_station() {
     let h = Harness::start("rework3");
     advance_to(&h, "build");
-    // build is an auto gate; to reject we must reach the checkpoint phase and
-    // decide before the auto-advance. Auto gates self-advance on the tick, so
-    // a reject on build is not reachable — assert it auto-completes instead.
+    // build now gates `ask`, so its checkpoint is rejectable: a reject blocks the
+    // station and routes rework through the feedback track.
     h.walk_station_to_checkpoint("build", &["u"]);
-    assert_eq!(h.station_status("build"), Status::Completed);
+    let res = h.decide(false, Some("not ready"));
+    assert_eq!(res.position.track, Track::Feedback);
+    assert_eq!(h.station_status("build"), Status::Blocked);
 }
 
 // ---------------------------------------------------------------------------

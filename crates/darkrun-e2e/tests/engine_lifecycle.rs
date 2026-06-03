@@ -507,19 +507,12 @@ fn full_run_action_log_has_six_reflects() {
 fn full_run_action_log_has_six_checkpoints() {
     let h = Harness::start("full");
     let log = h.run_to_seal();
-    // Five stations gate locally (Checkpoint); harden's external gate surfaces
-    // as ExternalReviewRequested — six gates total.
+    // Every station gates locally with an `ask` Checkpoint — six gates total.
     let cps = log
         .iter()
         .filter(|a| matches!(a, RunAction::Checkpoint { .. }))
         .count();
-    let external = log
-        .iter()
-        .filter(|a| matches!(a, RunAction::ExternalReviewRequested { .. }))
-        .count();
-    assert_eq!(cps, 5);
-    assert_eq!(external, 1);
-    assert_eq!(cps + external, 6);
+    assert_eq!(cps, 6);
 }
 
 #[test]
@@ -568,50 +561,41 @@ fn full_run_checkpoint_station_order_is_canonical() {
 fn full_run_checkpoint_kinds_in_order() {
     let h = Harness::start("full");
     let log = h.run_to_seal();
-    // The external gate (harden) carries no `kind` field — it IS the external
-    // case — so map it to External to read the canonical gate-kind sequence.
+    // Every station gates `ask` by default.
     let kinds: Vec<CheckpointKind> = log
         .iter()
         .filter_map(|a| match a {
             RunAction::Checkpoint { kind, .. } => Some(*kind),
-            RunAction::ExternalReviewRequested { .. } => Some(CheckpointKind::External),
             _ => None,
         })
         .collect();
-    assert_eq!(
-        kinds,
-        vec![
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Auto,
-            CheckpointKind::Auto,
-            CheckpointKind::External,
-        ]
-    );
+    assert_eq!(kinds, vec![CheckpointKind::Ask; 6]);
 }
 
 // Auto-gate stations advance themselves on the checkpoint tick — no decide.
 #[test]
-fn build_auto_gate_self_completes_on_checkpoint_tick() {
+fn build_ask_gate_holds_until_decided() {
     let h = Harness::start("ag");
-    // Complete frame/specify/shape (all ask) first.
     h.complete_station("frame", &["a"]);
     h.complete_station("specify", &["b"]);
     h.complete_station("shape", &["c"]);
     assert_eq!(h.active(), "build");
-    // Walk build to checkpoint; auto gate completes it without a decide.
+    // build now gates `ask` — it HOLDS at the checkpoint until the operator
+    // decides, rather than self-completing on the tick.
     h.walk_station_to_checkpoint("build", &["d"]);
+    assert_eq!(h.station_status("build"), Status::InProgress);
+    h.decide(true, None);
     assert_eq!(h.station_status("build"), Status::Completed);
 }
 
 #[test]
-fn build_auto_gate_advances_active_to_prove() {
+fn build_ask_gate_advances_active_to_prove_on_decide() {
     let h = Harness::start("ag");
     h.complete_station("frame", &["a"]);
     h.complete_station("specify", &["b"]);
     h.complete_station("shape", &["c"]);
     h.walk_station_to_checkpoint("build", &["d"]);
+    h.decide(true, None);
     assert_eq!(h.active(), "prove");
 }
 
@@ -1325,20 +1309,20 @@ fn content_frame_checkpoint_matches_manager() {
 }
 
 #[test]
-fn content_build_checkpoint_is_auto() {
+fn content_build_checkpoint_is_ask() {
     let f = darkrun_content::load_factory("software").unwrap();
     assert_eq!(
         f.station("build").unwrap().checkpoint(),
-        CheckpointKind::Auto
+        CheckpointKind::Ask
     );
 }
 
 #[test]
-fn content_harden_checkpoint_is_external() {
+fn content_harden_checkpoint_is_ask() {
     let f = darkrun_content::load_factory("software").unwrap();
     assert_eq!(
         f.station("harden").unwrap().checkpoint(),
-        CheckpointKind::External
+        CheckpointKind::Ask
     );
 }
 

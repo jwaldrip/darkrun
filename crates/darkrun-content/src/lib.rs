@@ -133,12 +133,9 @@ mod tests {
     fn checkpoints_match_the_design() {
         let factory = load_factory("software").expect("load");
         let kind = |s: &str| factory.station(s).unwrap().checkpoint();
-        assert_eq!(kind("frame"), CheckpointKind::Ask);
-        assert_eq!(kind("specify"), CheckpointKind::Ask);
-        assert_eq!(kind("shape"), CheckpointKind::Ask);
-        assert_eq!(kind("build"), CheckpointKind::Auto);
-        assert_eq!(kind("prove"), CheckpointKind::Ask);
-        assert_eq!(kind("harden"), CheckpointKind::External);
+        for s in ["frame", "specify", "shape", "build", "prove", "harden"] {
+            assert_eq!(kind(s), CheckpointKind::Ask, "{s}");
+        }
     }
 
     #[test]

@@ -82,13 +82,11 @@ fn flow_stations_feed_the_pipeline_and_walkthrough() {
     let f = software();
     let flows = flow_stations(&f);
     assert_eq!(flows.len(), 6);
-    // Each flow node carries the checkpoint kind the UI component needs.
-    let frame = &flows[0];
-    assert_eq!(frame.checkpoint, UiCheckpoint::Ask);
-    let build = &flows[3];
-    assert_eq!(build.checkpoint, UiCheckpoint::Auto);
-    let harden = &flows[5];
-    assert_eq!(harden.checkpoint, UiCheckpoint::External);
+    // Each flow node carries the checkpoint kind the UI component needs — every
+    // software station gates `ask` by default.
+    for node in &flows {
+        assert_eq!(node.checkpoint, UiCheckpoint::Ask);
+    }
 }
 
 #[test]

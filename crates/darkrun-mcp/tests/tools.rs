@@ -1763,11 +1763,10 @@ fn factory_list_station_carries_kills_and_artifact() {
 fn factory_list_station_carries_checkpoint_kind() {
     let (_d, server) = server();
     let v = body(&server.darkrun_factory_list().unwrap());
+    // Every station gates `ask` by default.
     assert_eq!(v[0]["stations"][0]["checkpoint"], "ask");
-    // build is auto.
-    assert_eq!(v[0]["stations"][3]["checkpoint"], "auto");
-    // harden is external.
-    assert_eq!(v[0]["stations"][5]["checkpoint"], "external");
+    assert_eq!(v[0]["stations"][3]["checkpoint"], "ask");
+    assert_eq!(v[0]["stations"][5]["checkpoint"], "ask");
 }
 
 #[test]
@@ -2111,34 +2110,34 @@ fn walk_through_shape_checkpoint_is_ask() {
 }
 
 #[test]
-fn build_station_auto_checkpoint_advances_without_decide() {
+fn build_station_ask_checkpoint_holds() {
     let (_d, server) = started("r");
     for st in ["frame", "specify", "shape"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
     let cp = walk_station_to_checkpoint(&server, "r", "build");
-    assert_eq!(cp["action"]["kind"], "auto");
-    // Auto completed the station and advanced to prove.
+    assert_eq!(cp["action"]["kind"], "ask");
+    // Holds for the operator decision — not auto-advanced.
     let show = body(
         &server
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("r".into()) }))
             .unwrap(),
     );
-    assert_eq!(show["state"]["stations"]["build"]["status"], "completed");
-    assert_eq!(show["state"]["active_station"], "prove");
+    assert_eq!(show["state"]["stations"]["build"]["status"], "in_progress");
+    assert_eq!(show["state"]["active_station"], "build");
 }
 
 #[test]
-fn prove_station_auto_checkpoint_advances_to_harden() {
+fn prove_station_ask_checkpoint_advances_to_harden_on_approve() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
     let cp = walk_station_to_checkpoint(&server, "r", "prove");
-    assert_eq!(cp["action"]["kind"], "auto");
+    assert_eq!(cp["action"]["kind"], "ask");
+    approve(&server, "r");
     let show = body(
         &server
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("r".into()) }))
@@ -2148,17 +2147,15 @@ fn prove_station_auto_checkpoint_advances_to_harden() {
 }
 
 #[test]
-fn harden_station_external_checkpoint_holds() {
+fn harden_station_ask_checkpoint_holds() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     let cp = walk_station_to_checkpoint(&server, "r", "harden");
-    // harden's external gate surfaces as ExternalReviewRequested.
-    assert_eq!(cp["action"]["action"], "external_review_requested");
+    assert_eq!(cp["action"]["action"], "checkpoint");
+    assert_eq!(cp["action"]["kind"], "ask");
     let show = body(
         &server
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("r".into()) }))
@@ -2170,12 +2167,10 @@ fn harden_station_external_checkpoint_holds() {
 #[test]
 fn full_run_walks_to_sealed() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     walk_station_to_checkpoint(&server, "r", "harden");
     let sealed = approve(&server, "r");
     assert_eq!(sealed["action"]["action"], "sealed");
@@ -2185,12 +2180,10 @@ fn full_run_walks_to_sealed() {
 #[test]
 fn sealed_run_show_position_is_sealed() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     walk_station_to_checkpoint(&server, "r", "harden");
     approve(&server, "r");
     let show = body(
@@ -2204,12 +2197,10 @@ fn sealed_run_show_position_is_sealed() {
 #[test]
 fn sealed_run_next_returns_sealed() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     walk_station_to_checkpoint(&server, "r", "harden");
     approve(&server, "r");
     // Re-ticking a sealed run keeps returning sealed (idempotent terminal).
@@ -3267,12 +3258,10 @@ fn checkpoint_action_shape_has_kind() {
 #[test]
 fn sealed_action_shape_has_run_only() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     walk_station_to_checkpoint(&server, "r", "harden");
     let v = approve(&server, "r");
     assert_eq!(v["action"]["action"], "sealed");
@@ -3518,7 +3507,7 @@ fn factory_detail_build_station_fields() {
     assert_eq!(build["name"], "build");
     assert_eq!(build["kills"], "implementation-defects");
     assert_eq!(build["artifact"], "build.md");
-    assert_eq!(build["checkpoint"], "auto");
+    assert_eq!(build["checkpoint"], "ask");
 }
 
 #[test]
@@ -3535,7 +3524,7 @@ fn factory_detail_prove_station_fields() {
     assert_eq!(prove["name"], "prove");
     assert_eq!(prove["kills"], "escaped-defects");
     assert_eq!(prove["artifact"], "prove.md");
-    assert_eq!(prove["checkpoint"], "auto");
+    assert_eq!(prove["checkpoint"], "ask");
 }
 
 #[test]
@@ -3552,7 +3541,7 @@ fn factory_detail_harden_station_fields() {
     assert_eq!(harden["name"], "harden");
     assert_eq!(harden["kills"], "works-in-dev-dies-in-prod");
     assert_eq!(harden["artifact"], "release.md");
-    assert_eq!(harden["checkpoint"], "external");
+    assert_eq!(harden["checkpoint"], "ask");
 }
 
 #[test]
@@ -4073,12 +4062,10 @@ fn run_next_works_without_prior_show() {
 #[test]
 fn checkpoint_decide_on_sealed_run_errors() {
     let (_d, server) = started("r");
-    for st in ["frame", "specify", "shape"] {
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         walk_station_to_checkpoint(&server, "r", st);
         approve(&server, "r");
     }
-    walk_station_to_checkpoint(&server, "r", "build");
-    walk_station_to_checkpoint(&server, "r", "prove");
     walk_station_to_checkpoint(&server, "r", "harden");
     approve(&server, "r"); // seal
                            // No active station remains → decide errors.
@@ -4868,7 +4855,7 @@ fn software_factory_has_no_await_checkpoints() {
 }
 
 #[test]
-fn software_factory_has_three_ask_two_auto_one_external() {
+fn software_factory_gates_ask_at_every_station() {
     let (_d, server) = server();
     let v = body(
         &server
@@ -4877,18 +4864,13 @@ fn software_factory_has_three_ask_two_auto_one_external() {
             }))
             .unwrap(),
     );
-    let mut ask = 0;
-    let mut auto = 0;
-    let mut external = 0;
-    for st in v["stations"].as_array().unwrap() {
-        match st["checkpoint"].as_str().unwrap() {
-            "ask" => ask += 1,
-            "auto" => auto += 1,
-            "external" => external += 1,
-            _ => {}
-        }
-    }
-    assert_eq!((ask, auto, external), (3, 2, 1));
+    let kinds: Vec<&str> = v["stations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|st| st["checkpoint"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["ask", "ask", "ask", "ask", "ask", "ask"]);
 }
 
 #[test]

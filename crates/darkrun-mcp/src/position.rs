@@ -2613,31 +2613,24 @@ mod tests {
         }
     }
 
-    /// In HYBRID only the factory-declared `external` stations are external;
-    /// the rest keep their factory kind.
+    /// In HYBRID every station keeps its factory-declared kind — and the
+    /// software factory now declares `ask` at every station, so hybrid gates ask
+    /// throughout (no station auto-opens a PR; only full discrete forces that).
     #[test]
-    fn hybrid_keeps_factory_gates_except_external_stations() {
+    fn hybrid_keeps_factory_gates() {
         let factory = resolve_factory("software").unwrap();
         let state = RunState {
             discrete: true,
             discrete_hybrid: true,
             ..Default::default()
         };
-        assert_eq!(
-            effective_checkpoint_kind(&state, factory.station("frame").unwrap()),
-            CheckpointKind::Ask,
-            "hybrid keeps frame's ask gate"
-        );
-        assert_eq!(
-            effective_checkpoint_kind(&state, factory.station("build").unwrap()),
-            CheckpointKind::Auto,
-            "hybrid keeps build's auto gate"
-        );
-        assert_eq!(
-            effective_checkpoint_kind(&state, factory.station("harden").unwrap()),
-            CheckpointKind::External,
-            "hybrid still opens a PR on harden's external gate"
-        );
+        for name in ["frame", "build", "harden"] {
+            assert_eq!(
+                effective_checkpoint_kind(&state, factory.station(name).unwrap()),
+                CheckpointKind::Ask,
+                "hybrid keeps {name}'s factory-declared ask gate"
+            );
+        }
     }
 
     /// Drive a discrete-mode `frame` station to its checkpoint without git, so

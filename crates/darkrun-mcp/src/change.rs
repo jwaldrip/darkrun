@@ -13,7 +13,6 @@
 //! - **CLI (side-effecting):** resolve the git remote, load the stored
 //!   credential, and POST the PR/MR.
 
-use darkrun_core::domain::CheckpointKind;
 use darkrun_core::StateStore;
 use serde::{Deserialize, Serialize};
 
@@ -103,15 +102,15 @@ pub fn change_request_intent(
         }
     };
 
+    // The `ExternalReviewRequested` action above is the authoritative external
+    // gate signal — `derive_position` emits it only when the station's EFFECTIVE
+    // checkpoint kind is `External` (full-discrete runs, or a factory that
+    // declares it). We deliberately don't re-check the raw factory kind here: the
+    // software factory gates `ask` by default, and discrete mode promotes that to
+    // external via `effective_checkpoint_kind` — which the action already reflects.
     let def = factory
         .station(&station)
         .ok_or_else(|| McpError::UnknownStation(station.clone()))?;
-    if def.checkpoint != CheckpointKind::External {
-        return Err(McpError::InvalidInput(format!(
-            "station '{station}' has a {:?} checkpoint, not external",
-            def.checkpoint
-        )));
-    }
 
     // Under the hierarchy a station's external Checkpoint opens a draft PR from
     // its own branch into the run's stable base: darkrun/<slug>/<station> ->
@@ -183,7 +182,7 @@ fn action_name(action: &RunAction) -> &'static str {
 mod tests {
     use super::*;
     use crate::position::{checkpoint_decide, run_start, run_tick};
-    use darkrun_core::domain::{Status, Unit, UnitFrontmatter};
+    use darkrun_core::domain::{CheckpointKind, Status, Unit, UnitFrontmatter};
     use tempfile::tempdir;
 
     fn store() -> (tempfile::TempDir, StateStore) {
@@ -192,17 +191,24 @@ mod tests {
         (dir, store)
     }
 
-    /// Drive a run all the way to the `harden` station's external Checkpoint.
+    /// Drive a run to the `harden` station's checkpoint, then mark the run
+    /// discrete so the gate resolves `external` (the PR path). Every station now
+    /// gates `ask` by default; the external-review surface is a discrete-mode
+    /// concern, which `effective_checkpoint_kind` forces.
     fn drive_to_harden_checkpoint(store: &StateStore, slug: &str) {
         run_start(store, slug, "software", Some("Ship the thing".into()), "continuous")
             .expect("start");
-        // Walk every station. frame/specify/shape gate `ask`; build/prove gate
-        // `auto`; harden gates `external`.
+        // Walk every upstream station's `ask` gate and approve it.
         for station in ["frame", "specify", "shape", "build", "prove"] {
             walk_station(store, slug, station);
         }
-        // harden: Spec -> Review -> Manufacture(empty -> Audit) -> Reflect -> Checkpoint
+        // harden: Spec -> Review -> UserGate -> Manufacture(empty -> Audit) ->
+        // Reflect -> Checkpoint.
         walk_station_to_checkpoint(store, slug, "harden");
+        // Flip the run discrete so harden's held gate re-derives as External.
+        let mut state = store.read_state(slug).unwrap().unwrap();
+        state.discrete = true;
+        store.write_state(slug, &state).unwrap();
     }
 
     /// Walk one station's phases and clear its gate (auto stations clear on the

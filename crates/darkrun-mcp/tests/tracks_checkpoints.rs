@@ -44,6 +44,26 @@ fn started() -> (TempDir, StateStore) {
     (d, store)
 }
 
+/// A run with auto-downgraded gates (the quick/auto-mode behaviour): every
+/// station's gate resolves `Auto` via `effective_checkpoint_kind`.
+fn started_auto() -> (TempDir, StateStore) {
+    let (d, store) = started();
+    let mut s = store.read_state("r").unwrap().unwrap();
+    s.auto_gates = true;
+    store.write_state("r", &s).unwrap();
+    (d, store)
+}
+
+/// A full-discrete run: every station's gate resolves `External` (a human PR
+/// merge), via `effective_checkpoint_kind`.
+fn started_discrete() -> (TempDir, StateStore) {
+    let (d, store) = started();
+    let mut s = store.read_state("r").unwrap().unwrap();
+    s.discrete = true;
+    store.write_state("r", &s).unwrap();
+    (d, store)
+}
+
 /// Write a raw feedback doc with an explicit status line.
 fn raw_feedback(store: &StateStore, run: &str, id: &str, status: &str) {
     let doc = format!("---\nstatus: {status}\nstation: frame\n---\nbody text\n");
@@ -565,7 +585,7 @@ fn approve_through_every_station_to_sealed() {
     let (_d, store) = started();
     advance_to_station(&store, "r", "harden");
     let cp = walk_to_checkpoint(&store, "r", "harden");
-    assert!(matches!(cp, RunAction::ExternalReviewRequested { .. }));
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
     let sealed = checkpoint_decide(&store, "r", true, None).expect("seal");
     assert!(matches!(&sealed.action, RunAction::Sealed { run } if run == "r"));
 }
@@ -760,7 +780,7 @@ fn ask_kind_stamps_entered_at() {
 
 #[test]
 fn auto_kind_advances_during_tick() {
-    let (_d, store) = started();
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     let cp = walk_to_checkpoint(&store, "r", "build");
     assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
@@ -771,7 +791,7 @@ fn auto_kind_advances_during_tick() {
 
 #[test]
 fn auto_kind_stamps_advanced_outcome() {
-    let (_d, store) = started();
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     walk_to_checkpoint(&store, "r", "build");
     assert_eq!(
@@ -782,8 +802,8 @@ fn auto_kind_stamps_advanced_outcome() {
 
 #[test]
 fn auto_kind_chains_two_auto_stations() {
-    // build (auto) then prove (auto) both advance without decisions.
-    let (_d, store) = started();
+    // Under auto gates, build then prove both advance without decisions.
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     walk_to_checkpoint(&store, "r", "build");
     assert_eq!(active_station(&store, "r"), "prove");
@@ -794,7 +814,7 @@ fn auto_kind_chains_two_auto_stations() {
 
 #[test]
 fn external_kind_holds_for_decision() {
-    let (_d, store) = started();
+    let (_d, store) = started_discrete();
     advance_to_station(&store, "r", "harden");
     let cp = walk_to_checkpoint(&store, "r", "harden");
     assert!(matches!(cp, RunAction::ExternalReviewRequested { .. }));
@@ -803,7 +823,7 @@ fn external_kind_holds_for_decision() {
 
 #[test]
 fn external_kind_no_outcome_until_decided() {
-    let (_d, store) = started();
+    let (_d, store) = started_discrete();
     advance_to_station(&store, "r", "harden");
     walk_to_checkpoint(&store, "r", "harden");
     assert_eq!(checkpoint_outcome(&store, "r", "harden"), None);
@@ -811,7 +831,7 @@ fn external_kind_no_outcome_until_decided() {
 
 #[test]
 fn external_kind_approve_seals_run() {
-    let (_d, store) = started();
+    let (_d, store) = started_discrete();
     advance_to_station(&store, "r", "harden");
     walk_to_checkpoint(&store, "r", "harden");
     let res = checkpoint_decide(&store, "r", true, None).expect("approve");
@@ -821,7 +841,7 @@ fn external_kind_approve_seals_run() {
 
 #[test]
 fn external_kind_reject_blocks_and_files_feedback() {
-    let (_d, store) = started();
+    let (_d, store) = started_discrete();
     advance_to_station(&store, "r", "harden");
     walk_to_checkpoint(&store, "r", "harden");
     let res = checkpoint_decide(&store, "r", false, Some("security gap".into())).expect("reject");
@@ -831,27 +851,17 @@ fn external_kind_reject_blocks_and_files_feedback() {
 
 #[test]
 fn checkpoint_action_kind_matches_factory_def() {
-    // The Checkpoint action surfaces the factory-defined kind per station.
-    let expected = [
-        ("frame", CheckpointKind::Ask),
-        ("specify", CheckpointKind::Ask),
-        ("shape", CheckpointKind::Ask),
-        ("harden", CheckpointKind::External),
-    ];
-    for (st, kind) in expected {
+    // Every station gates `ask` by default; the Checkpoint action surfaces it.
+    for st in ["frame", "specify", "shape", "build", "prove", "harden"] {
         let (_d, store) = started();
         advance_to_station(&store, "r", st);
         let cp = walk_to_checkpoint(&store, "r", st);
-        match (cp, kind) {
-            // An external gate surfaces as ExternalReviewRequested (no kind).
-            (RunAction::ExternalReviewRequested { station, .. }, CheckpointKind::External) => {
+        match cp {
+            RunAction::Checkpoint { kind, station, .. } => {
+                assert_eq!(kind, CheckpointKind::Ask, "{st} kind");
                 assert_eq!(station, st);
             }
-            (RunAction::Checkpoint { kind: k, station, .. }, expected_kind) => {
-                assert_eq!(k, expected_kind, "{st} kind");
-                assert_eq!(station, st);
-            }
-            (other, _) => panic!("expected gate, got {other:?}"),
+            other => panic!("expected Checkpoint, got {other:?}"),
         }
     }
 }
@@ -1465,29 +1475,29 @@ fn shape_checkpoint_is_ask_and_holds() {
 }
 
 #[test]
-fn build_checkpoint_is_auto_and_advances() {
+fn build_checkpoint_is_ask_and_holds() {
     let (_d, store) = started();
     advance_to_station(&store, "r", "build");
     let cp = walk_to_checkpoint(&store, "r", "build");
-    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
-    assert_eq!(station_status(&store, "r", "build"), Status::Completed);
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
+    assert_eq!(station_status(&store, "r", "build"), Status::InProgress);
 }
 
 #[test]
-fn prove_checkpoint_is_auto_and_advances() {
+fn prove_checkpoint_is_ask_and_holds() {
     let (_d, store) = started();
     advance_to_station(&store, "r", "prove");
     let cp = walk_to_checkpoint(&store, "r", "prove");
-    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
-    assert_eq!(station_status(&store, "r", "prove"), Status::Completed);
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
+    assert_eq!(station_status(&store, "r", "prove"), Status::InProgress);
 }
 
 #[test]
-fn harden_checkpoint_is_external_and_holds() {
+fn harden_checkpoint_is_ask_and_holds() {
     let (_d, store) = started();
     advance_to_station(&store, "r", "harden");
     let cp = walk_to_checkpoint(&store, "r", "harden");
-    assert!(matches!(cp, RunAction::ExternalReviewRequested { .. }));
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
     assert_eq!(station_status(&store, "r", "harden"), Status::InProgress);
 }
 
@@ -1526,19 +1536,12 @@ fn each_gated_station_blocks_on_reject() {
 
 #[test]
 fn each_station_stamps_advanced_on_approve() {
-    for (st, gated) in [
-        ("frame", true),
-        ("specify", true),
-        ("shape", true),
-        ("build", false),
-        ("prove", false),
-    ] {
+    // Every station now gates `ask`, so each needs an explicit approval.
+    for st in ["frame", "specify", "shape", "build", "prove"] {
         let (_d, store) = started();
         advance_to_station(&store, "r", st);
         walk_to_checkpoint(&store, "r", st);
-        if gated {
-            checkpoint_decide(&store, "r", true, None).expect("approve");
-        }
+        checkpoint_decide(&store, "r", true, None).expect("approve");
         assert_eq!(
             checkpoint_outcome(&store, "r", st),
             Some(CheckpointOutcome::Advanced),
@@ -2677,7 +2680,7 @@ fn resolvedrift_action_equality() {
 
 #[test]
 fn build_auto_completes_without_any_decide_call() {
-    let (_d, store) = started();
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     walk_to_checkpoint(&store, "r", "build");
     // No checkpoint_decide invoked — auto handled it during the tick.
@@ -2686,21 +2689,22 @@ fn build_auto_completes_without_any_decide_call() {
 
 #[test]
 fn prove_auto_completes_without_decide() {
-    let (_d, store) = started();
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "prove");
     walk_to_checkpoint(&store, "r", "prove");
     assert_eq!(active_station(&store, "r"), "harden");
 }
 
 #[test]
-fn auto_stations_chain_to_harden_external() {
-    let (_d, store) = started();
+fn auto_stations_chain_through_harden() {
+    // Auto gates chain build → prove → harden with no decide calls.
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     walk_to_checkpoint(&store, "r", "build"); // auto → prove
     walk_to_checkpoint(&store, "r", "prove"); // auto → harden
     let cp = walk_to_checkpoint(&store, "r", "harden");
-    assert!(matches!(cp, RunAction::ExternalReviewRequested { .. }));
-    assert_eq!(station_status(&store, "r", "harden"), Status::InProgress);
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
+    assert_eq!(station_status(&store, "r", "harden"), Status::Completed);
 }
 
 #[test]
@@ -2757,7 +2761,7 @@ fn approve_records_completed_at_each_gated_station() {
 
 #[test]
 fn auto_station_records_completed_at() {
-    let (_d, store) = started();
+    let (_d, store) = started_auto();
     advance_to_station(&store, "r", "build");
     walk_to_checkpoint(&store, "r", "build");
     let s = store.read_state("r").unwrap().unwrap();

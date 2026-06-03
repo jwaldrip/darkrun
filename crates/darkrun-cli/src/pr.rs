@@ -190,7 +190,11 @@ mod tests {
         (dir, state, cred)
     }
 
-    /// Drive a run to its `harden` external Checkpoint.
+    /// Drive a run to its `harden` station's external review gate. Every station
+    /// gates `ask` by default; the external-review surface is a discrete-mode
+    /// concern, so we walk the upstream `ask` gates, park at harden's checkpoint
+    /// without approving it, and flip the run discrete so the gate re-derives as
+    /// `external`.
     fn drive_to_external_checkpoint(store: &StateStore, slug: &str) {
         run_start(store, slug, "software", Some("Add login".into()), "continuous").unwrap();
         for station in ["frame", "specify", "shape", "build", "prove", "harden"] {
@@ -213,7 +217,9 @@ mod tests {
                         darkrun_mcp::checkpoint_decide(store, slug, true, None).unwrap();
                     }
                     RunAction::Checkpoint { kind, station: s, .. } if s == station => {
-                        if matches!(kind, CheckpointKind::Ask) {
+                        // Approve the upstream gates; park (don't approve) at harden
+                        // so the run holds at its checkpoint for the discrete flip.
+                        if matches!(kind, CheckpointKind::Ask) && station != "harden" {
                             darkrun_mcp::checkpoint_decide(store, slug, true, None).unwrap();
                         }
                         break;
@@ -225,6 +231,10 @@ mod tests {
                 break;
             }
         }
+        // Promote harden's held `ask` gate to an external review gate.
+        let mut state = store.read_state(slug).unwrap().unwrap();
+        state.discrete = true;
+        store.write_state(slug, &state).unwrap();
     }
 
     #[test]

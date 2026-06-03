@@ -50,7 +50,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["reuse", "integration_point"],
         workers: &["test_author", "builder", "self_reviewer", "reconciler"],
         reviewers: &["correctness", "maintainability"],
-        checkpoint: CheckpointKind::Auto,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "code",
     },
     Expected {
@@ -66,7 +66,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["threat", "operability"],
         workers: &["hardener", "red_teamer", "releaser"],
         reviewers: &["security", "readiness"],
-        checkpoint: CheckpointKind::External,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "release.md",
     },
 ];
@@ -225,17 +225,7 @@ fn checkpoint_kinds_are_all_recognized() {
         .iter()
         .map(Station::checkpoint)
         .collect();
-    assert_eq!(
-        kinds,
-        vec![
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Auto,
-            CheckpointKind::Ask,
-            CheckpointKind::External,
-        ]
-    );
+    assert_eq!(kinds, vec![CheckpointKind::Ask; 6]);
 }
 
 #[test]

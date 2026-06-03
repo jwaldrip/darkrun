@@ -376,7 +376,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["reuse", "integration_point"],
         workers: &["test_author", "builder", "self_reviewer", "reconciler"],
         reviewers: &["correctness", "maintainability"],
-        checkpoint: CheckpointKind::Auto,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "code",
     },
     Expected {
@@ -392,7 +392,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["threat", "operability"],
         workers: &["hardener", "red_teamer", "releaser"],
         reviewers: &["security", "readiness"],
-        checkpoint: CheckpointKind::External,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "release.md",
     },
 ];
@@ -1505,41 +1505,29 @@ fn role_frontmatter_roundtrips_through_yaml() {
 fn checkpoint_kinds_in_order() {
     let f = load_validated("software").unwrap();
     let kinds: Vec<CheckpointKind> = f.stations.iter().map(Station::checkpoint).collect();
-    assert_eq!(
-        kinds,
-        vec![
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Auto,
-            CheckpointKind::Ask,
-            CheckpointKind::External,
-        ]
-    );
+    assert_eq!(kinds, vec![CheckpointKind::Ask; 6]);
 }
 
 #[test]
-fn build_is_the_only_auto_checkpoint() {
+fn no_station_is_auto_checkpoint() {
     let f = load_factory("software").unwrap();
-    let autos: Vec<&str> = f
+    let autos = f
         .stations
         .iter()
         .filter(|s| s.checkpoint() == CheckpointKind::Auto)
-        .map(Station::name)
-        .collect();
-    assert_eq!(autos, vec!["build"]);
+        .count();
+    assert_eq!(autos, 0);
 }
 
 #[test]
-fn harden_is_the_only_external_checkpoint() {
+fn no_station_is_external_checkpoint() {
     let f = load_factory("software").unwrap();
-    let externals: Vec<&str> = f
+    let externals = f
         .stations
         .iter()
         .filter(|s| s.checkpoint() == CheckpointKind::External)
-        .map(Station::name)
-        .collect();
-    assert_eq!(externals, vec!["harden"]);
+        .count();
+    assert_eq!(externals, 0);
 }
 
 #[test]

@@ -71,7 +71,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["reuse", "integration_point"],
         workers: &["test_author", "builder", "self_reviewer", "reconciler"],
         reviewers: &["correctness", "maintainability"],
-        checkpoint: CheckpointKind::Auto,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "code",
         inputs: &["frame.md", "spec.md", "design.md"],
     },
@@ -89,7 +89,7 @@ const STATIONS: &[Expected] = &[
         explorers: &["threat", "operability"],
         workers: &["hardener", "red_teamer", "releaser"],
         reviewers: &["security", "readiness"],
-        checkpoint: CheckpointKind::External,
+        checkpoint: CheckpointKind::Ask,
         locked_artifact: "release.md",
         inputs: &["frame.md", "spec.md", "design.md", "proof.md", "code"],
     },
@@ -609,8 +609,8 @@ fn shape_checkpoint_is_ask() {
 }
 
 #[test]
-fn build_checkpoint_is_auto() {
-    assert_eq!(factory().station("build").unwrap().checkpoint(), CheckpointKind::Auto);
+fn build_checkpoint_is_ask() {
+    assert_eq!(factory().station("build").unwrap().checkpoint(), CheckpointKind::Ask);
 }
 
 #[test]
@@ -619,49 +619,37 @@ fn prove_checkpoint_is_ask() {
 }
 
 #[test]
-fn harden_checkpoint_is_external() {
-    assert_eq!(factory().station("harden").unwrap().checkpoint(), CheckpointKind::External);
+fn harden_checkpoint_is_ask() {
+    assert_eq!(factory().station("harden").unwrap().checkpoint(), CheckpointKind::Ask);
 }
 
 #[test]
-fn checkpoint_sequence_is_ask_ask_ask_auto_ask_external() {
+fn checkpoint_sequence_is_all_ask() {
     let kinds: Vec<CheckpointKind> =
         factory().stations.iter().map(Station::checkpoint).collect();
-    assert_eq!(
-        kinds,
-        vec![
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Ask,
-            CheckpointKind::Auto,
-            CheckpointKind::Ask,
-            CheckpointKind::External,
-        ]
-    );
+    assert_eq!(kinds, vec![CheckpointKind::Ask; 6]);
 }
 
 #[test]
-fn only_build_is_auto() {
+fn no_station_is_auto() {
     let f = factory();
-    let auto: Vec<&str> = f
+    let auto = f
         .stations
         .iter()
         .filter(|s| s.checkpoint() == CheckpointKind::Auto)
-        .map(Station::name)
-        .collect();
-    assert_eq!(auto, vec!["build"]);
+        .count();
+    assert_eq!(auto, 0);
 }
 
 #[test]
-fn only_harden_is_external() {
+fn no_station_is_external() {
     let f = factory();
-    let external: Vec<&str> = f
+    let external = f
         .stations
         .iter()
         .filter(|s| s.checkpoint() == CheckpointKind::External)
-        .map(Station::name)
-        .collect();
-    assert_eq!(external, vec!["harden"]);
+        .count();
+    assert_eq!(external, 0);
 }
 
 #[test]
@@ -677,20 +665,20 @@ fn no_station_uses_await_checkpoint() {
 }
 
 #[test]
-fn four_stations_ask() {
+fn all_six_stations_ask() {
     let ask = factory()
         .stations
         .iter()
         .filter(|s| s.checkpoint() == CheckpointKind::Ask)
         .count();
-    assert_eq!(ask, 4);
+    assert_eq!(ask, 6);
 }
 
 #[test]
-fn final_station_hands_off_externally() {
+fn final_station_gates_ask() {
     let last = factory().stations.last().unwrap().clone();
     assert_eq!(last.name(), "harden");
-    assert_eq!(last.checkpoint(), CheckpointKind::External);
+    assert_eq!(last.checkpoint(), CheckpointKind::Ask);
 }
 
 #[test]

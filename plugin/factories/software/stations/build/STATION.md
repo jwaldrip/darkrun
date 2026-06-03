@@ -4,7 +4,7 @@ description: Build the software — write tests first, implement to green, self-
 explorers: [reuse, integration_point]
 workers: [test_author, builder, self_reviewer, reconciler]
 reviewers: [correctness, maintainability]
-checkpoint: auto
+checkpoint: ask
 locked_artifact: code
 inputs: [frame.md, spec.md, design.md]
 ---
@@ -44,6 +44,7 @@ and passing. Each Unit's merge is the lock.
 
 ## Checkpoint
 
-**auto.** Build advances automatically once tests are green and reviews pass —
-the test suite is the gate. Risky diffs (security-sensitive, wide blast radius)
-escalate to **ask** for a human look.
+**ask.** Build holds for an operator review once tests are green and reviews
+pass — the operator confirms the merged code before the line advances. A
+right-sized / autonomous run downgrades this gate to advance automatically on a
+green test suite.

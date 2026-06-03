@@ -34,9 +34,7 @@ pub const PHASES: [StationPhase; 6] = [
 /// from the embedded content corpus, where `prove` is `ask`).
 pub fn manager_checkpoint(station: &str) -> CheckpointKind {
     match station {
-        "frame" | "specify" | "shape" => CheckpointKind::Ask,
-        "build" | "prove" => CheckpointKind::Auto,
-        "harden" => CheckpointKind::External,
+        "frame" | "specify" | "shape" | "build" | "prove" | "harden" => CheckpointKind::Ask,
         other => panic!("unknown station {other}"),
     }
 }

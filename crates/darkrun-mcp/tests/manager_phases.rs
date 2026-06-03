@@ -34,8 +34,13 @@ fn store() -> (TempDir, StateStore) {
 
 /// Start a fresh software run and return its store (keeping the tempdir alive).
 fn fresh(slug: &str) -> (TempDir, StateStore) {
+    fresh_with(slug, "continuous")
+}
+
+/// Start a fresh software run in a specific mode.
+fn fresh_with(slug: &str, mode: &str) -> (TempDir, StateStore) {
     let (d, store) = store();
-    run_start(&store, slug, "software", None, "continuous").expect("start");
+    run_start(&store, slug, "software", None, mode).expect("start");
     (d, store)
 }
 
@@ -55,9 +60,7 @@ const PHASES: [StationPhase; 7] = [
 
 fn checkpoint_kind(station: &str) -> CheckpointKind {
     match station {
-        "frame" | "specify" | "shape" => CheckpointKind::Ask,
-        "build" | "prove" => CheckpointKind::Auto,
-        "harden" => CheckpointKind::External,
+        "frame" | "specify" | "shape" | "build" | "prove" | "harden" => CheckpointKind::Ask,
         other => panic!("unknown station {other}"),
     }
 }
@@ -297,8 +300,8 @@ phase_derive_test!(harden_review_derives_review, "harden", StationPhase::Review,
 phase_derive_test!(harden_manufacture_derives_manufacture, "harden", StationPhase::Manufacture, "manufacture");
 phase_derive_test!(harden_audit_derives_audit, "harden", StationPhase::Audit, "audit");
 phase_derive_test!(harden_reflect_derives_reflect, "harden", StationPhase::Reflect, "reflect");
-// harden's external gate surfaces as ExternalReviewRequested, not Checkpoint.
-phase_derive_test!(harden_checkpoint_derives_checkpoint, "harden", StationPhase::Checkpoint, "external_review_requested");
+// Every station (harden included) now gates with a local `ask` Checkpoint.
+phase_derive_test!(harden_checkpoint_derives_checkpoint, "harden", StationPhase::Checkpoint, "checkpoint");
 
 // ─────────── run_tick write-cache advancement per (station, phase) ───────────
 //
@@ -333,8 +336,8 @@ tick_advances_phase_test!(harden_spec_to_review, "harden", StationPhase::Spec, S
 tick_advances_phase_test!(frame_review_to_user_gate, "frame", StationPhase::Review, StationPhase::UserGate);
 tick_advances_phase_test!(specify_review_to_user_gate, "specify", StationPhase::Review, StationPhase::UserGate);
 tick_advances_phase_test!(shape_review_to_user_gate, "shape", StationPhase::Review, StationPhase::UserGate);
-tick_advances_phase_test!(build_review_to_manufacture, "build", StationPhase::Review, StationPhase::Manufacture);
-tick_advances_phase_test!(prove_review_to_manufacture, "prove", StationPhase::Review, StationPhase::Manufacture);
+tick_advances_phase_test!(build_review_to_user_gate, "build", StationPhase::Review, StationPhase::UserGate);
+tick_advances_phase_test!(prove_review_to_user_gate, "prove", StationPhase::Review, StationPhase::UserGate);
 tick_advances_phase_test!(harden_review_to_user_gate, "harden", StationPhase::Review, StationPhase::UserGate);
 
 // Audit -> Reflect for every station.
@@ -502,45 +505,46 @@ macro_rules! checkpoint_kind_test {
 checkpoint_kind_test!(frame_checkpoint_is_ask, "frame", CheckpointKind::Ask);
 checkpoint_kind_test!(specify_checkpoint_is_ask, "specify", CheckpointKind::Ask);
 checkpoint_kind_test!(shape_checkpoint_is_ask, "shape", CheckpointKind::Ask);
-checkpoint_kind_test!(build_checkpoint_is_auto, "build", CheckpointKind::Auto);
-checkpoint_kind_test!(prove_checkpoint_is_auto, "prove", CheckpointKind::Auto);
+checkpoint_kind_test!(build_checkpoint_is_ask, "build", CheckpointKind::Ask);
+checkpoint_kind_test!(prove_checkpoint_is_ask, "prove", CheckpointKind::Ask);
+checkpoint_kind_test!(harden_checkpoint_is_ask, "harden", CheckpointKind::Ask);
 
-// harden's external gate surfaces as ExternalReviewRequested, not Checkpoint.
+// Every station gates with a local `ask` Checkpoint (the external-review path is
+// reserved for discrete mode, which `effective_checkpoint_kind` forces).
 #[test]
-fn harden_checkpoint_is_external() {
+fn harden_checkpoint_is_ask_local() {
     let (_d, store) = fresh("r");
     at_phase(&store, "r", "harden", StationPhase::Checkpoint);
     let pos = derive_position(&store, "r").expect("pos");
     match pos.action.expect("action") {
-        RunAction::ExternalReviewRequested { station, .. } => assert_eq!(station, "harden"),
-        other => panic!("expected ExternalReviewRequested, got {other:?}"),
+        RunAction::Checkpoint { station, kind, .. } => {
+            assert_eq!(station, "harden");
+            assert_eq!(kind, CheckpointKind::Ask);
+        }
+        other => panic!("expected Checkpoint, got {other:?}"),
     }
 }
 
-// ───── Auto checkpoint tick completes the station and advances ─────
+// ───── Auto-gated mode still completes the station on the checkpoint tick ─────
+//
+// Every software station now gates `ask` by default, so auto-advance only
+// happens when the run downgrades its gates (quick / auto mode, where
+// `effective_checkpoint_kind` forces `Auto`).
 
 #[test]
-fn build_auto_checkpoint_tick_completes_and_advances() {
+fn auto_gated_run_checkpoint_tick_completes_and_advances() {
     let (_d, store) = fresh("r");
-    at_phase(&store, "r", "build", StationPhase::Checkpoint);
+    at_phase(&store, "r", "frame", StationPhase::Checkpoint);
+    // Downgrade the gates (the quick/auto-mode behaviour): `effective_checkpoint_kind`
+    // now forces Auto, so the checkpoint tick completes the station with no decide.
+    let mut state = store.read_state("r").unwrap().unwrap();
+    state.auto_gates = true;
+    store.write_state("r", &state).unwrap();
     let t = run_tick(&store, "r").expect("tick");
     assert!(matches!(t.action, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
     let s = store.read_state("r").unwrap().unwrap();
-    assert_eq!(s.stations["build"].status, Status::Completed);
-    assert_eq!(s.active_station, "prove");
-    assert_eq!(s.stations["prove"].phase, StationPhase::Spec);
-}
-
-#[test]
-fn prove_auto_checkpoint_tick_completes_and_advances() {
-    let (_d, store) = fresh("r");
-    at_phase(&store, "r", "prove", StationPhase::Checkpoint);
-    let t = run_tick(&store, "r").expect("tick");
-    assert!(matches!(t.action, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
-    let s = store.read_state("r").unwrap().unwrap();
-    assert_eq!(s.stations["prove"].status, Status::Completed);
-    assert_eq!(s.active_station, "harden");
-    assert_eq!(s.stations["harden"].phase, StationPhase::Spec);
+    assert_eq!(s.stations["frame"].status, Status::Completed);
+    assert_eq!(s.active_station, "specify");
 }
 
 // ───── Gated checkpoint tick HOLDS the station (no advance) ─────
@@ -566,21 +570,9 @@ macro_rules! gated_checkpoint_holds_test {
 gated_checkpoint_holds_test!(frame_gated_holds, "frame", CheckpointKind::Ask);
 gated_checkpoint_holds_test!(specify_gated_holds, "specify", CheckpointKind::Ask);
 gated_checkpoint_holds_test!(shape_gated_holds, "shape", CheckpointKind::Ask);
-
-// harden's external gate (ExternalReviewRequested) holds the station too,
-// stamping an external Awaiting checkpoint until an operator decides.
-#[test]
-fn harden_gated_holds() {
-    let (_d, store) = fresh("r");
-    at_phase(&store, "r", "harden", StationPhase::Checkpoint);
-    let t = run_tick(&store, "r").expect("tick");
-    assert!(matches!(t.action, RunAction::ExternalReviewRequested { .. }));
-    let s = store.read_state("r").unwrap().unwrap();
-    assert_ne!(s.stations["harden"].status, Status::Completed);
-    assert_eq!(s.active_station, "harden");
-    let cp = s.stations["harden"].checkpoint.as_ref().expect("cp");
-    assert!(cp.entered_at.is_some());
-}
+gated_checkpoint_holds_test!(build_gated_holds, "build", CheckpointKind::Ask);
+gated_checkpoint_holds_test!(prove_gated_holds, "prove", CheckpointKind::Ask);
+gated_checkpoint_holds_test!(harden_gated_holds, "harden", CheckpointKind::Ask);
 
 // ───── checkpoint_decide approve → completes & advances to next Spec ─────
 
@@ -609,27 +601,12 @@ decide_approve_advances_test!(frame_approve_to_specify, "frame", "specify");
 decide_approve_advances_test!(specify_approve_to_shape, "specify", "shape");
 decide_approve_advances_test!(shape_approve_to_build, "shape", "build");
 
-// Auto stations advance on the checkpoint tick itself — no decide needed.
-macro_rules! auto_tick_advances_test {
-    ($name:ident, $station:expr, $next:expr) => {
-        #[test]
-        fn $name() {
-            let (_d, store) = fresh("r");
-            at_phase(&store, "r", $station, StationPhase::Checkpoint);
-            let t = run_tick(&store, "r").expect("checkpoint tick");
-            assert!(matches!(t.action, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
-            let s = store.read_state("r").unwrap().unwrap();
-            assert_eq!(s.stations[$station].status, Status::Completed);
-            assert_eq!(s.active_station, $next);
-            assert_eq!(s.stations[$station].checkpoint.as_ref().unwrap().outcome, Some(CheckpointOutcome::Advanced));
-            // The next derive surfaces the next station's Spec.
-            let pos = derive_position(&store, "r").unwrap();
-            assert_eq!(action_station(&pos.action.unwrap()), Some($next));
-        }
-    };
-}
-auto_tick_advances_test!(build_auto_advances_to_prove, "build", "prove");
-auto_tick_advances_test!(prove_auto_advances_to_harden, "prove", "harden");
+// (Every station now gates `ask`; auto-advance-on-tick is exercised by
+// `auto_gated_run_checkpoint_tick_completes_and_advances` for the downgraded
+// gate mode, and by the per-station `decide_approve_advances_test` below for the
+// default ask flow.)
+decide_approve_advances_test!(build_approve_to_prove, "build", "prove");
+decide_approve_advances_test!(prove_approve_to_harden, "prove", "harden");
 
 #[test]
 fn harden_approve_seals_run() {
@@ -729,21 +706,21 @@ fn next_station_seeded_on_completion_with_checkpoint_kind() {
 }
 
 #[test]
-fn build_station_seeded_with_auto_checkpoint_kind() {
+fn build_station_seeded_with_ask_checkpoint_kind() {
     let (_d, store) = fresh("r");
     advance_to_station(&store, "r", "build");
     let state = store.read_state("r").unwrap().unwrap();
     let build = state.stations.get("build").expect("build seeded");
-    assert_eq!(build.checkpoint.as_ref().unwrap().kind, CheckpointKind::Auto);
+    assert_eq!(build.checkpoint.as_ref().unwrap().kind, CheckpointKind::Ask);
 }
 
 #[test]
-fn harden_station_seeded_with_external_checkpoint_kind() {
+fn harden_station_seeded_with_ask_checkpoint_kind() {
     let (_d, store) = fresh("r");
     advance_to_station(&store, "r", "harden");
     let state = store.read_state("r").unwrap().unwrap();
     let harden = state.stations.get("harden").expect("harden seeded");
-    assert_eq!(harden.checkpoint.as_ref().unwrap().kind, CheckpointKind::External);
+    assert_eq!(harden.checkpoint.as_ref().unwrap().kind, CheckpointKind::Ask);
 }
 
 // ───── Sealed when every station is done ─────
@@ -1329,7 +1306,7 @@ fn next_station_helper_matches_factory() {
 
 #[test]
 fn all_station_phase_pairs_derive_expected_action() {
-    let expected = |station: &str, p: StationPhase| -> &'static str {
+    let expected = |_station: &str, p: StationPhase| -> &'static str {
         match p {
             StationPhase::Spec => "spec",
             StationPhase::Review => "review",
@@ -1337,8 +1314,6 @@ fn all_station_phase_pairs_derive_expected_action() {
             StationPhase::Audit => "audit",
             StationPhase::Reflect => "reflect",
             StationPhase::UserGate => "user_gate",
-            // The external station's gate surfaces as ExternalReviewRequested.
-            StationPhase::Checkpoint if station == "harden" => "external_review_requested",
             StationPhase::Checkpoint => "checkpoint",
         }
     };
@@ -1449,7 +1424,7 @@ fn checkpoint_position_serializes_kind() {
     let pos = derive_position(&store, "r").unwrap();
     let json = serde_json::to_value(&pos).unwrap();
     assert_eq!(json["action"]["action"], "checkpoint");
-    assert_eq!(json["action"]["kind"], "auto");
+    assert_eq!(json["action"]["kind"], "ask");
 }
 
 #[test]
@@ -1901,7 +1876,7 @@ action_run_slug_test!(slug_harden_spec, "harden", StationPhase::Spec, "spec");
 action_run_slug_test!(slug_harden_review, "harden", StationPhase::Review, "review");
 action_run_slug_test!(slug_harden_audit, "harden", StationPhase::Audit, "audit");
 action_run_slug_test!(slug_harden_reflect, "harden", StationPhase::Reflect, "reflect");
-action_run_slug_test!(slug_harden_checkpoint, "harden", StationPhase::Checkpoint, "external_review_requested");
+action_run_slug_test!(slug_harden_checkpoint, "harden", StationPhase::Checkpoint, "checkpoint");
 
 // ───── Serialization tag per action variant (snake_case) ─────
 
@@ -1926,7 +1901,7 @@ action_serializes_tag_test!(ser_specify_review, "specify", StationPhase::Review,
 action_serializes_tag_test!(ser_shape_audit, "shape", StationPhase::Audit, "audit");
 action_serializes_tag_test!(ser_build_reflect, "build", StationPhase::Reflect, "reflect");
 action_serializes_tag_test!(ser_prove_manufacture, "prove", StationPhase::Manufacture, "manufacture");
-action_serializes_tag_test!(ser_harden_checkpoint, "harden", StationPhase::Checkpoint, "external_review_requested");
+action_serializes_tag_test!(ser_harden_checkpoint, "harden", StationPhase::Checkpoint, "checkpoint");
 
 // ───── Tick advances phase exactly one step per call (Spec→Review→…) ─────
 
@@ -2193,10 +2168,10 @@ macro_rules! checkpoint_kind_stable_test {
 checkpoint_kind_stable_test!(cp_stable_frame, "frame", CheckpointKind::Ask);
 checkpoint_kind_stable_test!(cp_stable_specify, "specify", CheckpointKind::Ask);
 checkpoint_kind_stable_test!(cp_stable_shape, "shape", CheckpointKind::Ask);
-checkpoint_kind_stable_test!(cp_stable_build, "build", CheckpointKind::Auto);
-checkpoint_kind_stable_test!(cp_stable_prove, "prove", CheckpointKind::Auto);
+checkpoint_kind_stable_test!(cp_stable_build, "build", CheckpointKind::Ask);
+checkpoint_kind_stable_test!(cp_stable_prove, "prove", CheckpointKind::Ask);
 
-// harden's external gate re-derives stably as ExternalReviewRequested.
+// harden's local `ask` gate re-derives stably as a Checkpoint.
 #[test]
 fn cp_stable_harden() {
     let (_d, store) = fresh("r");
@@ -2204,7 +2179,10 @@ fn cp_stable_harden() {
     for _ in 0..3 {
         let pos = derive_position(&store, "r").unwrap();
         match pos.action.unwrap() {
-            RunAction::ExternalReviewRequested { station, .. } => assert_eq!(station, "harden"),
+            RunAction::Checkpoint { station, kind, .. } => {
+                assert_eq!(station, "harden");
+                assert_eq!(kind, CheckpointKind::Ask);
+            }
             other => panic!("got {other:?}"),
         }
     }

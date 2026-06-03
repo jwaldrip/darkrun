@@ -87,7 +87,7 @@ fn station(
 /// The software factory — the redesigned station plan ordered by
 /// cost-of-late-discovery: Frame -> Specify -> Shape -> Build -> Prove -> Harden.
 pub fn software_factory() -> FactoryDef {
-    use CheckpointKind::{Ask, Auto, External};
+    use CheckpointKind::Ask;
     FactoryDef {
         name: "software".to_string(),
         stations: vec![
@@ -122,7 +122,7 @@ pub fn software_factory() -> FactoryDef {
                 "build",
                 "implementation-defects",
                 "build.md",
-                Auto,
+                Ask,
                 &["integration_point", "reuse"],
                 &["test_author", "builder", "self_reviewer", "reconciler"],
                 &["correctness", "maintainability"],
@@ -131,7 +131,7 @@ pub fn software_factory() -> FactoryDef {
                 "prove",
                 "escaped-defects",
                 "prove.md",
-                Auto,
+                Ask,
                 &["regression", "scenario"],
                 &["scenario_author", "prover", "regressor"],
                 &["coverage", "evidence"],
@@ -140,7 +140,7 @@ pub fn software_factory() -> FactoryDef {
                 "harden",
                 "works-in-dev-dies-in-prod",
                 "release.md",
-                External,
+                Ask,
                 &["operability", "threat"],
                 &["hardener", "red_teamer", "releaser"],
                 &["security", "readiness"],

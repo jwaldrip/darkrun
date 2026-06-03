@@ -89,28 +89,30 @@ fn full_run_walks_all_six_stations_to_sealed() {
     assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
     checkpoint_decide(&store, "r", true, None).expect("approve shape");
 
-    // build: auto → the checkpoint tick advances the station with no decide.
+    // build: ask → operator approves to advance.
     let cp = walk_to_checkpoint(&store, "r", "build");
-    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
+    checkpoint_decide(&store, "r", true, None).expect("approve build");
     let s = store.read_state("r").unwrap().unwrap();
     assert_eq!(s.stations["build"].status, Status::Completed);
     assert_eq!(s.active_station, "prove");
 
-    // prove: auto.
+    // prove: ask.
     let cp = walk_to_checkpoint(&store, "r", "prove");
-    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Auto, .. }));
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
+    checkpoint_decide(&store, "r", true, None).expect("approve prove");
     assert_eq!(
         store.read_state("r").unwrap().unwrap().active_station,
         "harden"
     );
 
-    // harden: external → surfaces as ExternalReviewRequested, holds until decide.
+    // harden: ask → holds until decide.
     let cp = walk_to_checkpoint(&store, "r", "harden");
-    assert!(matches!(cp, RunAction::ExternalReviewRequested { .. }));
+    assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
     let s = store.read_state("r").unwrap().unwrap();
     assert_eq!(s.stations["harden"].status, Status::InProgress);
 
-    // Operator approves the external gate → run is sealed.
+    // Operator approves the final gate → run is sealed.
     let decided = checkpoint_decide(&store, "r", true, None).expect("approve harden");
     assert!(
         matches!(&decided.action, RunAction::Sealed { run } if run == "r"),
