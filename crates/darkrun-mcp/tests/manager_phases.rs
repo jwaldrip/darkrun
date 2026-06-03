@@ -43,9 +43,10 @@ fn fresh(slug: &str) -> (TempDir, StateStore) {
 const STATIONS: [&str; 6] = ["frame", "specify", "shape", "build", "prove", "harden"];
 
 /// The phases in canonical order.
-const PHASES: [StationPhase; 6] = [
+const PHASES: [StationPhase; 7] = [
     StationPhase::Spec,
     StationPhase::Review,
+    StationPhase::UserGate,
     StationPhase::Manufacture,
     StationPhase::Audit,
     StationPhase::Reflect,
@@ -85,6 +86,7 @@ fn action_station(a: &RunAction) -> Option<&str> {
         | RunAction::Manufacture { station, .. }
         | RunAction::Audit { station, .. }
         | RunAction::Reflect { station, .. }
+        | RunAction::UserGate { station, .. }
         | RunAction::Checkpoint { station, .. }
         | RunAction::FixFeedback { station, .. }
         | RunAction::FeedbackQuestion { station, .. }
@@ -146,9 +148,13 @@ fn advance_to_station(store: &StateStore, run: &str, target: &str) {
         // Drive this station to its checkpoint with a trivial completed unit.
         seed_unit(store, run, station, &format!("{station}-seed"), Status::Completed, &[]);
         let mut reached = false;
-        for _ in 0..12 {
+        for _ in 0..16 {
             let t = run_tick(store, run).expect("tick");
             match &t.action {
+                // Clear the pre-execution operator gate so the walk proceeds.
+                RunAction::UserGate { station: s, .. } if s == station => {
+                    checkpoint_decide(store, run, true, None).expect("clear gate");
+                }
                 RunAction::Checkpoint { station: s, .. } if s == station => {
                     reached = true;
                     break;
@@ -321,13 +327,15 @@ tick_advances_phase_test!(build_spec_to_review, "build", StationPhase::Spec, Sta
 tick_advances_phase_test!(prove_spec_to_review, "prove", StationPhase::Spec, StationPhase::Review);
 tick_advances_phase_test!(harden_spec_to_review, "harden", StationPhase::Spec, StationPhase::Review);
 
-// Review -> Manufacture for every station.
-tick_advances_phase_test!(frame_review_to_manufacture, "frame", StationPhase::Review, StationPhase::Manufacture);
-tick_advances_phase_test!(specify_review_to_manufacture, "specify", StationPhase::Review, StationPhase::Manufacture);
-tick_advances_phase_test!(shape_review_to_manufacture, "shape", StationPhase::Review, StationPhase::Manufacture);
+// Review -> next: an INTERACTIVE station (ask/external) holds at the
+// pre-execution UserGate; an AUTO-gated station (build/prove) goes straight to
+// Manufacture.
+tick_advances_phase_test!(frame_review_to_user_gate, "frame", StationPhase::Review, StationPhase::UserGate);
+tick_advances_phase_test!(specify_review_to_user_gate, "specify", StationPhase::Review, StationPhase::UserGate);
+tick_advances_phase_test!(shape_review_to_user_gate, "shape", StationPhase::Review, StationPhase::UserGate);
 tick_advances_phase_test!(build_review_to_manufacture, "build", StationPhase::Review, StationPhase::Manufacture);
 tick_advances_phase_test!(prove_review_to_manufacture, "prove", StationPhase::Review, StationPhase::Manufacture);
-tick_advances_phase_test!(harden_review_to_manufacture, "harden", StationPhase::Review, StationPhase::Manufacture);
+tick_advances_phase_test!(harden_review_to_user_gate, "harden", StationPhase::Review, StationPhase::UserGate);
 
 // Audit -> Reflect for every station.
 tick_advances_phase_test!(frame_audit_to_reflect, "frame", StationPhase::Audit, StationPhase::Reflect);
@@ -746,8 +754,13 @@ fn sealed_after_all_six_stations() {
     for station in STATIONS {
         seed_unit(&store, "r", station, &format!("{station}-u"), Status::Completed, &[]);
         let mut reached = false;
-        for _ in 0..10 {
+        for _ in 0..14 {
             let t = run_tick(&store, "r").expect("tick");
+            // Clear the pre-execution operator gate so the wave releases.
+            if matches!(&t.action, RunAction::UserGate { station: s, .. } if s == station) {
+                checkpoint_decide(&store, "r", true, None).expect("clear gate");
+                continue;
+            }
             // The gate is a local Checkpoint or, for harden, ExternalReviewRequested.
             let at_gate = matches!(&t.action, RunAction::Checkpoint { station: s, .. } if s == station)
                 || matches!(&t.action, RunAction::ExternalReviewRequested { station: s, .. } if s == station);
@@ -801,8 +814,12 @@ fn sealed_tick_is_noop_for_state_advancement() {
     // Drive to sealed.
     for station in STATIONS {
         seed_unit(&store, "r", station, &format!("{station}-u"), Status::Completed, &[]);
-        for _ in 0..10 {
+        for _ in 0..14 {
             let t = run_tick(&store, "r").expect("tick");
+            if matches!(&t.action, RunAction::UserGate { station: s, .. } if s == station) {
+                checkpoint_decide(&store, "r", true, None).expect("clear gate");
+                continue;
+            }
             if matches!(&t.action, RunAction::Checkpoint { station: s, .. } if s == station) {
                 break;
             }
@@ -1224,9 +1241,17 @@ macro_rules! full_station_walk_test {
             // Review
             let t = run_tick(&store, "r").unwrap();
             assert_eq!(action_name(&t.action), "review");
-            // Decompose a unit, Manufacture.
+            // Decompose a unit. An interactive station (ask/external) holds at
+            // the pre-execution operator gate before manufacture; an auto-gated
+            // station (build/prove) releases the wave straight away.
             seed_unit(&store, "r", $station, "u1", Status::Pending, &[]);
             let t = run_tick(&store, "r").unwrap();
+            let t = if action_name(&t.action) == "user_gate" {
+                checkpoint_decide(&store, "r", true, None).unwrap();
+                run_tick(&store, "r").unwrap()
+            } else {
+                t
+            };
             assert_eq!(action_name(&t.action), "manufacture");
             complete_unit(&store, "r", "u1");
             // Audit (folds in the old tests phase)
@@ -1262,6 +1287,7 @@ fn phases_const_is_canonical_order() {
         [
             StationPhase::Spec,
             StationPhase::Review,
+            StationPhase::UserGate,
             StationPhase::Manufacture,
             StationPhase::Audit,
             StationPhase::Reflect,
@@ -1310,6 +1336,7 @@ fn all_station_phase_pairs_derive_expected_action() {
             StationPhase::Manufacture => "manufacture",
             StationPhase::Audit => "audit",
             StationPhase::Reflect => "reflect",
+            StationPhase::UserGate => "user_gate",
             // The external station's gate surfaces as ExternalReviewRequested.
             StationPhase::Checkpoint if station == "harden" => "external_review_requested",
             StationPhase::Checkpoint => "checkpoint",
@@ -1339,11 +1366,11 @@ fn tick_then_derive_reflects_advanced_phase() {
     run_tick(&store, "r").unwrap();
     let pos = derive_position(&store, "r").unwrap();
     assert_eq!(action_name(&pos.action.unwrap()), "review");
-    // Review → after tick, derive should report Manufacture-fallback (Spec, no units).
+    // Review → after tick, an interactive (continuous) station holds at the
+    // pre-execution operator gate before manufacture.
     run_tick(&store, "r").unwrap();
     let pos = derive_position(&store, "r").unwrap();
-    // No units → Manufacture phase falls back to Spec.
-    assert_eq!(action_name(&pos.action.unwrap()), "spec");
+    assert_eq!(action_name(&pos.action.unwrap()), "user_gate");
 }
 
 // ───── unknown factory / unknown run error paths ─────
@@ -1430,8 +1457,12 @@ fn sealed_position_serializes() {
     let (_d, store) = fresh("r");
     for station in STATIONS {
         seed_unit(&store, "r", station, &format!("{station}-u"), Status::Completed, &[]);
-        for _ in 0..10 {
+        for _ in 0..14 {
             let t = run_tick(&store, "r").unwrap();
+            if matches!(&t.action, RunAction::UserGate { station: s, .. } if s == station) {
+                checkpoint_decide(&store, "r", true, None).unwrap();
+                continue;
+            }
             if matches!(&t.action, RunAction::Checkpoint { station: s, .. } if s == station) {
                 break;
             }
@@ -1594,7 +1625,8 @@ fn two_runs_in_same_store_are_independent() {
     run_tick(&store, "alpha").unwrap();
     let a = store.read_state("alpha").unwrap().unwrap();
     let b = store.read_state("beta").unwrap().unwrap();
-    assert_eq!(a.stations["frame"].phase, StationPhase::Manufacture);
+    // alpha: spec → review → pre-execution user gate (frame is interactive).
+    assert_eq!(a.stations["frame"].phase, StationPhase::UserGate);
     assert_eq!(b.stations["frame"].phase, StationPhase::Spec);
     let pa = derive_position(&store, "alpha").unwrap();
     let pb = derive_position(&store, "beta").unwrap();
@@ -1991,9 +2023,18 @@ macro_rules! station_phase_sequence_test {
             seen.push(action_name(&run_tick(&store, "r").unwrap().action));
             // Review.
             seen.push(action_name(&run_tick(&store, "r").unwrap().action));
-            // Manufacture (after decomposing a unit).
+            // Manufacture (after decomposing a unit). An interactive station
+            // first holds at the pre-execution operator gate; clear it so the
+            // wave releases. An auto-gated station skips straight to Manufacture.
             seed_unit(&store, "r", $station, "u1", Status::Pending, &[]);
-            seen.push(action_name(&run_tick(&store, "r").unwrap().action));
+            let mfg = run_tick(&store, "r").unwrap();
+            let mfg = if action_name(&mfg.action) == "user_gate" {
+                checkpoint_decide(&store, "r", true, None).unwrap();
+                run_tick(&store, "r").unwrap()
+            } else {
+                mfg
+            };
+            seen.push(action_name(&mfg.action));
             complete_unit(&store, "r", "u1");
             // Audit (folds in the old tests phase).
             seen.push(action_name(&run_tick(&store, "r").unwrap().action));

@@ -302,7 +302,7 @@ fn station_phase_schema_lists_six_in_order() {
         .collect();
     assert_eq!(
         tokens,
-        vec!["spec", "review", "manufacture", "audit", "reflect", "checkpoint"]
+        vec!["spec", "review", "user_gate", "manufacture", "audit", "reflect", "checkpoint"]
     );
 }
 
@@ -3000,10 +3000,10 @@ fn status_has_exactly_five_variants_in_schema() {
 }
 
 #[test]
-fn station_phase_has_exactly_six_variants_in_schema() {
+fn station_phase_has_exactly_seven_variants_in_schema() {
     assert_eq!(
         schema_value!(StationPhase)["oneOf"].as_array().unwrap().len(),
-        6
+        7
     );
 }
 

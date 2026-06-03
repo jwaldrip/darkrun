@@ -93,6 +93,13 @@ pub enum RunAction {
     /// Reflect: an autonomous retrospective that captures learnings for the
     /// run-level reflections, before the Checkpoint gate.
     Reflect { run: String, station: String },
+    /// The station's pre-execution USER gate is open: the adversarial Reviewers
+    /// have signed the spec, but the operator hasn't. The cursor HOLDS here and
+    /// surfaces the station's brief to the operator's review surface (the desktop
+    /// app) — they approve (→ Manufacture) or return feedback (→ rework) via
+    /// `darkrun_checkpoint_decide`. The pre-execution twin of `Checkpoint`: it
+    /// lets the operator review the station *before* any Unit is manufactured.
+    UserGate { run: String, station: String },
     /// The station's Checkpoint gate is open; the agent should surface it.
     Checkpoint {
         run: String,
@@ -847,8 +854,16 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     // (the same `darkrun_core::derive` the HTTP browse and website run); until the
     // engine stamps those signals it falls back to the recorded/imperative phase.
     let autopilot = run.frontmatter.mode.contains("auto");
-    let phase = derived_station_phase(&su, def, autopilot)
-        .unwrap_or_else(|| station_phase(&state, &station));
+    // A held USER gate is AUTHORITATIVE: once the cursor parks at the
+    // pre-execution operator gate, the derived signals (which know nothing of the
+    // gate) must not skip it back into Manufacture. The gate is cleared only by
+    // `darkrun_checkpoint_decide`, which advances the recorded phase past it.
+    let recorded = station_phase(&state, &station);
+    let phase = if recorded == StationPhase::UserGate {
+        StationPhase::UserGate
+    } else {
+        derived_station_phase(&su, def, autopilot).unwrap_or(recorded)
+    };
 
     let spec_action = || RunAction::Spec {
         run: slug.to_string(),
@@ -862,6 +877,10 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             run: slug.to_string(),
             station: station.clone(),
             reviewers: def.reviewers.clone(),
+        },
+        StationPhase::UserGate => RunAction::UserGate {
+            run: slug.to_string(),
+            station: station.clone(),
         },
         StationPhase::Manufacture => {
             // No units decomposed yet → the station still owes Spec.
@@ -1064,6 +1083,7 @@ pub fn action_tag(action: &RunAction) -> &'static str {
         RunAction::Manufacture { .. } => "manufacture",
         RunAction::Audit { .. } => "audit",
         RunAction::Reflect { .. } => "reflect",
+        RunAction::UserGate { .. } => "user_gate",
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::FeedbackQuestion { .. } => "feedback_question",
@@ -1095,6 +1115,7 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         | RunAction::Manufacture { station, .. }
         | RunAction::Audit { station, .. }
         | RunAction::Reflect { station, .. }
+        | RunAction::UserGate { station, .. }
         | RunAction::Checkpoint { station, .. }
         | RunAction::FixFeedback { station, .. }
         | RunAction::FeedbackQuestion { station, .. }
@@ -1480,8 +1501,30 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             state.active_station = station.clone();
         }
         RunAction::Review { station, .. } => {
+            // After the review work lands, an INTERACTIVE station holds at the
+            // pre-execution USER gate so the operator can review the spec/brief
+            // before any Unit is manufactured; an `auto` station (autopilot, or a
+            // station whose checkpoint is `auto`) advances straight into
+            // Manufacture. The gate is cleared by `darkrun_checkpoint_decide`.
+            let kind = factory
+                .station(station)
+                .map(|def| effective_checkpoint_kind(&state, def))
+                .unwrap_or(CheckpointKind::Auto);
             let st = ensure_station(&mut state, &factory, station)?;
-            st.phase = StationPhase::Manufacture;
+            st.phase = if matches!(kind, CheckpointKind::Auto) {
+                StationPhase::Manufacture
+            } else {
+                StationPhase::UserGate
+            };
+            state.active_station = station.clone();
+        }
+        RunAction::UserGate { station, .. } => {
+            // Holding at the operator gate — no phase change. The cursor parks
+            // here (deadlock-exempt) until `darkrun_checkpoint_decide` advances
+            // the recorded phase into Manufacture (approve) or routes feedback
+            // (reject). Keep the active station pinned so the surface stays put.
+            let st = ensure_station(&mut state, &factory, station)?;
+            st.phase = StationPhase::UserGate;
             state.active_station = station.clone();
         }
         RunAction::Manufacture { station, .. } => {
@@ -1759,6 +1802,29 @@ pub fn checkpoint_decide(
         .ok_or_else(|| McpError::NoActiveStation(slug.to_string()))?;
 
     let now = Utc::now().to_rfc3339();
+
+    // ── Pre-execution USER gate ──────────────────────────────────────────
+    // When the station is parked at the pre-execution operator gate (the spec
+    // review, BEFORE any Unit is manufactured), the same decide call resolves
+    // it: approve releases the wave (→ Manufacture); a block holds at the gate
+    // and routes the operator's spec feedback through the fix track. This is the
+    // pre-execution twin of the checkpoint resolution below — it must NOT
+    // complete/land the station (nothing has been manufactured yet).
+    if station_phase(&state, &station) == StationPhase::UserGate {
+        let st = ensure_station(&mut state, &factory, &station)?;
+        if approved {
+            st.phase = StationPhase::Manufacture;
+        } else if let Some(body) = feedback {
+            // Hold at the gate (phase stays UserGate); the pending feedback doc
+            // preempts via Track B next tick, then the gate re-opens for a
+            // re-decision once the spec is reworked.
+            let doc = format!("---\nstatus: pending\nstation: {station}\n---\n{body}\n");
+            store.write_feedback_raw(slug, "fb-spec-gate", &doc)?;
+        }
+        store.write_state(slug, &state)?;
+        return run_tick(store, slug);
+    }
+
     let mut landed_station: Option<String> = None;
     let mut run_now_complete = false;
     if approved {
@@ -2051,7 +2117,8 @@ mod tests {
             StationPhase::Review
         );
 
-        // Tick 2: Review (frame). State advances to Manufacture.
+        // Tick 2: Review (frame). State advances to the pre-execution user gate
+        // (frame is an interactive `ask` station in continuous mode).
         let t2 = run_tick(&store, "r").expect("t2");
         assert!(matches!(
             t2.action,
@@ -2059,10 +2126,11 @@ mod tests {
         ));
         assert_eq!(
             store.read_state("r").unwrap().unwrap().stations["frame"].phase,
-            StationPhase::Manufacture
+            StationPhase::UserGate
         );
 
-        // Decompose a unit, then Manufacture dispatches its pass.
+        // Decompose a unit; the station holds at the operator gate before any
+        // manufacture.
         let unit = Unit {
             slug: "u1".into(),
             frontmatter: darkrun_core::domain::UnitFrontmatter {
@@ -2075,11 +2143,21 @@ mod tests {
         };
         store.write_unit("r", &unit).expect("write unit");
 
+        // Tick 3: the pre-execution operator gate is open.
         let t3 = run_tick(&store, "r").expect("t3");
         assert!(
-            matches!(t3.action, RunAction::Manufacture { ref units, .. } if units == &vec!["u1".to_string()]),
-            "expected Manufacture, got {:?}",
+            matches!(t3.action, RunAction::UserGate { ref station, .. } if station == "frame"),
+            "expected UserGate, got {:?}",
             t3.action
+        );
+
+        // The operator clears the gate → the manufacture wave releases.
+        checkpoint_decide(&store, "r", true, None).expect("clear gate");
+        let t3b = run_tick(&store, "r").expect("t3b");
+        assert!(
+            matches!(t3b.action, RunAction::Manufacture { ref units, .. } if units == &vec!["u1".to_string()]),
+            "expected Manufacture, got {:?}",
+            t3b.action
         );
 
         // Complete the unit; next tick audits (folds tests in), then reflects,
@@ -2566,9 +2644,14 @@ mod tests {
     /// the gate surfaces. (No worktrees needed — the gate logic is what's under
     /// test; the hosting client is mocked.)
     fn drive_discrete_frame_to_gate(store: &StateStore, hosting: &MockHosting) -> RunAction {
-        for _ in 0..12 {
+        for _ in 0..16 {
             let t = run_tick_with_hosting(store, "d", hosting).expect("tick");
             match &t.action {
+                // Clear the pre-execution operator gate so the walk reaches the
+                // post-execution external review gate under test.
+                RunAction::UserGate { .. } => {
+                    checkpoint_decide(store, "d", true, None).expect("clear gate");
+                }
                 RunAction::Spec { station, .. } => {
                     // Seed one completed unit so Manufacture clears straight to Audit.
                     let unit = Unit {

@@ -53,6 +53,11 @@ pub enum StationPhase {
     Spec,
     /// Review the spec before any output is manufactured.
     Review,
+    /// The pre-execution USER gate: review work is done and the operator is
+    /// reviewing the station's spec/brief before any Unit is manufactured. A
+    /// discrete hold the cursor surfaces to the desktop review surface — the
+    /// pre-execution twin of `Checkpoint`. Resolved by `darkrun_checkpoint_decide`.
+    UserGate,
     /// Manufacture the output: the Pass-loop (Make -> Challenge -> Resolve).
     Manufacture,
     /// Audit the manufactured output against the spec AND run the quality

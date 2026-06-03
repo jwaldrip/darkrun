@@ -382,6 +382,7 @@ fn run_next_manufacture_after_units_decomposed() {
     next(&server, "r"); // spec -> review
     next(&server, "r"); // review -> manufacture
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert_eq!(v["action"]["action"], "manufacture");
     let units = v["action"]["units"].as_array().unwrap();
@@ -394,6 +395,7 @@ fn run_next_manufacture_carries_worker_beat() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert_eq!(v["action"]["worker"], "framer");
 }
@@ -417,6 +419,7 @@ fn run_next_noop_when_unit_blocked_mid_wave() {
             outputs: None,
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert_eq!(v["action"]["action"], "noop");
 }
@@ -427,6 +430,7 @@ fn run_next_advances_to_audit_when_units_complete() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     next(&server, "r"); // manufacture
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -449,6 +453,7 @@ fn run_next_walks_audit_reflect_checkpoint_in_order() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     next(&server, "r");
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -1865,9 +1870,15 @@ fn full_walk_to_specify_via_tools_only() {
             outputs: None,
         }))
         .unwrap();
-    next(&server, "r"); // audit
-    next(&server, "r"); // tests
-    let cp = body(&next(&server, "r"));
+    approve(&server, "r"); // clear the pre-execution operator gate
+    // Tick through audit → reflect to the post-execution checkpoint gate.
+    let mut cp = body(&next(&server, "r"));
+    for _ in 0..4 {
+        if cp["action"]["action"] == "checkpoint" {
+            break;
+        }
+        cp = body(&next(&server, "r"));
+    }
     assert_eq!(cp["action"]["action"], "checkpoint");
     // Approve to advance to specify.
     let decided = server
@@ -2035,10 +2046,16 @@ fn walk_station_to_checkpoint(server: &DarkrunServer, slug: &str, station: &str)
             outputs: None,
         }))
         .unwrap();
-    for _ in 0..10 {
+    for _ in 0..14 {
         let v = body(&next(server, slug));
         let action = v["action"]["action"].as_str().unwrap().to_string();
         let on = v["action"]["station"].as_str().unwrap_or("").to_string();
+        // Clear the pre-execution operator gate so the wave releases and the walk
+        // reaches the post-execution gate.
+        if action == "user_gate" && on == station {
+            approve(server, slug);
+            continue;
+        }
         // The gate is a local checkpoint or, for an external station,
         // external_review_requested.
         let is_gate = action == "checkpoint" || action == "external_review_requested";
@@ -2617,6 +2634,7 @@ fn run_next_noop_carries_message() {
             outputs: None,
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert!(v["action"]["message"].as_str().unwrap().contains("noop"));
 }
@@ -2724,6 +2742,7 @@ fn manufacture_dispatches_only_dependency_ready_units() {
             depends_on: vec!["base".into()],
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     let units = v["action"]["units"].as_array().unwrap();
     // Only base is wave-ready.
@@ -2746,6 +2765,7 @@ fn manufacture_releases_dependent_after_base_completes() {
             depends_on: vec!["base".into()],
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     next(&server, "r"); // dispatch base
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -2772,6 +2792,7 @@ fn manufacture_dispatches_two_independent_units_together() {
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
     create_unit(&server, "r", "u2", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     let units = v["action"]["units"].as_array().unwrap();
     assert_eq!(units.len(), 2);
@@ -3179,6 +3200,7 @@ fn manufacture_action_shape_has_worker_and_units() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert!(v["action"]["worker"].is_string());
     assert!(v["action"]["units"].is_array());
@@ -3190,6 +3212,7 @@ fn audit_action_shape_has_reviewers() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     next(&server, "r");
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -3213,6 +3236,7 @@ fn reflect_action_shape_has_run_and_station_only() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    approve(&server, "r"); // clear the pre-execution operator gate
     next(&server, "r");
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -3365,10 +3389,9 @@ fn two_runs_advance_independently() {
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("b".into()) }))
             .unwrap(),
     );
-    // a's frame station advanced to the Manufacture phase (its derived action
-    // falls back to spec because no units are decomposed yet); b is still at
-    // the Review phase — the two runs walk independently.
-    assert_eq!(a["state"]["stations"]["frame"]["phase"], "manufacture");
+    // a's frame station advanced through Review to the pre-execution user gate;
+    // b is still at the Review phase — the two runs walk independently.
+    assert_eq!(a["state"]["stations"]["frame"]["phase"], "user_gate");
     assert_eq!(b["state"]["stations"]["frame"]["phase"], "review");
     assert_eq!(b["position"]["action"]["action"], "review");
 }
@@ -4414,6 +4437,9 @@ fn run_show_reflects_unit_count_indirectly_via_position() {
     next(&server, "r");
     next(&server, "r");
     create_unit(&server, "r", "u1", "frame");
+    // Clear the pre-execution operator gate while the unit is still pending, so
+    // the cursor parks in Manufacture (not yet advanced past it).
+    approve(&server, "r");
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
             slug: "r".into(),
@@ -4497,15 +4523,21 @@ fn run_list_excludes_archived_keeps_active_sorted() {
 /// then return the manufacture tick body. Tolerant of the station's starting
 /// phase (the prior `approve` re-tick may have already moved it past Spec).
 fn manufacture_first_unit(server: &DarkrunServer, slug: &str, station: &str, unit: &str) -> Value {
-    // Tick until the station's phase reaches Manufacture (no units yet means
-    // the derived action falls back to spec, but the phase still advances).
-    for _ in 0..6 {
-        let show = body(
-            &server
-                .darkrun_run_show(Parameters(RunShowRef { slug: Some(slug.into()) }))
+    // Tick until the station holds at its pre-execution operator gate or reaches
+    // Manufacture (no units yet means the derived action falls back to spec, but
+    // the phase still advances).
+    let phase = |s: &DarkrunServer| -> String {
+        body(
+            &s.darkrun_run_show(Parameters(RunShowRef { slug: Some(slug.into()) }))
                 .unwrap(),
-        );
-        if show["state"]["stations"][station]["phase"] == "manufacture" {
+        )["state"]["stations"][station]["phase"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    };
+    for _ in 0..8 {
+        let p = phase(server);
+        if p == "manufacture" || p == "user_gate" {
             break;
         }
         next(server, slug);
@@ -4519,6 +4551,11 @@ fn manufacture_first_unit(server: &DarkrunServer, slug: &str, station: &str, uni
             depends_on: vec![],
         }))
         .unwrap();
+    // If holding at the operator gate, clear it so the wave releases; the
+    // checkpoint_decide re-tick returns the Manufacture action directly.
+    if phase(server) == "user_gate" {
+        return approve(server, slug);
+    }
     body(&next(server, slug))
 }
 
@@ -4594,6 +4631,7 @@ fn noop_position_action_is_null_in_show() {
             outputs: None,
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(
         &server
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("r".into()) }))
@@ -4621,6 +4659,7 @@ fn noop_tick_action_is_noop_but_position_null() {
             outputs: None,
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     let v = body(&next(&server, "r"));
     assert_eq!(v["action"]["action"], "noop");
     assert!(v["position"]["action"].is_null());
@@ -4772,6 +4811,7 @@ fn manufacture_clears_when_unit_completed_before_dispatch() {
             depends_on: vec![],
         }))
         .unwrap();
+    approve(&server, "r"); // clear the pre-execution operator gate
     server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
             slug: "r".into(),

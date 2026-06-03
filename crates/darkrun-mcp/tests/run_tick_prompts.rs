@@ -65,8 +65,9 @@ fn run_tick_renders_a_prompt_for_every_phase() {
     assert!(matches!(t.action, RunAction::Review { .. }));
     let p = prompt(&t);
     assert!(p.contains("# Review"), "review heading:\n{p}");
-    // Review walks spec → adversarial → brief → user.
-    for beat in ["adversarial", "brief", "user"] {
+    // Review walks spec → adversarial → brief (the operator decision is the
+    // separate gate step, not an inline beat).
+    for beat in ["adversarial", "brief"] {
         assert!(p.contains(beat), "review beat `{beat}` missing:\n{p}");
     }
     // The frame station's reviewers come from the resolved station def.
@@ -74,6 +75,16 @@ fn run_tick_renders_a_prompt_for_every_phase() {
 
     // Decompose a unit so Manufacture has something wave-ready.
     write_unit(&store, "r", "u1", Status::Pending);
+
+    // ── User gate ────────────────────────────────────────────────────────────
+    // frame is interactive: before manufacture the cursor holds at the
+    // pre-execution operator gate and renders its prompt.
+    let t = run_tick(&store, "r").expect("user_gate tick");
+    assert!(matches!(t.action, RunAction::UserGate { .. }), "expected UserGate, got {:?}", t.action);
+    let p = prompt(&t);
+    assert!(p.contains("# User gate"), "user gate heading:\n{p}");
+    // Clear the gate so the manufacture wave releases.
+    checkpoint_decide(&store, "r", true, None).expect("clear gate");
 
     // ── Manufacture ─────────────────────────────────────────────────────────
     let t = run_tick(&store, "r").expect("manufacture tick");
@@ -211,19 +222,37 @@ fn sealed_run_renders_the_sealed_prompt() {
     let (dir, store) = fresh();
     run_start(&store, "r", "software", None, "continuous").expect("start");
 
-    // Walk every station to completion by approving each auto-or-asked gate.
-    // The software factory has 6 stations; drive each through its phases.
-    for _ in 0..6 {
-        // Spec → Review → (Manufacture w/ a unit) → Audit → Reflect → Checkpoint.
-        let station = active_station(&store, "r");
-        run_tick(&store, "r").expect("spec"); // Spec → Review
-        run_tick(&store, "r").expect("review"); // Review → Manufacture
-        write_unit(&store, "r", &format!("{station}-u"), Status::Completed);
-        run_tick(&store, "r").expect("audit"); // all units locked → Audit → Reflect
-        run_tick(&store, "r").expect("reflect"); // Reflect → Checkpoint
-        run_tick(&store, "r").expect("checkpoint"); // gate holds (ask) or auto-advances
-        // Approve whatever gate is holding to advance to the next station.
-        let _ = checkpoint_decide(&store, "r", true, None);
+    // Seed every station a completed unit upfront so each Manufacture clears
+    // cleanly. (A gate's `checkpoint_decide` re-ticks into the next station's
+    // Spec internally, so seeding lazily on the Spec action would miss it.)
+    for station in ["frame", "specify", "shape", "build", "prove", "harden"] {
+        let unit = Unit {
+            slug: format!("{station}-u"),
+            frontmatter: UnitFrontmatter {
+                status: Status::Completed,
+                station: Some(station.to_string()),
+                ..Default::default()
+            },
+            title: station.to_string(),
+            body: String::new(),
+        };
+        store.write_unit("r", &unit).expect("seed unit");
+    }
+
+    // Walk every station to completion by clearing each gate it lands on — the
+    // pre-execution operator gate, then the post-execution checkpoint / external
+    // review.
+    for _ in 0..60 {
+        let t = run_tick(&store, "r").expect("tick");
+        match &t.action {
+            RunAction::Sealed { .. } => break,
+            RunAction::UserGate { .. }
+            | RunAction::Checkpoint { .. }
+            | RunAction::ExternalReviewRequested { .. } => {
+                let _ = checkpoint_decide(&store, "r", true, None);
+            }
+            _ => {}
+        }
     }
 
     // Every station locked → the run is sealed, and the sealed prompt renders.

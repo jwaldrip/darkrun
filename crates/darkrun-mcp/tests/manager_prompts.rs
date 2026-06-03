@@ -557,12 +557,17 @@ fn noop_action_renders_message_prompt() {
 fn every_tick_through_a_station_carries_a_prompt() {
     let (_d, store) = fresh("r");
     seed_unit(&store, "r", "frame", "u", Status::Completed);
-    // Walk frame: spec → review → audit → tests → checkpoint. Each tick must
-    // carry a non-empty rendered prompt alongside its structured action.
-    for _ in 0..6 {
+    // Walk frame: spec → review → user_gate → audit → reflect → checkpoint. Each
+    // tick must carry a non-empty rendered prompt alongside its structured action.
+    for _ in 0..10 {
         let t = run_tick(&store, "r").expect("tick");
         let prompt = t.prompt.expect("prompt on every tick");
         assert!(!prompt.trim().is_empty(), "empty prompt for action {:?}", t.action);
+        if matches!(t.action, RunAction::UserGate { .. }) {
+            // Clear the pre-execution operator gate so the walk continues.
+            checkpoint_decide(&store, "r", true, None).expect("clear gate");
+            continue;
+        }
         if matches!(t.action, RunAction::Checkpoint { .. }) {
             break;
         }

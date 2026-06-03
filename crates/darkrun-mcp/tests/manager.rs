@@ -42,9 +42,13 @@ fn seed_completed_unit(store: &StateStore, run: &str, station: &str, slug: &str)
 /// next station before this helper runs. Returns the checkpoint action.
 fn walk_to_checkpoint(store: &StateStore, run: &str, station: &str) -> RunAction {
     seed_completed_unit(store, run, station, &format!("{station}-u1"));
-    for _ in 0..8 {
+    for _ in 0..12 {
         let t = run_tick(store, run).expect("tick");
         match &t.action {
+            // The pre-execution operator gate — approve it so the wave releases.
+            RunAction::UserGate { station: s, .. } if s == station => {
+                checkpoint_decide(store, run, true, None).expect("clear gate");
+            }
             // The gate — a local Checkpoint or, for an external station, an
             // ExternalReviewRequested.
             RunAction::Checkpoint { station: s, .. }
@@ -140,6 +144,11 @@ fn every_phase_appears_in_order_for_a_station() {
             body: String::new(),
         };
         store.write_unit("r", &unit).unwrap();
+        // The pre-execution operator gate holds before manufacture.
+        let t = run_tick(&store, "r").unwrap();
+        seen.push(action_name(&t.action));
+        // Operator clears the gate → manufacture releases.
+        checkpoint_decide(&store, "r", true, None).expect("clear gate");
         let t = run_tick(&store, "r").unwrap();
         seen.push(action_name(&t.action));
         // complete the unit so the next ticks audit/test/checkpoint
@@ -157,7 +166,7 @@ fn every_phase_appears_in_order_for_a_station() {
 
     assert_eq!(
         phases,
-        vec!["spec", "review", "manufacture", "audit", "reflect", "checkpoint"]
+        vec!["spec", "review", "user_gate", "manufacture", "audit", "reflect", "checkpoint"]
     );
 }
 
@@ -171,7 +180,7 @@ fn manufacture_holds_mid_wave_when_units_in_flight() {
     let (_d, store) = store();
     run_start(&store, "r", "software", None, "continuous").expect("start");
     run_tick(&store, "r").unwrap(); // spec → review
-    run_tick(&store, "r").unwrap(); // review → manufacture
+    run_tick(&store, "r").unwrap(); // review → user_gate
 
     // A dispatched unit still in flight (InProgress): no wave-ready Pending
     // unit, and not all complete → mid-wave noop. (A pending unit with a
@@ -187,6 +196,8 @@ fn manufacture_holds_mid_wave_when_units_in_flight() {
         body: String::new(),
     };
     store.write_unit("r", &in_flight).unwrap();
+    // Clear the pre-execution operator gate → the station enters Manufacture.
+    checkpoint_decide(&store, "r", true, None).expect("clear gate");
 
     let pos = derive_position(&store, "r").unwrap();
     assert_eq!(pos.track, Track::Run);

@@ -62,7 +62,14 @@ macro_rules! station_phase_suite {
                 advance_to(&h, $station);
                 h.tick();
                 assert!(is_review(&h.tick().action, $station));
-                assert_eq!(h.phase($station), StationPhase::Manufacture);
+                // Interactive stations hold at the pre-execution operator gate
+                // after Review; auto-gated stations advance into Manufacture.
+                let expected = if matches!(manager_checkpoint($station), CheckpointKind::Auto) {
+                    StationPhase::Manufacture
+                } else {
+                    StationPhase::UserGate
+                };
+                assert_eq!(h.phase($station), expected);
             }
 
             #[test]

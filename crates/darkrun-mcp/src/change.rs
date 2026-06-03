@@ -162,6 +162,7 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::Manufacture { .. } => "manufacture",
         RunAction::Audit { .. } => "audit",
         RunAction::Reflect { .. } => "reflect",
+        RunAction::UserGate { .. } => "user_gate",
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::FeedbackQuestion { .. } => "feedback_question",
@@ -209,8 +210,13 @@ mod tests {
     fn walk_station(store: &StateStore, slug: &str, station: &str) {
         seed_one_unit(store, slug, station);
         // up to a dozen ticks is plenty to clear a station.
-        for _ in 0..12 {
+        for _ in 0..16 {
             let tick = run_tick(store, slug).expect("tick");
+            // Clear the pre-execution operator gate so manufacture releases.
+            if matches!(&tick.action, RunAction::UserGate { station: s, .. } if s == station) {
+                checkpoint_decide(store, slug, true, None).expect("clear gate");
+                continue;
+            }
             if let RunAction::Checkpoint { kind, .. } = &tick.action {
                 if matches!(kind, CheckpointKind::Ask) {
                     checkpoint_decide(store, slug, true, None).expect("approve");
@@ -231,8 +237,14 @@ mod tests {
     /// `ExternalReviewRequested`.
     fn walk_station_to_checkpoint(store: &StateStore, slug: &str, station: &str) {
         seed_one_unit(store, slug, station);
-        for _ in 0..12 {
+        for _ in 0..16 {
             let tick = run_tick(store, slug).expect("tick");
+            // Clear the pre-execution operator gate so the walk reaches the
+            // post-execution checkpoint / external review gate.
+            if matches!(&tick.action, RunAction::UserGate { station: s, .. } if s == station) {
+                crate::position::checkpoint_decide(store, slug, true, None).expect("clear gate");
+                continue;
+            }
             let at_gate = matches!(&tick.action, RunAction::Checkpoint { station: s, .. } if s == station)
                 || matches!(&tick.action, RunAction::ExternalReviewRequested { station: s, .. } if s == station);
             if at_gate {

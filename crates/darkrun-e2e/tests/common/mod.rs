@@ -126,6 +126,12 @@ impl Harness {
     }
 
     /// Decompose a wave of units on a station, with optional per-unit deps.
+    ///
+    /// Scaffolding convenience: if the cursor is holding at the pre-execution
+    /// operator gate (an interactive station parks there after Review), this
+    /// clears it so the decomposed wave can be manufactured. The gate's own
+    /// behaviour is covered directly in the `darkrun-mcp` suites; here it would
+    /// just be noise between "set up the wave" and "watch it manufacture".
     pub fn decompose(&self, station: &str, units: &[(&str, &[&str])]) {
         for (slug, deps) in units {
             let unit = Unit {
@@ -140,6 +146,9 @@ impl Harness {
                 body: String::new(),
             };
             self.store.write_unit(&self.slug, &unit).expect("write_unit");
+        }
+        if self.phase(station) == StationPhase::UserGate {
+            self.decide(true, None);
         }
     }
 
@@ -192,19 +201,26 @@ impl Harness {
         let mut actions = Vec::new();
         // Spec.
         actions.push(self.tick().action);
-        // Review.
+        // Review (an interactive station advances to the pre-execution gate).
         actions.push(self.tick().action);
-        // Manufacture: decompose then dispatch one wave, complete it.
+        // Manufacture: decompose the wave, then clear the pre-execution operator
+        // gate (interactive stations hold there) so the wave releases.
         if !unit_slugs.is_empty() {
             let units: Vec<(&str, &[&str])> =
                 unit_slugs.iter().map(|s| (*s, &[][..])).collect();
             self.decompose(station, &units);
+        }
+        if self.phase(station) == StationPhase::UserGate {
+            // Cleared as an internal hold — not part of the action log.
+            self.decide(true, None);
+        }
+        if !unit_slugs.is_empty() {
             actions.push(self.tick().action); // Manufacture dispatch
             self.complete_units(unit_slugs);
         }
         // Audit.
         actions.push(self.tick().action);
-        // Tests.
+        // Reflect.
         actions.push(self.tick().action);
         // Checkpoint.
         actions.push(self.tick().action);
@@ -238,6 +254,13 @@ impl Harness {
             guard += 1;
             assert!(guard < 1000, "run_to_seal failed to converge");
             let action = self.tick().action;
+            // The pre-execution operator gate is an internal hold — clear it and
+            // keep walking, without logging it (the log reads as the canonical
+            // station walk). Its wave was decomposed on the prior Spec.
+            if matches!(action, RunAction::UserGate { .. }) {
+                self.decide(true, None);
+                continue;
+            }
             // Collapse a repeat of the immediately-preceding action.
             if log.last() != Some(&action) {
                 log.push(action.clone());

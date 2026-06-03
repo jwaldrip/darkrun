@@ -69,9 +69,14 @@ fn seed_completed_unit(store: &StateStore, run: &str, station: &str, slug: &str)
 /// `Checkpoint` or, for an external station, an `ExternalReviewRequested`.
 fn walk_to_checkpoint(store: &StateStore, run: &str, station: &str) -> RunAction {
     seed_completed_unit(store, run, station, &format!("{station}-u1"));
-    for _ in 0..10 {
+    for _ in 0..14 {
         let t = run_tick(store, run).expect("tick");
         match &t.action {
+            // Clear the pre-execution operator gate so the wave releases and the
+            // walk reaches the post-execution gate.
+            RunAction::UserGate { station: s, .. } if s == station => {
+                checkpoint_decide(store, run, true, None).expect("clear gate");
+            }
             RunAction::Checkpoint { station: s, .. }
             | RunAction::ExternalReviewRequested { station: s, .. }
                 if s == station =>
@@ -1151,6 +1156,7 @@ fn noop_action_for_null_position() {
         body: String::new(),
     };
     store.write_unit("r", &blocked).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let pos = derive_position(&store, "r").unwrap();
     assert!(pos.action.is_none());
     let t = run_tick(&store, "r").unwrap();
@@ -1287,6 +1293,7 @@ fn runaction_noop_serializes_message() {
         body: String::new(),
     };
     store.write_unit("r", &blocked).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let t = run_tick(&store, "r").unwrap();
     let j = json_of(&t.action);
     assert_eq!(j["action"], serde_json::json!("noop"));
@@ -1308,7 +1315,22 @@ fn runaction_review_serializes_reviewers() {
 fn runaction_audit_serializes_reviewers() {
     let (_d, store) = started();
     run_tick(&store, "r").unwrap(); // spec→review
-    run_tick(&store, "r").unwrap(); // review→manufacture
+    run_tick(&store, "r").unwrap(); // review→user_gate
+    // Seed a pending unit, clear the gate into Manufacture, THEN complete the
+    // unit so the next tick derives Audit (clearing the gate with an already-
+    // completed unit would over-advance straight past Audit to Reflect).
+    let unit = Unit {
+        slug: "u1".into(),
+        frontmatter: UnitFrontmatter {
+            status: Status::Pending,
+            station: Some("frame".into()),
+            ..Default::default()
+        },
+        title: "u1".into(),
+        body: String::new(),
+    };
+    store.write_unit("r", &unit).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     seed_completed_unit(&store, "r", "frame", "u1");
     let t = run_tick(&store, "r").unwrap();
     let j = json_of(&t.action);
@@ -1332,6 +1354,7 @@ fn runaction_manufacture_serializes_worker_and_units() {
         body: String::new(),
     };
     store.write_unit("r", &unit).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let t = run_tick(&store, "r").unwrap();
     let j = json_of(&t.action);
     assert_eq!(j["action"], serde_json::json!("manufacture"));
@@ -1367,6 +1390,7 @@ fn position_null_action_serializes_null() {
         body: String::new(),
     };
     store.write_unit("r", &blocked).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let pos = derive_position(&store, "r").unwrap();
     let j = json_of(&pos);
     assert_eq!(j["action"], serde_json::Value::Null);
@@ -2141,6 +2165,7 @@ fn feedback_pause_preserves_manufacture_phase() {
         body: String::new(),
     };
     store.write_unit("r", &unit).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let fb = feedback::create(&store, "r", "frame", "x", None).unwrap();
     assert_eq!(pos_track(&derive_position(&store, "r").unwrap()), Track::Feedback);
     feedback::reject(&store, "r", &fb.id, "no").unwrap();
@@ -2177,6 +2202,7 @@ fn feedback_during_manufacture_does_not_consume_wave() {
         body: String::new(),
     };
     store.write_unit("r", &unit).unwrap();
+    checkpoint_decide(&store, "r", true, None).unwrap(); // clear the pre-execution operator gate
     let fb = feedback::create(&store, "r", "frame", "x", None).unwrap();
     feedback::set_status(&store, "r", &fb.id, FeedbackStatus::Addressed).unwrap();
     let pos = derive_position(&store, "r").unwrap();

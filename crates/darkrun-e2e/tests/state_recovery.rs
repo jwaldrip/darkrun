@@ -126,6 +126,12 @@ impl Durable {
             };
             store.write_unit(&self.slug, &unit).expect("write_unit");
         }
+        // Scaffolding convenience: release a held pre-execution operator gate so
+        // the decomposed wave can be manufactured. (The gate's own behaviour is
+        // covered in the `darkrun-mcp` suites.)
+        if self.phase(station) == StationPhase::UserGate {
+            checkpoint_decide(&self.reopen(), &self.slug, true, None).expect("clear gate");
+        }
     }
 
     fn complete_unit(&self, unit_slug: &str) {
@@ -145,17 +151,20 @@ impl Durable {
 /// for every step so the whole walk is reconstructed from disk each tick.
 fn walk_to_checkpoint_fresh(d: &Durable, station: &str, units: &[&str]) {
     d.tick_fresh(); // spec -> review
-    d.tick_fresh(); // review -> manufacture
+    d.tick_fresh(); // review -> user gate (interactive) / manufacture (auto)
     if !units.is_empty() {
         let pairs: Vec<(&str, &[&str])> = units.iter().map(|s| (*s, &[][..])).collect();
-        d.decompose(station, &pairs);
+        d.decompose(station, &pairs); // clears the pre-execution gate if held
         d.tick_fresh(); // manufacture dispatch
         for u in units {
             d.complete_unit(u);
         }
+    } else if d.phase(station) == StationPhase::UserGate {
+        // No wave to decompose, but still need to clear the held gate.
+        checkpoint_decide(&d.reopen(), &d.slug, true, None).expect("clear gate");
     }
     d.tick_fresh(); // audit
-    d.tick_fresh(); // tests
+    d.tick_fresh(); // reflect
     d.tick_fresh(); // checkpoint (held for ask/external)
 }
 
@@ -208,11 +217,13 @@ fn reopen_after_one_tick_next_action_is_review() {
 }
 
 #[test]
-fn reopen_after_two_ticks_phase_is_manufacture() {
+fn reopen_after_two_ticks_phase_is_user_gate() {
     let d = Durable::start("r1");
     d.tick_fresh();
     d.tick_fresh();
-    assert_eq!(d.phase("frame"), StationPhase::Manufacture);
+    // frame is interactive: after Review the cursor holds at the pre-execution
+    // operator gate, and the phase persists across a reopen.
+    assert_eq!(d.phase("frame"), StationPhase::UserGate);
 }
 
 #[test]
@@ -812,9 +823,9 @@ fn concurrent_locked_ticks_advance_one_phase_at_a_time() {
     }
 
     // Two serialized ticks from frame/spec → spec advances to review, then
-    // review advances to manufacture. The phase is exactly Manufacture, never
-    // skipped or corrupted.
-    assert_eq!(d.phase("frame"), StationPhase::Manufacture);
+    // review advances to the pre-execution user gate. The phase is exactly
+    // UserGate, never skipped or corrupted.
+    assert_eq!(d.phase("frame"), StationPhase::UserGate);
 }
 
 #[test]

@@ -107,6 +107,7 @@ pub fn render<C: Serialize>(rel: &str, repo_root: impl AsRef<Path>, context: &C)
 /// | `manufacture`     | `phases/manufacture`|
 /// | `audit`           | `phases/audit`      |
 /// | `reflect`         | `phases/reflect`    |
+/// | `user_gate`       | `phases/user_gate`  |
 /// | `checkpoint`      | `phases/checkpoint` |
 /// | `fix_feedback`    | `tracks/fix_feedback`|
 /// | `resolve_drift`   | `tracks/resolve_drift`|
@@ -123,6 +124,7 @@ pub fn template_key_for_action(action_tag: &str) -> Option<&'static str> {
         "manufacture" => "phases/manufacture",
         "audit" => "phases/audit",
         "reflect" => "phases/reflect",
+        "user_gate" => "phases/user_gate",
         "checkpoint" => "phases/checkpoint",
         "fix_feedback" => "tracks/fix_feedback",
         "feedback_question" => "tracks/feedback_question",
@@ -149,6 +151,7 @@ pub const ACTION_TAGS: &[&str] = &[
     "manufacture",
     "audit",
     "reflect",
+    "user_gate",
     "checkpoint",
     "fix_feedback",
     "feedback_question",
@@ -421,7 +424,8 @@ mod tests {
         });
         let beats: &[(&str, &[&str])] = &[
             ("phases/spec", &["elaborate", "explore"]),
-            ("phases/review", &["spec", "adversarial", "brief", "user"]),
+            ("phases/review", &["spec", "adversarial", "brief"]),
+            ("phases/user_gate", &["gate", "operator"]),
             ("phases/manufacture", &["make", "challenge", "resolve"]),
             ("phases/audit", &["spec", "adversarial"]),
             ("phases/reflect", &["agentic"]),

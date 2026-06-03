@@ -62,6 +62,7 @@ fn phase_chrome(phase: StationPhase) -> (&'static str, &'static str) {
         StationPhase::Manufacture => ("manufacture", C_MANUFACTURE),
         StationPhase::Audit => ("audit", C_AUDIT),
         StationPhase::Reflect => ("reflect", C_REFLECT),
+        StationPhase::UserGate => ("gate", C_CHECKPOINT),
         StationPhase::Checkpoint => ("checkpoint", C_CHECKPOINT),
     }
 }
@@ -144,11 +145,14 @@ pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
         match state.as_ref().and_then(|s| s.stations.get(&active_station)) {
             Some(st) => {
                 let (label, code) = phase_chrome(st.phase);
-                let gated = matches!(st.phase, StationPhase::Checkpoint)
-                    && st
-                        .checkpoint
-                        .as_ref()
-                        .is_some_and(|c| c.kind != CheckpointKind::Auto);
+                // The pre-execution USER gate is always an operator hold; the
+                // post-execution Checkpoint is gated only for non-auto kinds.
+                let gated = matches!(st.phase, StationPhase::UserGate)
+                    || (matches!(st.phase, StationPhase::Checkpoint)
+                        && st
+                            .checkpoint
+                            .as_ref()
+                            .is_some_and(|c| c.kind != CheckpointKind::Auto));
                 (label, code, gated)
             }
             None => ("spec", C_SPEC, false),

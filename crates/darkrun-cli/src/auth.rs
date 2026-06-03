@@ -62,13 +62,21 @@ pub fn broker_url(web_base: &str, nonce: &str) -> String {
 /// Generate a URL-safe random nonce. Uses process + time entropy mixed through
 /// a small splitmix64 so we avoid pulling in an RNG crate for one value.
 pub fn generate_nonce() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    // A monotonic per-call counter guarantees successive calls differ even when
+    // the system clock hasn't advanced a nanosecond between them.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let seed = {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
-        nanos ^ (std::process::id() as u64).rotate_left(17) ^ 0x9E37_79B9_7F4A_7C15
+        let bump = COUNTER.fetch_add(1, Ordering::Relaxed);
+        nanos
+            ^ (std::process::id() as u64).rotate_left(17)
+            ^ bump.rotate_left(40)
+            ^ 0x9E37_79B9_7F4A_7C15
     };
     let mut state = seed;
     let mut out = String::with_capacity(32);

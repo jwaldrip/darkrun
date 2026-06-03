@@ -8,7 +8,7 @@ Before a single Unit is manufactured, the spec gets reviewed. A bad spec that re
 
 {% include "_shared/roster.md" %}
 
-Review walks four beats, in order: **spec → adversarial → brief → user**.
+Review walks three beats, in order: **spec → adversarial → brief**. The operator's decision is a *separate* step the manager surfaces as a gate once this work lands — you do not ask for it inline here.
 
 ## 1. spec — verify against the spec
 
@@ -42,10 +42,6 @@ If a reviewer blocks, fix the spec and re-review — do not advance a spec a rev
 
 Produce a tight brief of the review: which lenses signed off, which filed concerns, and how each concern was resolved (or why it was deferred). This is the record manufacture inherits — it should make the spec's verdict obvious without re-reading every reviewer's notes.
 
-## 4. user — the decision step
-
-Surface the brief to the operator and take their input on whether the spec is cleared to manufacture. Honor their call: a block routes back as feedback, an approval releases the wave.
-
 ## Done when
 
-Every reviewer has signed off or filed addressable concerns, the brief is recorded, and the user has cleared the spec. Then call `darkrun_tick`.
+Every reviewer has signed off or filed addressable concerns and the brief is recorded. Then call `darkrun_tick` — the manager opens the operator's pre-execution gate on the next tick. Do not surface the decision inline; the gate does that.

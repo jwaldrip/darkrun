@@ -162,11 +162,13 @@ fn frame_tick2_emits_review() {
 }
 
 #[test]
-fn frame_tick2_advances_phase_to_manufacture() {
+fn frame_tick2_advances_phase_to_user_gate() {
     let h = Harness::start("f");
     h.tick();
     h.tick();
-    assert_eq!(h.phase("frame"), StationPhase::Manufacture);
+    // frame is interactive (ask): after Review the cursor holds at the
+    // pre-execution operator gate before manufacture.
+    assert_eq!(h.phase("frame"), StationPhase::UserGate);
 }
 
 #[test]
@@ -186,9 +188,10 @@ fn frame_review_carries_reviewers() {
 fn frame_manufacture_without_units_falls_back_to_spec() {
     let h = Harness::start("f");
     h.tick(); // spec
-    h.tick(); // review -> manufacture
-                // No units decomposed; manufacture phase but Spec action.
-    let t = h.tick();
+    h.tick(); // review -> user gate
+    // Clear the operator gate with no units decomposed; Manufacture has no wave,
+    // so the derived action falls back to Spec.
+    let t = h.decide(true, None);
     assert!(is_spec(&t.action, "frame"));
 }
 
@@ -1445,6 +1448,7 @@ fn units_create_then_appears_in_wave() {
     h.tick();
     h.tick();
     darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    h.decide(true, None); // clear the pre-execution operator gate
     let t = h.tick();
     assert!(is_manufacture(&t.action, "frame"));
 }
@@ -1455,6 +1459,7 @@ fn units_update_completion_unblocks_audit() {
     h.tick();
     h.tick();
     darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    h.decide(true, None); // clear the pre-execution operator gate
     h.tick(); // dispatch
     darkrun_mcp::units::update(
         &h.store,
@@ -1649,8 +1654,9 @@ fn full_run_phase_progression_monotone() {
     h.tick();
     seen.push(h.phase("frame")); // review
     h.tick();
+    seen.push(h.phase("frame")); // user gate (interactive station holds here)
+    h.decompose("frame", &[("u1", &[])]); // clears the gate → manufacture
     seen.push(h.phase("frame")); // manufacture
-    h.decompose("frame", &[("u1", &[])]);
     h.tick();
     h.complete_unit("u1");
     h.tick(); // audit -> reflect
@@ -1662,6 +1668,7 @@ fn full_run_phase_progression_monotone() {
         vec![
             StationPhase::Spec,
             StationPhase::Review,
+            StationPhase::UserGate,
             StationPhase::Manufacture,
             StationPhase::Reflect,
             StationPhase::Checkpoint,

@@ -69,7 +69,8 @@ fn now_secs() -> u64 {
 fn is_exempt(action: &RunAction) -> bool {
     matches!(
         action,
-        RunAction::Checkpoint { .. }
+        RunAction::UserGate { .. }
+            | RunAction::Checkpoint { .. }
             | RunAction::PendingSeal { .. }
             | RunAction::ExternalReviewRequested { .. }
             | RunAction::Sealed { .. }
@@ -137,6 +138,7 @@ fn action_station(action: &RunAction) -> Option<&str> {
         | RunAction::Manufacture { station, .. }
         | RunAction::Audit { station, .. }
         | RunAction::Reflect { station, .. }
+        | RunAction::UserGate { station, .. }
         | RunAction::Checkpoint { station, .. }
         | RunAction::Escalate { station, .. }
         | RunAction::MergeConflict { station, .. } => Some(station),

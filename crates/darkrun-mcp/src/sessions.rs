@@ -137,7 +137,9 @@ fn enum_token<T: Serialize>(value: &T) -> Option<String> {
 fn run_phase(phase: StationPhase) -> RunPhase {
     match phase {
         StationPhase::Spec => RunPhase::Spec,
-        StationPhase::Review => RunPhase::Review,
+        // The pre-execution USER gate is the review stage's operator hold —
+        // surfaced under `review` in the universal taxonomy.
+        StationPhase::Review | StationPhase::UserGate => RunPhase::Review,
         StationPhase::Manufacture => RunPhase::Manufacture,
         StationPhase::Audit => RunPhase::Audit,
         StationPhase::Reflect => RunPhase::Reflect,

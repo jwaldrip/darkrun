@@ -205,15 +205,20 @@ mod tests {
                 body: String::new(),
             };
             store.write_unit(slug, &unit).unwrap();
-            for _ in 0..12 {
+            for _ in 0..14 {
                 let tick = run_tick(store, slug).unwrap();
-                if let RunAction::Checkpoint { kind, station: s, .. } = &tick.action {
-                    if s == station {
+                match &tick.action {
+                    // Clear the pre-execution operator gate so the wave releases.
+                    RunAction::UserGate { station: s, .. } if s == station => {
+                        darkrun_mcp::checkpoint_decide(store, slug, true, None).unwrap();
+                    }
+                    RunAction::Checkpoint { kind, station: s, .. } if s == station => {
                         if matches!(kind, CheckpointKind::Ask) {
                             darkrun_mcp::checkpoint_decide(store, slug, true, None).unwrap();
                         }
                         break;
                     }
+                    _ => {}
                 }
             }
             if station == "harden" {
