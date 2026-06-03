@@ -43,6 +43,16 @@ pub enum GitError {
     #[error("io error: {0}")]
     BareIo(#[from] std::io::Error),
 
+    /// A network `git` subprocess exceeded its wall-clock ceiling and was killed
+    /// (an unresponsive remote) — surfaced so a tick fails fast instead of hanging.
+    #[error("git {args:?} timed out after {secs}s (killed)")]
+    Timeout {
+        /// The argument vector passed to `git`.
+        args: Vec<String>,
+        /// The ceiling that elapsed, in seconds.
+        secs: u64,
+    },
+
     /// An error surfaced from libgit2.
     #[error("libgit2 error: {0}")]
     Git2(#[from] git2::Error),

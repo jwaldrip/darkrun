@@ -10,6 +10,7 @@ description = "darkrun git worktree management — libgit2-backed with a shell-o
 [dependencies]
 git2 = { version = "0.20", default-features = false }
 thiserror.workspace = true
+wait-timeout.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

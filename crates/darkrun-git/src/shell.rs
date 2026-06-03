@@ -330,7 +330,17 @@ fn run_in(dir: &str, args: &[&str]) -> Result<String> {
 /// [`GitError::Command`] (with the remote's stderr) as [`run_in`] so the
 /// NFF matcher can inspect the message.
 fn run_net(dir: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::Duration;
+    use wait_timeout::ChildExt;
+
+    /// Hard wall-clock ceiling for a network git op. The prompt-suppression env
+    /// below stops auth-prompt hangs; this stops network-STALL hangs (a remote
+    /// that accepts the connection then never responds) so a tick can't wedge.
+    const NET_TIMEOUT: Duration = Duration::from_secs(60);
+
+    let mut child = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -339,16 +349,41 @@ fn run_net(dir: &str, args: &[&str]) -> Result<String> {
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
         .env("GCM_INTERACTIVE", "never")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(GitError::BareIo)?;
-    if !output.status.success() {
+
+    let status = match child.wait_timeout(NET_TIMEOUT).map_err(GitError::BareIo)? {
+        Some(status) => status,
+        None => {
+            // Unresponsive remote — kill the child and report a timeout so the
+            // best-effort caller proceeds instead of blocking the tick forever.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(GitError::Timeout {
+                args: args.iter().map(|s| s.to_string()).collect(),
+                secs: NET_TIMEOUT.as_secs(),
+            });
+        }
+    };
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut o) = child.stdout.take() {
+        let _ = o.read_to_string(&mut stdout);
+    }
+    if let Some(mut e) = child.stderr.take() {
+        let _ = e.read_to_string(&mut stderr);
+    }
+    if !status.success() {
         return Err(GitError::Command {
             args: args.iter().map(|s| s.to_string()).collect(),
-            status: output.status,
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            status,
+            stderr: stderr.trim().to_string(),
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(stdout)
 }
 
 /// Parse `git worktree list --porcelain` output into [`WorktreeInfo`] records.

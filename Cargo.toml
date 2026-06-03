@@ -25,6 +25,10 @@ chrono = { version = "0.4", features = ["serde"] }
 nix = { version = "0.29", features = ["signal", "process"] }
 sha2 = "0.10"
 dirs = "6"
+# Hard wall-clock ceiling on network subprocesses (git fetch/push, gh/glab) so an
+# unresponsive remote can't wedge a tick — the analog of the predecessor's run_next
+# wall deadline.
+wait-timeout = "0.2"
 # PNG/JPEG decode + region crop for the annotation agent re-reference payload
 # (cropping the version-pinned image to the marked normalized rect). Default
 # features are trimmed to the raster codecs we actually emit/consume.

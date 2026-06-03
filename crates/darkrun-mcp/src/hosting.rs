@@ -100,15 +100,43 @@ impl CliHosting {
     /// `gh`/`glab` have no `-C` flag, so the working directory is set with
     /// `current_dir` rather than a CLI argument.
     fn run(&self, bin: &str, args: &[&str]) -> Option<String> {
-        let output = Command::new(bin)
+        use std::io::Read;
+        use std::process::Stdio;
+        use std::time::Duration;
+        use wait_timeout::ChildExt;
+
+        // `gh`/`glab` make network/API calls (and can prompt for auth) — a hard
+        // wall-clock ceiling so an unresponsive host can't wedge a tick. Prompts
+        // are suppressed so they fail fast rather than block on input.
+        const HOST_TIMEOUT: Duration = Duration::from_secs(60);
+
+        let mut child = Command::new(bin)
             .args(args)
             .current_dir(&self.repo_root)
-            .output()
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .ok()?;
-        if !output.status.success() {
+
+        let status = match child.wait_timeout(HOST_TIMEOUT).ok()? {
+            Some(status) => status,
+            None => {
+                // Unresponsive host — kill and report failure (best-effort: the
+                // caller falls back to an await gate).
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        };
+        if !status.success() {
             return None;
         }
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let mut stdout = String::new();
+        child.stdout.take()?.read_to_string(&mut stdout).ok()?;
+        Some(stdout.trim().to_string())
     }
 }
 
