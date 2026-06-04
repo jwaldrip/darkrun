@@ -22,6 +22,12 @@ Read the spec produced in the previous phase against its own intent. Before any 
 
 Dispatch each reviewer{% if reviewers %} ({% for r in reviewers %}`{{ r }}`{% if not loop.last %}, {% endif %}{% endfor %}){% endif %} against the spec. Each owns one lens — let them be ruthless inside it:
 
+{% if interpretations %}
+Some reviewers carry a declared **posture** — honour it when you frame their pass:
+{% for r in reviewers %}{% if interpretations[r] %}- `{{ r }}` → **{{ interpretations[r] }}** ({% if interpretations[r] == "strict" %}adversarial: find every flaw, assume the spec is wrong until proven otherwise{% else %}lens: one constructive perspective, surface what that lens uniquely sees{% endif %})
+{% endif %}{% endfor %}
+{% endif %}
+
 - Does the spec actually eliminate **{{ kills }}**, or does it only look like it does?
 - Are the completion criteria testable, or are they wishful?
 - Are the Units genuinely independent, or will they collide during manufacture?

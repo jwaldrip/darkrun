@@ -38,6 +38,10 @@ pub struct StationDef {
     /// reviewer that declared a `model:` in its definition). Resolved at
     /// dispatch over the factory default; absent → use the factory default.
     pub role_models: std::collections::BTreeMap<String, String>,
+    /// Per-reviewer review posture (`lens` / `strict`), keyed by reviewer name,
+    /// for reviewers that declared an `interpretation:`. Injected into the
+    /// Review/Audit dispatch framing.
+    pub role_interpretations: std::collections::BTreeMap<String, String>,
 }
 
 /// A resolved factory: an ordered list of stations.
@@ -122,10 +126,16 @@ impl StationDef {
         // Collect every role's declared model override (explorers + workers +
         // reviewers), keyed by role name, so dispatch can resolve per-role.
         let mut role_models = std::collections::BTreeMap::new();
+        let mut role_interpretations = std::collections::BTreeMap::new();
         for role in s.explorers.iter().chain(&s.workers).chain(&s.reviewers) {
             if let Some(model) = &role.frontmatter.model {
                 if !model.trim().is_empty() {
                     role_models.insert(role.name().to_string(), model.clone());
+                }
+            }
+            if let Some(interp) = &role.frontmatter.interpretation {
+                if !interp.trim().is_empty() {
+                    role_interpretations.insert(role.name().to_string(), interp.clone());
                 }
             }
         }
@@ -139,6 +149,7 @@ impl StationDef {
             workers: s.frontmatter.workers.clone(),
             reviewers: s.frontmatter.reviewers.clone(),
             role_models,
+            role_interpretations,
         }
     }
 }
@@ -223,6 +234,9 @@ mod tests {
         // A role that declares a `model:` is captured per-role for dispatch.
         let shape = f.station("shape").unwrap();
         assert_eq!(shape.role_models.get("spiker").map(String::as_str), Some("sonnet"));
+        // A reviewer that declares an `interpretation:` is captured too.
+        let build = f.station("build").unwrap();
+        assert_eq!(build.role_interpretations.get("correctness").map(String::as_str), Some("strict"));
     }
 
     #[test]

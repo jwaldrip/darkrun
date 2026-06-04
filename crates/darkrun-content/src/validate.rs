@@ -196,6 +196,7 @@ mod tests {
                 name: name.to_string(),
                 agent_type: None,
                 model: None,
+                interpretation: None,
             },
             body: format!("# {name}\n\ninstructions"),
             kind,

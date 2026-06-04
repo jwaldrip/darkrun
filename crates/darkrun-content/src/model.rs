@@ -119,6 +119,11 @@ pub struct RoleFrontmatter {
     /// Optional model override; falls back to the factory default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Optional review posture for a reviewer — `lens` (constructive, one
+    /// perspective) or `strict` (adversarial, find every flaw). Injected into
+    /// the reviewer's dispatch framing; absent → the default neutral posture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<String>,
 }
 
 /// A fully-loaded role: its frontmatter, its raw markdown instructions, and the

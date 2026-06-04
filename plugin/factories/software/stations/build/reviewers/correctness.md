@@ -1,6 +1,7 @@
 ---
 name: correctness
 model: sonnet
+interpretation: strict
 ---
 
 # Correctness Reviewer

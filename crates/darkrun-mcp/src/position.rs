@@ -326,6 +326,10 @@ pub struct PromptContext {
     /// The station's Reviewers.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub reviewers: Vec<String>,
+    /// Per-reviewer review posture (`lens`/`strict`), keyed by reviewer name —
+    /// the Review/Audit prompt frames each reviewer's dispute stance from this.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub interpretations: std::collections::BTreeMap<String, String>,
     /// The wave-ready / on-record unit slugs for this action.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub units: Vec<String>,
@@ -1288,6 +1292,7 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                 ctx.explorers = def.explorers.clone();
                 ctx.workers = def.workers.clone();
                 ctx.reviewers = def.reviewers.clone();
+                ctx.interpretations = def.role_interpretations.clone();
             }
         }
         // The station's on-record units, in slug order.
