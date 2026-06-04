@@ -199,8 +199,8 @@
           <td class="rec"><span class="k k-done">done</span>Already present before this session.</td></tr>
       <tr><td class="gap">Fix-chain isolation + downstream invalidation</td>
           <td class="pred">isolated branch + revisit clears downstream</td>
-          <td class="dr"><span class="pill partial">half</span><span class="drnote">downstream invalidation via feedback <span class="code">invalidates</span> (A6); no per-fix worktree</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>The valuable half (downstream invalidation) already landed via A6. Per-fix <em>worktree</em> isolation is heavy git plumbing for a conflict darkrun rarely hits — build it only if parallel fixes actually start colliding on disk, not on spec.</td></tr>
+          <td class="dr"><span class="pill partial">half</span><span class="drnote">downstream invalidation via feedback <span class="code">invalidates</span> (A6); fixes run in the shared station worktree, no per-fix isolation</span></td>
+          <td class="rec"><span class="k k-do">do</span><b>You're right.</b> A fix produces code like a unit does — same isolation value, same reason. Give each fix its own branch+worktree off the station, with clean retry + conflict-pause + guarded merge-back. (Note: today units isolate per-STATION, not per-unit — worth confirming if you want per-unit too.)</td></tr>
     </tbody>
   </table>
 </section>
@@ -214,7 +214,7 @@
       <tr><td class="gap">Multi-signal elaborate loop</td>
           <td class="pred">one action, every unmet signal</td>
           <td class="dr"><span class="pill partial">prompt-only</span><span class="drnote">Spec prompt choreographs it; not exposed as cursor signals</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Honestly, I'd not port this. It was the predecessor's single hardest refactor and its own GAPS.md admits the payoff was behavioral-only. The Spec prompt already invites concurrent elaborate/discover/decompose — rebuild it as cursor signals only if agents demonstrably serialize when they shouldn't.</td></tr>
+          <td class="rec"><span class="k k-do">do</span><b>I was wrong to skip this.</b> The signals aren't a cosmetic refactor — they're <b>collaboration backpressure</b>: agents routinely leave the operator out, and the unmet-signal gate forces the collaboration the mode requires (conversation, verify-conversation, decompose-verify). That's the core of "checkpoints, not babysitting." Build it as mode-aware cursor signals — held in collaborative modes, relaxed under autopilot.</td></tr>
       <tr><td class="gap">Optional stations</td>
           <td class="pred">keep-or-drop + dependents</td>
           <td class="dr"><span class="pill have">by design</span><span class="drnote">fixed six; right-size at run-start</span></td>
@@ -328,8 +328,8 @@
           <td class="rec"><span class="k k-done">done</span>Already present.</td></tr>
       <tr><td class="gap">review_stamp</td>
           <td class="pred">subagent self-stamp, no cursor walk</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">reviews close via <span class="code">checkpoint_decide</span> → full tick</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>darkrun doesn't fan reviewers out in parallel today, so the loop-guard problem this solves doesn't exist. Build it the day we parallelize review waves — not before.</td></tr>
+          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no per-role stamp tool; reviews/approvals are only written in test fixtures today — the production gate runs off stored phase progression</span></td>
+          <td class="rec"><span class="k k-do">do</span><b>Enabler for parallel reviewers + explorers (both wanted).</b> A <span class="code">darkrun_review_stamp</span> that records one role's verdict (and an explorer-finding equivalent) <em>without</em> walking the cursor, so N subagents fan out, each writes its own result, and the parent ticks once. Pair with making the Review/Audit prompts dispatch in parallel (today only Spec/explorers do).</td></tr>
       <tr><td class="gap">Session presence grace</td>
           <td class="pred">attached/never-attached grace</td>
           <td class="dr"><span class="pill partial">presence only</span><span class="drnote">live count + heartbeat; no grace/reattach</span></td>
