@@ -100,7 +100,22 @@ fn action_station(a: &RunAction) -> Option<&str> {
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }
         | RunAction::ExternalReviewRequested { station, .. } => Some(station),
-        RunAction::PendingSeal { .. } | RunAction::Sealed { .. } | RunAction::Noop { .. } => None,
+        RunAction::RunReview { .. }
+        | RunAction::PendingSeal { .. }
+        | RunAction::Sealed { .. }
+        | RunAction::Noop { .. } => None,
+    }
+}
+
+/// Model the whole-run reviewers signing off: if the run is holding in the
+/// run-level review, stamp every declared run reviewer so it can seal.
+fn sign_run_reviews(store: &StateStore, run: &str) {
+    if let Some(RunAction::RunReview { reviewers, .. }) =
+        derive_position(store, run).unwrap().action
+    {
+        for r in reviewers {
+            darkrun_mcp::position::run_review_stamp(store, run, &r).expect("run review stamp");
+        }
     }
 }
 
@@ -615,7 +630,15 @@ fn harden_approve_seals_run() {
     at_phase(&store, "r", "harden", StationPhase::Checkpoint);
     run_tick(&store, "r").expect("enter checkpoint");
     let decided = checkpoint_decide(&store, "r", true, None).expect("approve");
-    assert!(matches!(&decided.action, RunAction::Sealed { run } if run == "r"));
+    let final_action = match decided.action {
+        RunAction::Sealed { .. } => decided.action,
+        RunAction::RunReview { .. } => {
+            sign_run_reviews(&store, "r");
+            derive_position(&store, "r").unwrap().action.unwrap()
+        }
+        other => panic!("expected RunReview or Sealed, got {other:?}"),
+    };
+    assert!(matches!(&final_action, RunAction::Sealed { run } if run == "r"));
     let s = store.read_state("r").unwrap().unwrap();
     assert_eq!(s.stations["harden"].status, Status::Completed);
 }
@@ -752,6 +775,7 @@ fn sealed_after_all_six_stations() {
             checkpoint_decide(&store, "r", true, None).expect("approve");
         }
     }
+    sign_run_reviews(&store, "r");
     let pos = derive_position(&store, "r").expect("pos");
     assert!(matches!(pos.action, Some(RunAction::Sealed { .. })));
     assert_eq!(pos.track, Track::Run);
@@ -780,6 +804,7 @@ fn sealed_action_carries_run_slug() {
         );
     }
     store.write_state("my-sealed-run", &state).unwrap();
+    sign_run_reviews(&store, "my-sealed-run");
     let pos = derive_position(&store, "my-sealed-run").expect("pos");
     match pos.action {
         Some(RunAction::Sealed { run }) => assert_eq!(run, "my-sealed-run"),
@@ -807,6 +832,7 @@ fn sealed_tick_is_noop_for_state_advancement() {
             checkpoint_decide(&store, "r", true, None).expect("approve");
         }
     }
+    sign_run_reviews(&store, "r");
     // A tick on a sealed run yields Sealed and doesn't crash / mutate stations.
     let before = store.read_state("r").unwrap().unwrap();
     let t = run_tick(&store, "r").expect("tick");
@@ -1468,6 +1494,7 @@ fn sealed_position_serializes() {
             checkpoint_decide(&store, "r", true, None).unwrap();
         }
     }
+    sign_run_reviews(&store, "r");
     let pos = derive_position(&store, "r").unwrap();
     let json = serde_json::to_value(&pos).unwrap();
     assert_eq!(json["action"]["action"], "sealed");

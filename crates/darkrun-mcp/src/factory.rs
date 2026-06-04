@@ -58,6 +58,9 @@ pub struct FactoryDef {
     /// The factory's default model — the floor a role/station/unit override sits
     /// above. Empty → the harness/agent default.
     pub default_model: String,
+    /// Whole-Run reviewer slugs — the cross-station auditors that judge the
+    /// integrated run AFTER the final station locks, before it seals. Each gates.
+    pub run_reviewers: Vec<String>,
 }
 
 impl FactoryDef {
@@ -116,6 +119,7 @@ impl FactoryDef {
             stations,
             surfaces: f.frontmatter.surfaces.clone(),
             default_model: f.frontmatter.default_model.clone(),
+            run_reviewers: f.frontmatter.reviewers.clone(),
         }
     }
 }

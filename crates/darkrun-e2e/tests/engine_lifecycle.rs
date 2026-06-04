@@ -621,7 +621,21 @@ fn harden_external_decide_seals_run() {
     }
     h.walk_station_to_checkpoint("harden", &["z"]);
     let decided = h.decide(true, None);
-    assert!(matches!(decided.action, RunAction::Sealed { .. }));
+    // After the final station the run holds in the whole-run review; once the
+    // run reviewers sign off, it seals.
+    match decided.action {
+        RunAction::Sealed { .. } => {}
+        RunAction::RunReview { reviewers, .. } => {
+            for r in reviewers {
+                darkrun_mcp::position::run_review_stamp(&h.store, "hd", &r).expect("stamp");
+            }
+            assert!(matches!(
+                h.position().action,
+                Some(RunAction::Sealed { .. })
+            ));
+        }
+        other => panic!("expected RunReview or Sealed, got {other:?}"),
+    }
 }
 
 // ===========================================================================

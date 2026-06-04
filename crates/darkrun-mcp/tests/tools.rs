@@ -17,8 +17,8 @@ use darkrun_mcp::tools::{
     ArchetypeInput, CheckpointDecideInput, DirectionInput, FactoryRef, FeedbackCreateInput,
     FeedbackListInput, FeedbackMoveInput, FeedbackRejectInput, FeedbackResolveInput,
     PickerInput, PickerOptionInput, ProofAttachInput, ProofGetInput, QuestionInput,
-    QuestionOptionInput, RunArchiveInput, RunListInput, RunRef, RunShowRef, RunStartInput, RunSurfaceInput,
-    SessionResultInput, UnitCreateInput, UnitRef, UnitUpdateInput,
+    QuestionOptionInput, RunArchiveInput, RunListInput, RunRef, RunReviewStampInput, RunShowRef,
+    RunStartInput, RunSurfaceInput, SessionResultInput, UnitCreateInput, UnitRef, UnitUpdateInput,
 };
 use darkrun_mcp::DarkrunServer;
 use rmcp::handler::server::wrapper::Parameters;
@@ -2130,6 +2130,30 @@ fn approve(server: &DarkrunServer, slug: &str) -> Value {
     )
 }
 
+/// If `action` is the whole-run review, stamp every run reviewer off (modelling
+/// the run reviewers fanning out + signing) and return the now-sealing action;
+/// otherwise return `action` unchanged.
+fn sign_run_reviews(server: &DarkrunServer, slug: &str, action: Value) -> Value {
+    if action["action"]["action"] != "run_review" {
+        return action;
+    }
+    let reviewers: Vec<String> = action["action"]["reviewers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap().to_string())
+        .collect();
+    for r in reviewers {
+        server
+            .darkrun_run_review_stamp(Parameters(RunReviewStampInput {
+                slug: slug.into(),
+                role: r,
+            }))
+            .unwrap();
+    }
+    body(&next(server, slug))
+}
+
 #[test]
 fn walk_frame_checkpoint_is_ask() {
     let (_d, server) = started("r");
@@ -2221,7 +2245,7 @@ fn full_run_walks_to_sealed() {
         approve(&server, "r");
     }
     walk_station_to_checkpoint(&server, "r", "harden");
-    let sealed = approve(&server, "r");
+    let sealed = sign_run_reviews(&server, "r", approve(&server, "r"));
     assert_eq!(sealed["action"]["action"], "sealed");
     assert_eq!(sealed["action"]["run"], "r");
 }
@@ -2234,7 +2258,7 @@ fn sealed_run_show_position_is_sealed() {
         approve(&server, "r");
     }
     walk_station_to_checkpoint(&server, "r", "harden");
-    approve(&server, "r");
+    sign_run_reviews(&server, "r", approve(&server, "r"));
     let show = body(
         &server
             .darkrun_run_show(Parameters(RunShowRef { slug: Some("r".into()) }))
@@ -2251,7 +2275,7 @@ fn sealed_run_next_returns_sealed() {
         approve(&server, "r");
     }
     walk_station_to_checkpoint(&server, "r", "harden");
-    approve(&server, "r");
+    sign_run_reviews(&server, "r", approve(&server, "r"));
     // Re-ticking a sealed run keeps returning sealed (idempotent terminal).
     let v = body(&next(&server, "r"));
     assert_eq!(v["action"]["action"], "sealed");
@@ -3323,7 +3347,7 @@ fn sealed_action_shape_has_run_only() {
         approve(&server, "r");
     }
     walk_station_to_checkpoint(&server, "r", "harden");
-    let v = approve(&server, "r");
+    let v = sign_run_reviews(&server, "r", approve(&server, "r"));
     assert_eq!(v["action"]["action"], "sealed");
     assert_eq!(v["action"]["run"], "r");
     assert!(v["action"].get("station").is_none());

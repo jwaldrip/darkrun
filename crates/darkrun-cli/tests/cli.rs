@@ -1736,13 +1736,15 @@ fn decide_walks_through_every_station_in_order() {
 }
 
 #[test]
-fn decide_at_last_station_seals_the_run() {
+fn decide_at_last_station_enters_run_review() {
     let repo = temp_repo();
     start_run(repo.path(), "Seal It");
-    // 5 approves reach the last station; the 6th seals.
+    // 5 approves reach the last station; the 6th closes harden's checkpoint and
+    // the run holds in the whole-run review (the cross-station audit) — it no
+    // longer seals on the operator's decide alone, the run reviewers gate first.
     decide_n(repo.path(), 5);
     let v = json(&Cli::new().repo(repo.path()).args(["run", "decide"]).run().stdout);
-    assert_eq!(v["action"]["action"], "sealed");
+    assert_eq!(v["action"]["action"], "run_review");
 }
 
 #[test]

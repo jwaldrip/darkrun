@@ -112,12 +112,21 @@ fn full_run_walks_all_six_stations_to_sealed() {
     let s = store.read_state("r").unwrap().unwrap();
     assert_eq!(s.stations["harden"].status, Status::InProgress);
 
-    // Operator approves the final gate → run is sealed.
+    // Operator approves the final gate → the run enters the whole-run review.
     let decided = checkpoint_decide(&store, "r", true, None).expect("approve harden");
+    let final_action = match decided.action {
+        RunAction::Sealed { .. } => decided.action,
+        RunAction::RunReview { reviewers, .. } => {
+            for r in reviewers {
+                darkrun_mcp::position::run_review_stamp(&store, "r", &r).expect("run review stamp");
+            }
+            derive_position(&store, "r").unwrap().action.unwrap()
+        }
+        other => panic!("expected RunReview or Sealed, got {other:?}"),
+    };
     assert!(
-        matches!(&decided.action, RunAction::Sealed { run } if run == "r"),
-        "expected Sealed, got {:?}",
-        decided.action
+        matches!(&final_action, RunAction::Sealed { run } if run == "r"),
+        "expected Sealed, got {final_action:?}"
     );
 }
 
@@ -338,6 +347,12 @@ fn sealed_when_all_stations_complete() {
         ) || matches!(cp, RunAction::ExternalReviewRequested { .. });
         if gated {
             checkpoint_decide(&store, "r", true, None).expect("approve");
+        }
+    }
+    // The whole-run review gates before seal; sign the run reviewers off.
+    if let Some(RunAction::RunReview { reviewers, .. }) = derive_position(&store, "r").unwrap().action {
+        for r in reviewers {
+            darkrun_mcp::position::run_review_stamp(&store, "r", &r).expect("run review stamp");
         }
     }
     let pos = derive_position(&store, "r").unwrap();

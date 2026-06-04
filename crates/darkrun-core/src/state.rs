@@ -76,6 +76,12 @@ pub struct RunState {
     /// Per-station derived state, keyed by station name.
     #[serde(default)]
     pub stations: BTreeMap<String, Station>,
+    /// Whole-Run reviewer sign-offs, keyed by run-reviewer role (`None` =
+    /// unsigned). After the final station locks, the run holds in a run-level
+    /// review until every declared run reviewer is stamped — the cross-station
+    /// audit of the integrated result before the run seals.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub run_reviews: BTreeMap<String, Option<crate::domain::Stamp>>,
 }
 
 /// The derived position of one station in a run's ordered plan — the strip

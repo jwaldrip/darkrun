@@ -370,6 +370,16 @@ pub struct ReviewStampInput {
     pub kind: String,
 }
 
+/// Input for `darkrun_run_review_stamp` — one whole-Run reviewer's sign-off.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct RunReviewStampInput {
+    /// The run slug.
+    pub slug: String,
+    /// The run-reviewer role signing off (e.g. `integration-auditor`).
+    pub role: String,
+}
+
 /// Input for `darkrun_quality_gate_record` — record one gate's result on a unit.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -1271,6 +1281,23 @@ impl DarkrunServer {
             &store, &input.slug, &input.unit, &input.gate, status, input.detail.clone(),
         ) {
             Ok(unit) => ok_json(&unit),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Stamp one whole-Run reviewer's sign-off in the run-level review (the
+    /// cross-station audit after the final station) — without walking the cursor.
+    #[tool(
+        name = "darkrun_run_review_stamp",
+        description = "Record ONE whole-Run reviewer's sign-off on the integrated run (the cross-station audit after the final station) without advancing — the parallel-safe close for a fanned-out run reviewer. The run holds in run-review until every declared run reviewer is stamped, then seals. File feedback instead of stamping if the run reviewer finds a cross-station problem."
+    )]
+    pub fn darkrun_run_review_stamp(
+        &self,
+        Parameters(input): Parameters<RunReviewStampInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match crate::position::run_review_stamp(&store, &input.slug, &input.role) {
+            Ok(()) => ok_json(&serde_json::json!({ "ok": true, "role": input.role })),
             Err(e) => Ok(err_text(e)),
         }
     }

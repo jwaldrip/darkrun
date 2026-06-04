@@ -259,6 +259,16 @@ impl Harness {
                 self.decide(true, None);
                 continue;
             }
+            // The whole-run review holds after the last station until every run
+            // reviewer signs. Model the reviewers stamping (the agent fans them
+            // out), without logging — the log reads as the canonical station walk.
+            if let RunAction::RunReview { reviewers, .. } = &action {
+                for r in reviewers.clone() {
+                    darkrun_mcp::position::run_review_stamp(&self.store, &self.slug, &r)
+                        .expect("run review stamp");
+                }
+                continue;
+            }
             // Collapse a repeat of the immediately-preceding action.
             if log.last() != Some(&action) {
                 log.push(action.clone());

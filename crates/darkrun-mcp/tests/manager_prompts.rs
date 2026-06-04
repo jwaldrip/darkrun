@@ -492,6 +492,10 @@ fn sealed_action_renders_run_completion_prompt() {
         );
     }
     store.write_state("r", &state).unwrap();
+    // The whole-run review gates before seal; sign the run reviewers off.
+    for r in &factory.run_reviewers {
+        darkrun_mcp::position::run_review_stamp(&store, "r", r).expect("run review stamp");
+    }
     let t = run_tick(&store, "r").expect("tick");
     assert!(matches!(&t.action, RunAction::Sealed { .. }));
     let prompt = t.prompt.expect("sealed prompt");

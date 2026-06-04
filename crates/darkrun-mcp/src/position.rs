@@ -170,6 +170,13 @@ pub enum RunAction {
         /// until the agent opens one.
         target: String,
     },
+    /// Every station is locked, but the factory's whole-Run reviewers haven't all
+    /// signed off on the integrated result — hold in a run-level review (the
+    /// cross-station audit) until each is stamped. Carries the unsigned reviewers.
+    RunReview {
+        run: String,
+        reviewers: Vec<String>,
+    },
     /// Every station is locked but the run declares a final `seal:` gate — hold
     /// for an external merge / await decision before sealing. Parity for
     /// the predecessor's `pending_seal` / `intent_approved`.
@@ -685,6 +692,25 @@ pub fn elaborate_seal(store: &StateStore, slug: &str, station: &str) -> Result<(
     Ok(())
 }
 
+/// Stamp one whole-Run reviewer's sign-off in the run-level review — without
+/// walking the cursor, so the run reviewers fan out in parallel like station
+/// reviewers and the parent ticks once. The run holds in `RunReview` until every
+/// declared run reviewer is stamped here.
+pub fn run_review_stamp(store: &StateStore, slug: &str, role: &str) -> Result<()> {
+    if role.trim().is_empty() {
+        return Err(McpError::InvalidInput("run reviewer role must not be empty".into()));
+    }
+    let mut state = store
+        .read_state(slug)?
+        .ok_or_else(|| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
+    state.run_reviews.insert(
+        role.to_string(),
+        Some(darkrun_core::domain::Stamp { at: Utc::now().to_rfc3339() }),
+    );
+    store.write_state(slug, &state)?;
+    Ok(())
+}
+
 /// Whether a run is in the dedicated **collaborative** mode — the one that wants
 /// the operator in the loop *during elaboration*, enforced by a hard Spec hold.
 /// Only this explicit mode gates; `continuous`/`discrete`/`autopilot`/`quick`
@@ -844,7 +870,26 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     let station = match current_station(&factory, &state) {
         Some(s) => s,
         None => {
-            // Every station locked. If the run declares a final `seal:` gate
+            // Every station locked. First, the whole-Run review: the factory's
+            // run reviewers audit the integrated result (cross-station seams,
+            // regressions, the attacker's view) before the run can seal. Hold in
+            // RunReview until each declared run reviewer is stamped.
+            let unsigned: Vec<String> = factory
+                .run_reviewers
+                .iter()
+                .filter(|r| !matches!(state.run_reviews.get(*r), Some(Some(_))))
+                .cloned()
+                .collect();
+            if !unsigned.is_empty() {
+                return Ok(Position {
+                    track: Track::Run,
+                    action: Some(RunAction::RunReview {
+                        run: slug.to_string(),
+                        reviewers: unsigned,
+                    }),
+                });
+            }
+            // If the run declares a final `seal:` gate
             // and hasn't been confirmed delivered, hold at PendingSeal
             // (awaiting an external merge / await decision); otherwise seal.
             let action = match run.frontmatter.seal {
@@ -1258,6 +1303,7 @@ pub fn action_tag(action: &RunAction) -> &'static str {
         RunAction::SafeRepair { .. } => "safe_repair",
         RunAction::ReviseUnitSpecs { .. } => "revise_unit_specs",
         RunAction::ExternalReviewRequested { .. } => "external_review_requested",
+        RunAction::RunReview { .. } => "run_review",
         RunAction::PendingSeal { .. } => "pending_seal",
         RunAction::Sealed { .. } => "sealed",
         RunAction::MergeConflict { .. } => "merge_conflict",
@@ -1291,7 +1337,10 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }
         | RunAction::ExternalReviewRequested { station, .. } => Some(station.clone()),
-        RunAction::PendingSeal { .. } | RunAction::Sealed { .. } | RunAction::Noop { .. } => None,
+        RunAction::RunReview { .. }
+        | RunAction::PendingSeal { .. }
+        | RunAction::Sealed { .. }
+        | RunAction::Noop { .. } => None,
     };
 
     let mut ctx = PromptContext {
@@ -1411,6 +1460,9 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         }
         RunAction::Checkpoint { kind, .. } => {
             ctx.kind = Some(*kind);
+        }
+        RunAction::RunReview { reviewers, .. } => {
+            ctx.reviewers = reviewers.clone();
         }
         RunAction::FixFeedback { feedback_id, .. }
         | RunAction::FeedbackQuestion { feedback_id, .. } => {
@@ -1680,7 +1732,10 @@ fn station_of(action: &RunAction) -> Option<&str> {
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }
         | RunAction::ExternalReviewRequested { station, .. } => Some(station),
-        RunAction::PendingSeal { .. } | RunAction::Sealed { .. } | RunAction::Noop { .. } => None,
+        RunAction::RunReview { .. }
+        | RunAction::PendingSeal { .. }
+        | RunAction::Sealed { .. }
+        | RunAction::Noop { .. } => None,
     }
 }
 
@@ -2315,6 +2370,11 @@ mod tests {
                         store.write_unit("q", &done).unwrap();
                     }
                 }
+                RunAction::RunReview { reviewers, .. } => {
+                    for r in reviewers.clone() {
+                        run_review_stamp(&store, "q", &r).expect("run review stamp");
+                    }
+                }
                 _ => {}
             }
         }
@@ -2419,6 +2479,11 @@ mod tests {
                         let mut done = store.read_unit("q", u).unwrap();
                         done.frontmatter.status = Status::Completed;
                         store.write_unit("q", &done).unwrap();
+                    }
+                }
+                RunAction::RunReview { reviewers, .. } => {
+                    for r in reviewers.clone() {
+                        run_review_stamp(&store, "q", &r).expect("run review stamp");
                     }
                 }
                 _ => {}

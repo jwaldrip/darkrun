@@ -251,6 +251,11 @@ fn sealed_run_renders_the_sealed_prompt() {
             | RunAction::ExternalReviewRequested { .. } => {
                 let _ = checkpoint_decide(&store, "r", true, None);
             }
+            RunAction::RunReview { reviewers, .. } => {
+                for r in reviewers.clone() {
+                    darkrun_mcp::position::run_review_stamp(&store, "r", &r).expect("run review");
+                }
+            }
             _ => {}
         }
     }

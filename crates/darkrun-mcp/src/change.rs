@@ -169,6 +169,7 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::Escalate { .. } => "escalate",
         RunAction::SafeRepair { .. } => "safe_repair",
         RunAction::ReviseUnitSpecs { .. } => "revise_unit_specs",
+        RunAction::RunReview { .. } => "run_review",
         RunAction::ExternalReviewRequested { .. } => "external_review_requested",
         RunAction::PendingSeal { .. } => "pending_seal",
         RunAction::Sealed { .. } => "sealed",

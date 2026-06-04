@@ -586,8 +586,8 @@ fn approve_through_every_station_to_sealed() {
     advance_to_station(&store, "r", "harden");
     let cp = walk_to_checkpoint(&store, "r", "harden");
     assert!(matches!(cp, RunAction::Checkpoint { kind: CheckpointKind::Ask, .. }));
-    let sealed = checkpoint_decide(&store, "r", true, None).expect("seal");
-    assert!(matches!(&sealed.action, RunAction::Sealed { run } if run == "r"));
+    let sealed = finish_run_review(&store, "r", checkpoint_decide(&store, "r", true, None).expect("seal").action);
+    assert!(matches!(&sealed, RunAction::Sealed { run } if run == "r"));
 }
 
 #[test]
@@ -835,7 +835,7 @@ fn external_kind_approve_seals_run() {
     advance_to_station(&store, "r", "harden");
     walk_to_checkpoint(&store, "r", "harden");
     let res = checkpoint_decide(&store, "r", true, None).expect("approve");
-    assert!(matches!(res.action, RunAction::Sealed { .. }));
+    assert!(matches!(finish_run_review(&store, "r", res.action), RunAction::Sealed { .. }));
     assert_eq!(checkpoint_outcome(&store, "r", "harden"), Some(CheckpointOutcome::Advanced));
 }
 
@@ -1280,7 +1280,7 @@ fn runaction_sealed_serializes_run() {
     advance_to_station(&store, "r", "harden");
     walk_to_checkpoint(&store, "r", "harden");
     let res = checkpoint_decide(&store, "r", true, None).unwrap();
-    let j = json_of(&res.action);
+    let j = json_of(&finish_run_review(&store, "r", res.action));
     assert_eq!(j["action"], serde_json::json!("sealed"));
     assert_eq!(j["run"], serde_json::json!("r"));
 }
@@ -1681,6 +1681,18 @@ fn resolving_first_open_advances_to_next_open() {
 // SECTION 17 — full-run determinism & checkpoint-outcome lifecycle
 // ═══════════════════════════════════════════════════════════════════════
 
+/// If `action` is the whole-run review, stamp every run reviewer (model the run
+/// reviewers signing off) and return the now-sealing action; else passthrough.
+fn finish_run_review(store: &StateStore, run: &str, action: RunAction) -> RunAction {
+    if let RunAction::RunReview { reviewers, .. } = &action {
+        for r in reviewers.clone() {
+            darkrun_mcp::position::run_review_stamp(store, run, &r).expect("run review stamp");
+        }
+        return derive_position(store, run).unwrap().action.unwrap();
+    }
+    action
+}
+
 /// Drive a whole run to sealed, approving every gate. Returns the final action.
 fn run_to_sealed(store: &StateStore, run: &str) -> RunAction {
     for st in ["frame", "specify", "shape", "build", "prove", "harden"] {
@@ -1690,6 +1702,14 @@ fn run_to_sealed(store: &StateStore, run: &str) -> RunAction {
             || matches!(cp, RunAction::ExternalReviewRequested { .. });
         if needs_decision {
             checkpoint_decide(store, run, true, None).expect("approve");
+        }
+    }
+    // After the final station the run holds in the whole-run review until every
+    // run reviewer has stamped. Model the reviewers signing off (the agent fans
+    // them out + stamps), then derive the now-sealing action.
+    if let Some(RunAction::RunReview { reviewers, .. }) = derive_position(store, run).unwrap().action {
+        for r in reviewers {
+            darkrun_mcp::position::run_review_stamp(store, run, &r).expect("run review stamp");
         }
     }
     derive_position(store, run).unwrap().action.unwrap()
@@ -2240,7 +2260,7 @@ fn decide_approve_at_harden_returns_sealed_run_track() {
     walk_to_checkpoint(&store, "r", "harden");
     let res = checkpoint_decide(&store, "r", true, None).expect("seal");
     assert_eq!(res.position.track, Track::Run);
-    assert!(matches!(res.action, RunAction::Sealed { .. }));
+    assert!(matches!(finish_run_review(&store, "r", res.action), RunAction::Sealed { .. }));
 }
 
 #[test]
@@ -2726,7 +2746,7 @@ fn harden_reject_then_address_then_seal() {
     let fb = &feedback::list(&store, "r").unwrap()[0];
     feedback::set_status(&store, "r", &fb.id, FeedbackStatus::Addressed).unwrap();
     let res = checkpoint_decide(&store, "r", true, None).expect("seal");
-    assert!(matches!(res.action, RunAction::Sealed { .. }));
+    assert!(matches!(finish_run_review(&store, "r", res.action), RunAction::Sealed { .. }));
 }
 
 #[test]
@@ -2870,8 +2890,6 @@ fn whole_run_with_mid_rejects_still_seals() {
         feedback::set_status(&store, "r", &open.id, FeedbackStatus::Addressed).unwrap();
         checkpoint_decide(&store, "r", true, None).expect("approve");
     }
-    assert!(matches!(
-        derive_position(&store, "r").unwrap().action,
-        Some(RunAction::Sealed { .. })
-    ));
+    let final_action = finish_run_review(&store, "r", derive_position(&store, "r").unwrap().action.unwrap());
+    assert!(matches!(final_action, RunAction::Sealed { .. }));
 }
