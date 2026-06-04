@@ -102,8 +102,8 @@
 </div>
 
 <div class="scorerow">
-  <div class="score h"><div class="n">27</div><div class="l">built</div></div>
-  <div class="score p"><div class="n">9</div><div class="l">deliberate / redundant</div></div>
+  <div class="score h"><div class="n">28</div><div class="l">built</div></div>
+  <div class="score p"><div class="n">8</div><div class="l">deliberate / redundant</div></div>
   <div class="score m"><div class="n">8</div><div class="l">deferred</div></div>
 </div>
 
@@ -165,14 +165,14 @@
   <table>
     <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
-      <tr><td class="gap">Drift on premises (inputs)</td>
-          <td class="pred">witnesses input files + dir inventory</td>
-          <td class="dr"><span class="pill have">closed</span><span class="drnote">sweep witnesses + checks declared inputs; <span class="code">DriftKind::Input</span><span class="ev">drift.rs</span></span></td>
-          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap">Input-premise drift → re-orientation feedback <span class="code">(rebuilt)</span></td>
+          <td class="pred">witnesses INPUTS, not outputs; input change re-orients downstream</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">inputs-only witness; same-station <b>baton exemption</b>; a moved premise → one <span class="code">origin=drift</span> feedback that re-orients the affected station; outputs never witnessed<span class="ev">drift.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span><b>Rebuilt against the predecessor source.</b> The prior pass was wrong — it witnessed outputs (loop-prone), had no baton exemption (in-place-edit stations self-drifted), and used a global hold instead of scoped feedback.</td></tr>
       <tr><td class="gap">Restamp on detect</td>
           <td class="pred">restamp before filing so it can't re-fire</td>
-          <td class="dr"><span class="pill have">by design</span><span class="drnote">re-witness via <span class="code">accept()</span>; revert self-heals</span></td>
-          <td class="rec"><span class="k k-keep">keep</span>Don't build. Auto-restamp would destroy revert-self-heal — darkrun's model is stronger here.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">sweep restamps the witness to current, then files the drift feedback — fires once</span></td>
+          <td class="rec"><span class="k k-done">done</span>Now implemented (was mis-filed "keep"). The feedback, not a re-firing hold, owns the unresolved re-orientation. <span class="code">accept()</span> stays for an explicit operator rebaseline.</td></tr>
       <tr><td class="gap">Cross-sweep dedup</td>
           <td class="pred">source_ref dedup</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote">per-(unit,input) + per-path drift id is idempotent</span></td>

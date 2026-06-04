@@ -12,16 +12,23 @@ mechanism, with a comment column); this doc is the prose companion.
 
 ## ◆ Current status — 2026-06-04
 
-**44 mechanisms. 27 built · 17 intentionally not built (4 deliberate-design · 5
+**44 mechanisms. 28 built · 16 intentionally not built (3 deliberate-design · 5
 redundant · 8 deferred). Every confident gap is closed** — nothing is left on the
 "should build" list. What remains is either a deliberate design difference, a
 genuine redundancy, or a deferred item waiting on an integration that isn't here
 yet.
 
+> **Drift rebuilt (B1/B2).** Drift was reworked this session to the verified
+> predecessor model after a deeper read: it now witnesses **inputs only** (not
+> outputs), exempts the same-station input==output **baton**, **restamps on
+> detect**, and routes a premise change as scoped **`origin=drift` feedback**
+> that re-orients the affected station — replacing the loop-prone output-witness
+> + global-hold model. B2 (restamp-on-detect) moved from "keep" to **done**.
+
 Start of the work: 3 present · 15 partial · 26 missing → now: 27 built, the rest
 dispositioned with a reason.
 
-### Built (27)
+### Built (28)
 
 - **Cluster A — records carry the story (A1–A7, all done).** Iterations are an
   append-only array with a handoff `note` + `completed_at`; `pass`/active-worker are
@@ -29,9 +36,12 @@ dispositioned with a reason.
   dispatch shows the prior handoff). Feedback gained `origin` (8 variants),
   `closure_reply`, and `invalidates` (a close re-opens exactly the stamps it
   undercut, re-firing the gate). Append-only `action-log.jsonl` audit journal per run.
-- **Cluster B — immune system.** B1 input/premise drift (the sweep witnesses + checks
-  declared inputs, files `DriftKind::Input`); B3 per-(unit,input) dedup; B4 cascade
-  breaker (`DARKRUN_DRIFT_CASCADE_CAP`); B8 deadlock/churn halt (pre-existing);
+- **Cluster B — immune system.** **B1 input-premise drift, rebuilt** — inputs-only
+  witnessing, same-station baton exemption, restamp-on-detect, and a moved premise
+  routed as scoped `origin=drift` feedback that re-orients the affected station
+  (outputs are never witnessed); **B2 restamp-on-detect** (moved from "keep" to done);
+  B3 dedup (one drift feedback per premise+kind); B4 cascade breaker
+  (`DARKRUN_DRIFT_CASCADE_CAP`); B8 deadlock/churn halt (pre-existing);
   **B9 per-unit AND per-fix worktree isolation** — each unit's Pass-loop and each
   drift/feedback fix forks onto its own branch + worktree off the station branch and
   lands back on lock/resolution.
@@ -56,10 +66,8 @@ dispositioned with a reason.
   **F4 per-role review stamp** (`darkrun_review_stamp` records one role without a
   cursor walk, so reviewers/explorers fan out in parallel and the parent ticks once).
 
-### Deliberate design — not a gap (4: keep)
+### Deliberate design — not a gap (3: keep)
 
-- **B2** revert-self-heal + explicit `accept()` over auto-restamp-on-detect (the
-  stronger model for darkrun's filesystem-truth design).
 - **B6** the hook suite + `drift-witness.log` over an FSM checksum sidecar.
 - **C2** the fixed six FSSBPH stations (the whole orientation refactor rests on the
   invariant spine; right-sizing collapses at run start).
@@ -97,7 +105,8 @@ dispositioned with a reason.
 
 **Cluster A** — A1–A7 all **done**.
 
-**Cluster B** — B1 **done** · B2 **keep** (deliberate) · B3 **done** · B4 **done** ·
+**Cluster B** — B1 **done** (rebuilt: inputs-only + baton + restamp→feedback) ·
+B2 **done** (restamp-on-detect) · B3 **done** · B4 **done** ·
 B5 **defer** · B6 **keep** (deliberate) · B7 **skip** (backstopped) · B8 **done**
 (pre-existing) · B9 **done** (per-unit + per-fix isolation).
 
@@ -135,10 +144,11 @@ and `invalidates`. A per-run `action-log.jsonl` records how the run actually wal
 
 | Mechanic | Predecessor | darkrun now |
 |---|---|---|
-| Drift on **premises** (inputs), not just outputs | sweeps witnessed input files + dir inventory | **done** — `drift.rs` sweep + `DriftKind::Input` + `input_witnesses` |
-| Cross-sweep **dedup** | `source_ref` skip-if-open | **done** — `drift_id_for` + per-(unit,input) id |
-| **Cascade alarm** breaker | stop filing at ≥10 open | **done** — `cascade_cap` / `DARKRUN_DRIFT_CASCADE_CAP` |
-| Witness **restamp on detect** | restamp before filing | **keep** — darkrun reverts-to-self-heal + explicit `accept()` instead |
+| Drift on **inputs** (premises), NOT outputs | witnesses input files; outputs are not drift | **done (rebuilt)** — inputs-only witness; a moved premise → one `origin=drift` feedback that re-orients the affected station |
+| **Baton exemption** (input==output in one station) | suppress a same-stage produced premise | **done** — `produced_basenames_by_station`; an in-place edit no longer self-drifts |
+| Cross-sweep **dedup** | `source_ref` skip-if-open | **done** — one open drift feedback per premise+kind |
+| **Cascade alarm** breaker | stop filing at ≥10 open | **done** — caps open drift feedback; restamp still runs |
+| Witness **restamp on detect** | restamp before filing | **done (rebuilt)** — restamp-on-detect fires once; the feedback owns the unresolved re-orientation |
 | **FSM checksum** sidecar | `.fsm_checksum` tamper detect | **keep** — hook suite + `drift-witness.log` cover it |
 | **Verifier nonce** | one-time token required by seal | **defer** — no seal/verifier split to bind to yet |
 | Dispatch **leases** + recovery | `dispatched_at` + TTL recovery | **skip** — deadlock halt + `Pending` re-dispatch backstop it |
