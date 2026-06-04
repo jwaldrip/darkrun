@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>darkrun — engine parity gaps (verified)</title>
+<title>darkrun — engine parity gaps (verified + dispositioned)</title>
 <style>
   :root{
     --bg:#0a0c0f; --surface:#11151a; --raised:#161b22; --border:#222a33;
@@ -15,18 +15,17 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
-       line-height:1.55;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:1140px;margin:0 auto;padding:56px 28px 96px}
+       line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1280px;margin:0 auto;padding:56px 28px 96px}
   header.hero{border-bottom:1px solid var(--border);padding-bottom:28px;margin-bottom:28px}
   .word{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
   .word b{color:var(--text);font-weight:700}
   .vstamp{color:var(--have)}
   h1{font-size:30px;margin:14px 0 8px;font-weight:700;letter-spacing:-.01em}
-  .lead{color:var(--muted);font-size:15px;max-width:80ch;margin:0}
+  .lead{color:var(--muted);font-size:15px;max-width:84ch;margin:0}
   .tldr{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);
         border-radius:10px;padding:18px 20px;margin:26px 0 8px;color:var(--muted);font-size:14.5px}
   .tldr b{color:var(--text)}
-  .tldr.green{border-left-color:var(--have)}
   .legend{display:flex;gap:18px;flex-wrap:wrap;margin:22px 0 8px;font-family:var(--mono);font-size:12px}
   .legend span{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
@@ -41,22 +40,32 @@
   .clab .stars{font-family:var(--mono);font-size:13px;color:var(--partial);margin-left:auto}
   .csub{color:var(--faint);font-size:13.5px;margin:8px 0 16px;font-style:italic}
 
-  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
      color:var(--faint);font-weight:500;padding:0 12px 8px;border-bottom:1px solid var(--border)}
-  td{padding:13px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  td{padding:12px 12px;border-bottom:1px solid var(--border);vertical-align:top}
   tr:last-child td{border-bottom:none}
-  .gap{font-weight:600;color:var(--text);width:21%}
-  .pred{color:var(--muted);width:36%}
-  .dr{width:43%}
-  .code{font-family:var(--mono);font-size:11.5px;color:var(--accent-dim)}
-  .ev{font-family:var(--mono);font-size:11px;color:var(--faint);display:block;margin-top:5px}
-  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
-        border-radius:20px;padding:3px 10px;border:1px solid var(--border);white-space:nowrap}
+  .gap{font-weight:600;color:var(--text);width:15%}
+  .pred{color:var(--muted);width:27%}
+  .dr{width:29%}
+  .rec{width:29%;color:var(--muted)}
+  .rec b{color:var(--text)}
+  .code{font-family:var(--mono);font-size:11px;color:var(--accent-dim)}
+  .ev{font-family:var(--mono);font-size:10.5px;color:var(--faint);display:block;margin-top:4px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+        border-radius:20px;padding:3px 9px;border:1px solid var(--border);white-space:nowrap}
   .pill.have{color:var(--have);border-color:#1c3a25}
   .pill.partial{color:var(--partial);border-color:#3a3115}
   .pill.missing{color:var(--missing);border-color:#3a1c22}
-  .drnote{color:var(--muted);display:block;margin-top:6px;font-size:13px}
+  .drnote{color:var(--muted);display:block;margin-top:6px;font-size:12.5px}
+  /* recommendation kind tags */
+  .k{font-family:var(--mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+     border-radius:4px;padding:1px 6px;margin-right:6px;font-weight:700}
+  .k-done{background:#13321d;color:var(--have)}
+  .k-do{background:#0e3a47;color:var(--accent)}
+  .k-keep{background:#2a2433;color:#c79bf0}
+  .k-defer{background:#3a3115;color:var(--partial)}
+  .k-skip{background:#3a1c22;color:var(--missing)}
 
   .matter{background:var(--raised);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-top:14px}
   .matter h3{margin:0 0 6px;font-size:14px;color:var(--accent);font-family:var(--mono);font-weight:600;letter-spacing:.03em}
@@ -68,33 +77,27 @@
   .score .n{font-size:30px;font-weight:700;font-family:var(--mono)}
   .score .l{font-size:12px;color:var(--faint);font-family:var(--mono);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
   .score.h .n{color:var(--have)} .score.p .n{color:var(--partial)} .score.m .n{color:var(--missing)}
-  .corr{background:var(--raised);border:1px solid #1c3a25;border-radius:10px;padding:16px 20px;margin:8px 0 0}
-  .corr h3{margin:0 0 8px;font-size:13px;color:var(--have);font-family:var(--mono);letter-spacing:.03em}
-  .corr ul{margin:0;padding-left:18px;color:var(--muted);font-size:13.5px}
-  .corr li{margin:4px 0}
-  .corr b{color:var(--text)}
+  .reclegend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 0;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header class="hero">
-  <div class="word"><b>dark</b>run · engine parity audit · <span class="vstamp">✓ verified against darkrun source</span></div>
-  <h1>What we ported, and what we missed</h1>
-  <p class="lead">Every row read in the predecessor engine (~85K LOC) <b>and</b> verified against darkrun's Rust source.
-  Each darkrun cell carries a verdict pill and a <span class="code">file:line</span> citation. 44 mechanisms checked:
-  <span style="color:var(--have)">3 present</span>, <span style="color:var(--partial)">15 partial</span>,
-  <span style="color:var(--missing)">26 missing</span>.</p>
+  <div class="word"><b>dark</b>run · engine parity audit · <span class="vstamp">✓ verified · dispositioned · burned down</span></div>
+  <h1>What we ported, what we missed, and what's next</h1>
+  <p class="lead">Every mechanism read in the predecessor engine and verified against darkrun source. Each row carries the
+  <b>current</b> darkrun status (after this session's burn-down) and a <b>per-row recommendation</b>. 44 mechanisms:
+  <span style="color:var(--have)">16 present</span>, <span style="color:var(--partial)">11 partial</span>,
+  <span style="color:var(--missing)">17 missing</span>.</p>
 </header>
 
 <div class="tldr">
-  <b>The truth, after verification.</b> darkrun ported the predecessor's <b>shape</b> (three tracks, phase machine,
-  checkpoints, iterations, stamps, surface proof) and — correcting the first draft — more of its <b>safety layer</b>
-  than I credited: a full 8-hook agent guard suite, a cursor-level <b>deadlock/churn halt</b>, per-path drift
-  idempotency, and a drift-witness log. What's still genuinely absent is the <b>witness-based drift immune system</b>
-  (premise/input drift, restamp-on-detect, verifier nonce, integrity checksum, dispatch-lease recovery, fix-chain
-  isolation), the <b>quality-gate execution engine</b>, and — the cluster that started this — records that carry the
-  <b>story</b> (an iteration has no "why", feedback no origin or closure reply).
+  <b>State of play.</b> Cluster A (records carry the story) is fully closed; B/C/D/E have their highest-value gaps closed
+  and committed. The genuine debt left is the <b>quality-gate execution engine (D1)</b> — close it first — then the
+  content-model expressiveness pass (E), then the large refactors (B9 fix-chain worktrees, C1 multi-signal elaborate).
+  A handful of lines are <b>deliberate design differences</b>, not gaps (the fixed six stations, revert-self-heal over
+  auto-restamp, hooks over an FSM checksum) — keep them unless you decide otherwise.
 </div>
 
 <div class="scorerow">
@@ -103,74 +106,55 @@
   <div class="score m"><div class="n">17</div><div class="l">missing</div></div>
 </div>
 
-<div class="corr" style="border-color:#1c3a25">
-  <h3>closed this session (committed, each tested)</h3>
-  <ul>
-    <li><b>Cluster A — fully closed.</b> Iterations carry a handoff note + completed_at; pass/active-worker derived from the array; <span class="code">darkrun_unit_iterate</span> records a beat and the next dispatch shows the prior handoff. Feedback gained origin, closure_reply, and invalidates (a close re-opens the stamps it undercut). Append-only <span class="code">action-log.jsonl</span>.</li>
-    <li><b>Cluster B</b> — B1 input/premise drift (witness + check declared inputs, <span class="code">DriftKind::Input</span>), B3 per-premise dedup, B4 cascade breaker.</li>
-    <li><b>Cluster C</b> — C3 severity-ordered feedback (questions preempt; blocker before nit; no starvation).</li>
-    <li><b>Cluster D</b> — D2 output-existence gate, D3 input-shape gate.</li>
-  </ul>
-</div>
-
-<div class="corr">
-  <h3>corrections from the first draft (darkrun has more than I credited)</h3>
-  <ul>
-    <li><b>B8 deadlock/churn halt → HAVE.</b> <span class="code">deadlock.rs</span> is a real cursor-level detector (HALT_THRESHOLD=4, A↔B churn window=10, persisted to <span class="code">deadlock.json</span>), on top of the per-unit MAX_PASSES=8 guard.</li>
-    <li><b>F1 guard-workflow-fields → HAVE</b>, and the hook suite is full: <span class="code">hooks.json</span> wires 8 hooks (guard-workflow-fields, prompt-guard, workflow-guard, stamp-agent-write, context-monitor, redirect-plan-mode, inject-state-file, edit-auto-read-hint).</li>
-    <li><b>F3 stamp-agent-write → HAVE.</b> PostToolUse hook appends every agent Write/Edit to <span class="code">drift-witness.log</span>, which the drift track reads.</li>
-    <li><b>B2/B3 drift → PARTIAL, not missing.</b> Re-witness exists via the explicit <span class="code">accept()</span> tool; <span class="code">drift_id_for(path)</span> makes filing idempotent per artifact path.</li>
-    <li><b>F5 presence → PARTIAL.</b> The WS layer tracks live connections + a heartbeat endpoint; what's missing is grace windows and reattach precedence.</li>
-  </ul>
-</div>
-
-<div class="corr" style="border-color:var(--accent-dim)">
-  <h3 style="color:var(--accent)">recommendation — what to do next, in order</h3>
-  <ul>
-    <li><b>1. D1 — quality-gate execution. Do this first.</b> Highest-value open item: a "passed Audit" isn't backed by executed tests, so the Build→Prove guarantee leaks. Shape that fits darkrun (the agent runs commands; the engine records + enforces): a <span class="code">darkrun_quality_gate_record</span> tool stamping a <span class="code">quality_gates</span> result, and an Audit gate that <b>requires</b> it before the checkpoint when gates are declared — with env-blocked classification + defer-to-CI so an unrunnable gate can't wedge. Unlocks B5 (verifier nonce) and D4 (coverage).</li>
-    <li><b>2. The content-model pass — E2–E7, one batch.</b> Each is a frontmatter field + a small dispatch/prompt behavior (interpretation lens/strict, role plan/build/verify reject-routing, run_quality_gates, structured inputs, applies_to, compound gates). Low-risk, additive, the next coherent slice.</li>
-    <li><b>3. C4/C5 — run-level review + mode shaping.</b> The content already declares run reviewers/reflections; wire a run-level gate into the walk. Moderate.</li>
-    <li><b>4. The large refactors last — B9 (fix-chain worktree isolation) and C1 (multi-signal elaborate loop).</b> Bank the cheap wins first; C1 was the predecessor's own hardest refactor.</li>
-    <li><b>5. Confirm the DELIBERATE calls.</b> B2 (revert-self-heal over auto-restamp), B6 (hooks over FSM checksum), C2 (the fixed six stations), D5/C6 (hosting integration) are kept on purpose. Disagree with any? That's a design decision to make before it becomes work.</li>
-  </ul>
-  <p style="margin-top:10px;color:var(--text)"><b>Through-line:</b> close the correctness gaps (D1) before the expressiveness ones (E), and the cheap wins before the large refactors (B9/C1).</p>
-</div>
-
 <div class="legend">
-  <span><i class="dot d-have"></i> darkrun has it</span>
-  <span><i class="dot d-partial"></i> partial / field exists, not fully wired</span>
+  <span><i class="dot d-have"></i> present</span>
+  <span><i class="dot d-partial"></i> partial</span>
   <span><i class="dot d-missing"></i> missing</span>
   <span class="sev">★★★ correctness/durability · ★★ behavior · ★ expressiveness</span>
+</div>
+<div class="reclegend">
+  <span><span class="k k-done">done</span> closed this session</span>
+  <span><span class="k k-do">do</span> build next (ordered)</span>
+  <span><span class="k k-keep">keep</span> deliberate design — don't build</span>
+  <span><span class="k k-defer">defer</span> worth building, later</span>
+  <span><span class="k k-skip">skip</span> honestly, probably never — only if X</span>
 </div>
 
 <!-- A -->
 <section>
   <div class="clab"><span class="tag">A</span><h2>Records carry verdicts, not stories</h2><span class="stars">★★★</span></div>
-  <p class="csub">Where this conversation started. Verified: the engine logs <em>what</em>, never <em>why</em> — and feedback is bare.</p>
+  <p class="csub">Where this started — now fully closed.</p>
   <table>
-    <thead><tr><th class="gap">Gap</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Gap</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
       <tr><td class="gap">Iteration handoff / reason</td>
-          <td class="pred"><span class="code">iteration.reason</span> + <span class="code">message</span>; <span class="code">renderPriorHandoff()</span> threads it to the next worker</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote"><span class="code">UnitIteration</span> = worker/started_at/result/pass only; nothing threads prior text into the next dispatch<span class="ev">domain.rs:364-377</span></span></td></tr>
+          <td class="pred"><span class="code">reason</span>+<span class="code">message</span> threaded to next worker</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">UnitIteration.note</span>; threaded into the next dispatch as a "handoff" block<span class="ev">domain.rs · units.rs · manufacture.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped. Next worker, operator, and reflection all read the why.</td></tr>
       <tr><td class="gap">Iteration <span class="code">completed_at</span></td>
           <td class="pred">stamped at terminal result</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no completion stamp on the iteration<span class="ev">domain.rs:364-377</span></span></td></tr>
-      <tr><td class="gap">pass / worker derived, not stored</td>
-          <td class="pred">bolt = <span class="code">iterations.length</span>; hat = <span class="code">iterations[-1]</span></td>
-          <td class="dr"><span class="pill partial">redundant</span><span class="drnote">both stored on the unit and never derived → dual source of truth<span class="ev">domain.rs:405-410</span></span></td></tr>
-      <tr><td class="gap">Feedback <span class="code">origin</span> taxonomy</td>
-          <td class="pred">12 origins (drift, adversarial-review, discovery, user-chat, …)</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote"><span class="code">Feedback</span> has id/run/station/status/severity/body/created_at — no origin<span class="ev">domain.rs:619-637</span></span></td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">stamped by <span class="code">record_iteration</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap">pass / worker derived</td>
+          <td class="pred">bolt = iterations.length</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">Unit::pass()</span> derives from the array; stored field removed</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — single source of truth, your call.</td></tr>
+      <tr><td class="gap">Feedback <span class="code">origin</span></td>
+          <td class="pred">12 origins</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">8-variant <span class="code">FeedbackOrigin</span> on create</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap">Feedback <span class="code">closure_reply</span></td>
-          <td class="pred">what the fixer did, surfaced to requester</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">reject appends to body; no structured reply field<span class="ev">feedback.rs:236</span></span></td></tr>
-      <tr><td class="gap">Feedback <span class="code">targets.invalidates</span></td>
-          <td class="pred">which approval roles clear on close</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no targets field; no invalidation logic anywhere<span class="ev">domain.rs:619-637 · feedback.rs</span></span></td></tr>
+          <td class="pred">what the fixer did</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">recorded on close, surfaced to requester</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap">Feedback <span class="code">invalidates</span></td>
+          <td class="pred">roles cleared on close</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">close_with_reply</span> re-opens the stamps the finding undercut</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — a close re-fires the gate.</td></tr>
       <tr><td class="gap">Audit journals</td>
-          <td class="pred"><span class="code">action-log.jsonl</span> + <span class="code">write-audit.jsonl</span> + <span class="code">decisions.jsonl</span></td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no persisted journal (drift-witness.log is the only append log — see F3)</span></td></tr>
+          <td class="pred">action-log / write-audit / decisions .jsonl</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">append-only <span class="code">action-log.jsonl</span> per run</span></td>
+          <td class="rec"><span class="k k-done">done</span>Action log shipped. A per-stage <span class="code">decisions.jsonl</span> is optional polish later.</td></tr>
     </tbody>
   </table>
 </section>
@@ -178,37 +162,45 @@
 <!-- B -->
 <section>
   <div class="clab"><span class="tag">B</span><h2>The self-healing immune system</h2><span class="stars">★★★</span></div>
-  <p class="csub">Verified: darkrun has the halt + idempotency pieces, but not the witness-premise / recovery core.</p>
   <table>
-    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
       <tr><td class="gap">Drift on premises (inputs)</td>
-          <td class="pred">sweeps every witnessed input file + dir inventory</td>
-          <td class="dr"><span class="pill partial">field unused</span><span class="drnote">sweep hashes <span class="code">outputs</span> only; <span class="code">input_witnesses</span> + <span class="code">inputs</span> exist but nothing reads them<span class="ev">drift.rs:62,81-104 · domain.rs:424,450</span></span></td></tr>
-      <tr><td class="gap">Witness restamp on detect</td>
-          <td class="pred">restamps to current SHA before filing, so drift can't re-fire</td>
-          <td class="dr"><span class="pill partial">manual only</span><span class="drnote">re-witness happens via the explicit <span class="code">accept()</span> tool, not auto on detect<span class="ev">drift.rs:106-138</span></span></td></tr>
+          <td class="pred">witnesses input files + dir inventory</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">sweep witnesses + checks declared inputs; <span class="code">DriftKind::Input</span><span class="ev">drift.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap">Restamp on detect</td>
+          <td class="pred">restamp before filing so it can't re-fire</td>
+          <td class="dr"><span class="pill have">by design</span><span class="drnote">re-witness via <span class="code">accept()</span>; revert self-heals</span></td>
+          <td class="rec"><span class="k k-keep">keep</span>Don't build. Auto-restamp would destroy revert-self-heal — darkrun's model is stronger here.</td></tr>
       <tr><td class="gap">Cross-sweep dedup</td>
-          <td class="pred"><span class="code">source_ref: drift:&lt;kind&gt;:&lt;file&gt;:&lt;sha&gt;</span></td>
-          <td class="dr"><span class="pill partial">per-path</span><span class="drnote"><span class="code">drift_id_for(path)</span> is idempotent per artifact, but no kind+sha source_ref dedup<span class="ev">drift.rs:36-42,64</span></span></td></tr>
+          <td class="pred">source_ref dedup</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">per-(unit,input) + per-path drift id is idempotent</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap">Cascade-alarm breaker</td>
-          <td class="pred">stop filing at ≥10 open drift FBs</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">processes one drift/tick but no cap/breaker<span class="ev">position.rs:763</span></span></td></tr>
+          <td class="pred">stop filing at ≥10 open</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">DARKRUN_DRIFT_CASCADE_CAP</span> (default 10)</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap">Verifier nonce</td>
-          <td class="pred">one-time token required by seal tools</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">nonce exists only in OAuth (auth.rs), not engine seal/advance</span></td></tr>
+          <td class="pred">one-time token required by seal</td>
+          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no verifier/seal split to bind a nonce to yet</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Honestly, probably not. The predecessor itself left most seals instruction-gated. Only build if D1's gate proves <em>gameable</em> in practice — don't pre-harden against a cheat we haven't seen.</td></tr>
       <tr><td class="gap">FSM checksum sidecar</td>
-          <td class="pred"><span class="code">.fsm_checksum</span> for hookless tamper detection</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no integrity checksum file</span></td></tr>
+          <td class="pred"><span class="code">.fsm_checksum</span> tamper detect</td>
+          <td class="dr"><span class="pill have">by design</span><span class="drnote">covered by the guard + <span class="code">drift-witness.log</span> hooks</span></td>
+          <td class="rec"><span class="k k-keep">keep</span>Don't build. The hook suite already covers hookless tamper a different way.</td></tr>
       <tr><td class="gap">Dispatch leases + recovery</td>
-          <td class="pred"><span class="code">dispatched_at</span> lease; recover stale/dead dispatches + lost branches</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no in-flight marker → no crash recovery</span></td></tr>
+          <td class="pred"><span class="code">dispatched_at</span> + TTL recovery</td>
+          <td class="dr"><span class="pill partial">backstopped</span><span class="drnote">Pending units auto-re-dispatch; deadlock halt catches the wedge</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Honestly, don't. The deadlock halt + Pending-re-dispatch already recover an abandoned unit; a TTL lease is mechanism for a problem darkrun's model already solves. Revisit only if a real crash leaves a wedge the halt misses.</td></tr>
       <tr><td class="gap">Deadlock / churn halt</td>
-          <td class="pred">same signature ≥4 ticks / A↔B churn → <span class="code">loop_halted</span></td>
-          <td class="dr"><span class="pill have">have</span><span class="drnote">real detector: HALT_THRESHOLD=4, churn window=10, persisted; + per-unit MAX_PASSES=8<span class="ev">deadlock.rs:1-354 · position.rs:369,839</span></span></td></tr>
-      <tr><td class="gap">Fix-chain merge gate + downstream invalidation</td>
-          <td class="pred">fix on isolated branch, merge-gated; revisit clears downstream approvals</td>
-          <td class="dr"><span class="pill partial">no isolation</span><span class="drnote"><span class="code">FixFeedback</span> action exists but no per-fix worktree, no downstream invalidation<span class="ev">position.rs:110-114 · lifecycle.rs:518</span></span></td></tr>
+          <td class="pred">signature/churn → halt</td>
+          <td class="dr"><span class="pill have">present</span><span class="drnote"><span class="code">deadlock.rs</span> (threshold 4, churn 10) + MAX_PASSES</span></td>
+          <td class="rec"><span class="k k-done">done</span>Already present before this session.</td></tr>
+      <tr><td class="gap">Fix-chain isolation + downstream invalidation</td>
+          <td class="pred">isolated branch + revisit clears downstream</td>
+          <td class="dr"><span class="pill partial">half</span><span class="drnote">downstream invalidation via feedback <span class="code">invalidates</span> (A6); no per-fix worktree</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>The valuable half (downstream invalidation) already landed via A6. Per-fix <em>worktree</em> isolation is heavy git plumbing for a conflict darkrun rarely hits — build it only if parallel fixes actually start colliding on disk, not on spec.</td></tr>
     </tbody>
   </table>
 </section>
@@ -216,28 +208,33 @@
 <!-- C -->
 <section>
   <div class="clab"><span class="tag">C</span><h2>Cursor richness</h2><span class="stars">★★</span></div>
-  <p class="csub">Verified: the walk is correct but coarser — mode shapes station roles, but feedback waves and run-scope are thin.</p>
   <table>
-    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
       <tr><td class="gap">Multi-signal elaborate loop</td>
-          <td class="pred">one action lists every unmet signal; agent stacks several per tick</td>
-          <td class="dr"><span class="pill partial">prompt-only</span><span class="drnote">single <span class="code">Spec</span> action; the prompt choreographs elaborate→discover→decompose internally, not as exposed cursor signals<span class="ev">position.rs:63-70 · spec.md</span></span></td></tr>
+          <td class="pred">one action, every unmet signal</td>
+          <td class="dr"><span class="pill partial">prompt-only</span><span class="drnote">Spec prompt choreographs it; not exposed as cursor signals</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Honestly, I'd not port this. It was the predecessor's single hardest refactor and its own GAPS.md admits the payoff was behavioral-only. The Spec prompt already invites concurrent elaborate/discover/decompose — rebuild it as cursor signals only if agents demonstrably serialize when they shouldn't.</td></tr>
       <tr><td class="gap">Optional stations</td>
-          <td class="pred">keep-or-drop on first arrival + <span class="code">dependents[]</span></td>
-          <td class="dr"><span class="pill partial">run-start only</span><span class="drnote">right-size picks a subset at start (quick/bugfix/…); fixed once serialized, no live gate<span class="ev">position.rs:630-652,1726</span></span></td></tr>
-      <tr><td class="gap">Severity-threshold FB waves</td>
-          <td class="pred">open a wave only on a blocker; batch; stuck-reject escalation</td>
-          <td class="dr"><span class="pill missing">first-open</span><span class="drnote">returns the first open feedback; no severity batch, no escalation<span class="ev">position.rs:657-707</span></span></td></tr>
+          <td class="pred">keep-or-drop + dependents</td>
+          <td class="dr"><span class="pill have">by design</span><span class="drnote">fixed six; right-size at run-start</span></td>
+          <td class="rec"><span class="k k-keep">keep</span>Don't build. The fixed six are the point of the orientation refactor.</td></tr>
+      <tr><td class="gap">Severity-threshold feedback</td>
+          <td class="pred">blocker-first, batched, escalation</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">questions preempt; blocker before nit; no starvation<span class="ev">position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Ordering shipped. Batching/escalation can follow if waves get noisy.</td></tr>
       <tr><td class="gap">Intent vs station scope</td>
-          <td class="pred">separate run-level reviews + quality-gate union (deduped)</td>
-          <td class="dr"><span class="pill partial">station-only walk</span><span class="drnote">content declares run reviewers/reflections, but the walk gates per-station only — no run-level review/gate step<span class="ev">position.rs:516-539,543</span></span></td></tr>
+          <td class="pred">run-level reviews + gate union</td>
+          <td class="dr"><span class="pill partial">station-only walk</span><span class="drnote">content declares run reviewers; walk gates per-station</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Wire a run-level review gate into the walk — the roles are already declared. Moderate.</td></tr>
       <tr><td class="gap">Mode-shaped role lists</td>
-          <td class="pred">two levels; autopilot drops per-stage user gate, final intent gate sacred</td>
-          <td class="dr"><span class="pill partial">station level</span><span class="drnote">autopilot trims <span class="code">user</span> from station approvals; no run-level role shaping<span class="ev">derive.rs:528 · position.rs:861</span></span></td></tr>
+          <td class="pred">two levels; final gate sacred</td>
+          <td class="dr"><span class="pill partial">station level</span><span class="drnote">autopilot trims station <span class="code">user</span>; no run-level shaping</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Bundle with the run-level gate (above).</td></tr>
       <tr><td class="gap">Delivery verification</td>
-          <td class="pred">re-audit PR merge state before sealing</td>
-          <td class="dr"><span class="pill missing">hold only</span><span class="drnote"><span class="code">PendingSeal</span> waits on a human decision; no automated PR/merge re-check<span class="ev">position.rs:722-740</span></span></td></tr>
+          <td class="pred">re-audit PR merge before seal</td>
+          <td class="dr"><span class="pill partial">discrete only</span><span class="drnote">discrete gate polls PR merge; PendingSeal otherwise holds</span></td>
+          <td class="rec"><span class="k k-keep">keep</span>Mostly redundant — a non-discrete run has no PR to re-audit. Skip unless a non-discrete delivery path appears.</td></tr>
     </tbody>
   </table>
 </section>
@@ -245,25 +242,29 @@
 <!-- D -->
 <section>
   <div class="clab"><span class="tag">D</span><h2>Gate &amp; proof depth</h2><span class="stars">★★</span></div>
-  <p class="csub">Verified: quality gates are referenced in content but never <em>executed</em> by the engine.</p>
   <table>
-    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
-      <tr><td class="gap">Quality-gate dispatch</td>
-          <td class="pred">runs declared gates at stage + intent scope; env-blocked class; defer-to-CI</td>
-          <td class="dr"><span class="pill missing">never executed</span><span class="drnote">Audit "runs checks" in prose only; no engine logic runs test commands or stamps quality_gates<span class="ev">factory.rs:15-37 · position.rs:87 · domain.rs:443-446</span></span></td></tr>
+      <tr><td class="gap">Quality-gate execution</td>
+          <td class="pred">runs gates, env-class, defer-to-CI</td>
+          <td class="dr"><span class="pill missing">missing</span><span class="drnote">declared in content; engine never runs or records them</span></td>
+          <td class="rec"><span class="k k-do">do · 1st</span><b>Highest value — start here.</b> <span class="code">darkrun_quality_gate_record</span> tool + an Audit gate that requires the stamp when gates are declared, with env-blocked class + defer-to-CI. Unlocks B5 + D4.</td></tr>
       <tr><td class="gap">Output-existence gate</td>
-          <td class="pred">closeout re-validates declared outputs exist; repairs typos</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">units declare <span class="code">outputs</span> but nothing verifies they exist<span class="ev">domain.rs:427</span></span></td></tr>
-      <tr><td class="gap">Unit / input validation gate</td>
-          <td class="pred">rejects inputs declared as unit names instead of file paths</td>
-          <td class="dr"><span class="pill partial">naming/deps only</span><span class="drnote"><span class="code">validate_units</span> catches naming/unresolved-deps/cycles, not the input-path shape check<span class="ev">position.rs:384-422,131-140</span></span></td></tr>
+          <td class="pred">closeout re-validates outputs</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">a declared output not on disk holds at <span class="code">missing_output</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap">Input / unit validation gate</td>
+          <td class="pred">inputs as paths not names</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">input_not_a_path</span> + naming/deps/cycle checks</span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap">Coverage acknowledgement</td>
-          <td class="pred">out-of-scope / covered-by-unit decisions</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no coverage tool or state</span></td></tr>
+          <td class="pred">out-of-scope / covered-by-unit</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Only meaningful if we enforce cross-station input coverage — which isn't planned. Don't build the acknowledgement before the thing it acknowledges exists.</td></tr>
       <tr><td class="gap">Proof upload to PR/MR</td>
-          <td class="pred">durable proof asset attached to the change request</td>
-          <td class="dr"><span class="pill partial">local only</span><span class="drnote"><span class="code">proof_attach</span> writes <span class="code">proof.json</span>; <span class="code">block_matches_surface</span> sanity-checks the block, but no PR upload<span class="ev">proof.rs:174-222 · tools.rs:1672</span></span></td></tr>
+          <td class="pred">durable asset on the change request</td>
+          <td class="dr"><span class="pill partial">local only</span><span class="drnote"><span class="code">proof_attach</span> stores + surface-checks; no PR upload</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Hosting integration — orthogonal to engine correctness. Do when the PR/MR path matures.</td></tr>
     </tbody>
   </table>
 </section>
@@ -271,31 +272,38 @@
 <!-- E -->
 <section>
   <div class="clab"><span class="tag">E</span><h2>Content-model expressiveness</h2><span class="stars">★</span></div>
-  <p class="csub">Verified: the orientation refactor covers rosters/labels/surfaces; behavioral per-role fields are absent.</p>
+  <p class="csub">One coherent batch — recommendation step 2.</p>
   <table>
-    <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
       <tr><td class="gap">Per-role <span class="code">model</span></td>
-          <td class="pred">per-hat override, cascade unit&gt;hat&gt;stage&gt;studio</td>
-          <td class="dr"><span class="pill partial">parsed, unused</span><span class="drnote"><span class="code">RoleFrontmatter.model</span> is read by the loader but not consumed at dispatch<span class="ev">model.rs:121 · loader.rs:277</span></span></td></tr>
-      <tr><td class="gap"><span class="code">interpretation</span> lens / strict</td>
-          <td class="pred">dispute posture in the review prompt</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">role frontmatter is name + model only<span class="ev">model.rs:110-122</span></span></td></tr>
+          <td class="pred">per-hat override, cascade</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">resolved at dispatch (role → factory default)<span class="ev">factory.rs · position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
+      <tr><td class="gap"><span class="code">interpretation</span> lens/strict</td>
+          <td class="pred">dispute posture</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — a frontmatter field injected into the reviewer prompt.</td></tr>
       <tr><td class="gap"><span class="code">role: plan|build|verify</span></td>
-          <td class="pred">rejects bounce to nearest <span class="code">build</span> role</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">a Reject files feedback to Track B; no worker-bounce routing<span class="ev">position.rs:2303-2312</span></span></td></tr>
-      <tr><td class="gap"><span class="code">run_quality_gates</span> per role</td>
-          <td class="pred">hat opts into auto-test-and-reject</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no per-role flag<span class="ev">model.rs:110-122</span></span></td></tr>
-      <tr><td class="gap">Structured cross-station inputs</td>
-          <td class="pred"><span class="code">inputs: [{stage, output}]</span> + <span class="code">review-agents-include</span></td>
-          <td class="dr"><span class="pill partial">flat names</span><span class="drnote"><span class="code">inputs: Vec&lt;String&gt;</span> (e.g. frame.md, spec.md); no include mechanism<span class="ev">model.rs:91</span></span></td></tr>
+          <td class="pred">reject bounces to build</td>
+          <td class="dr"><span class="pill missing">partial</span><span class="drnote">a reject files feedback to Track B; no worker bounce</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — adds reject-routing to the nearest build worker.</td></tr>
+      <tr><td class="gap"><span class="code">run_quality_gates</span></td>
+          <td class="pred">auto-test-and-reject</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — pairs naturally with D1.</td></tr>
+      <tr><td class="gap">Structured inputs</td>
+          <td class="pred"><span class="code">[{stage, output}]</span> + include</td>
+          <td class="dr"><span class="pill partial">flat names</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — structure the input list.</td></tr>
       <tr><td class="gap"><span class="code">applies_to</span> globs</td>
-          <td class="pred">reviewer scoped to matching artifact types</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">reviewers run on every station</span></td></tr>
+          <td class="pred">scope reviewer by artifact</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — conditional reviewer dispatch.</td></tr>
       <tr><td class="gap">Compound gates</td>
-          <td class="pred"><span class="code">review: [external, ask]</span> — user picks</td>
-          <td class="dr"><span class="pill missing">single value</span><span class="drnote"><span class="code">checkpoint</span> is one <span class="code">CheckpointKind</span><span class="ev">model.rs:85</span></span></td></tr>
+          <td class="pred"><span class="code">[external, ask]</span> user picks</td>
+          <td class="dr"><span class="pill missing">single value</span></td>
+          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — checkpoint as a list + a pick at the gate.</td></tr>
     </tbody>
   </table>
 </section>
@@ -303,25 +311,29 @@
 <!-- F -->
 <section>
   <div class="clab"><span class="tag">F</span><h2>Agent-safety &amp; write path</h2><span class="stars">★★</span></div>
-  <p class="csub">Verified — and corrected upward: darkrun's hook suite is real and full.</p>
   <table>
-    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Mechanism</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
-      <tr><td class="gap">guard-workflow-fields (+ hook suite)</td>
-          <td class="pred">block raw Read/Write/Edit on managed files; 8 hooks total</td>
-          <td class="dr"><span class="pill have">have</span><span class="drnote">PreToolUse guard exits(2) with a redirect-to-tool message, suspends during merge; full 8-hook suite wired<span class="ev">plugin/hooks/hooks.json · cli/src/hook.rs:170-206</span></span></td></tr>
+      <tr><td class="gap">guard-workflow-fields (+ suite)</td>
+          <td class="pred">8 hooks; block raw writes</td>
+          <td class="dr"><span class="pill have">present</span><span class="drnote">full 8-hook suite; guard exits(2) + redirects<span class="ev">hooks.json · hook.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Already present.</td></tr>
       <tr><td class="gap">human_write</td>
-          <td class="pred">conversational write: allow/deny-list + symlink guard + audit</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no such tool; HTTP feedback only stamps author="user", no symlink/allow-list write path<span class="ev">http/handlers.rs:381-407</span></span></td></tr>
+          <td class="pred">guarded conversational write</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>No conversational-write flow exists in darkrun today; the guard hook already blocks raw writes. Build only if/when a "save this to knowledge/ for me" UX appears.</td></tr>
       <tr><td class="gap">record / stamp agent-write</td>
-          <td class="pred">attribute agent edits into the action-log</td>
-          <td class="dr"><span class="pill have">have</span><span class="drnote">PostToolUse hook appends every Write/Edit to <span class="code">drift-witness.log</span>, read by the drift track<span class="ev">cli/src/hook.rs:393-431</span></span></td></tr>
+          <td class="pred">attribute edits to a log</td>
+          <td class="dr"><span class="pill have">present</span><span class="drnote">PostToolUse hook → <span class="code">drift-witness.log</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Already present.</td></tr>
       <tr><td class="gap">review_stamp</td>
-          <td class="pred">subagent closes its role <em>without</em> walking the cursor</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">reviews resolve only via <span class="code">checkpoint_decide</span> → full tick; no parallel-safe self-stamp<span class="ev">tools.rs:1049 · position.rs</span></span></td></tr>
-      <tr><td class="gap">Session presence / heartbeat</td>
-          <td class="pred">attached-then-lost + never-attached grace; reattach precedence</td>
-          <td class="dr"><span class="pill partial">presence only</span><span class="drnote">live-connection count + heartbeat endpoint; no grace window, no reattach precedence<span class="ev">http/state.rs:130-177 · http/ws.rs:36-102</span></span></td></tr>
+          <td class="pred">subagent self-stamp, no cursor walk</td>
+          <td class="dr"><span class="pill missing">missing</span><span class="drnote">reviews close via <span class="code">checkpoint_decide</span> → full tick</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>darkrun doesn't fan reviewers out in parallel today, so the loop-guard problem this solves doesn't exist. Build it the day we parallelize review waves — not before.</td></tr>
+      <tr><td class="gap">Session presence grace</td>
+          <td class="pred">attached/never-attached grace</td>
+          <td class="dr"><span class="pill partial">presence only</span><span class="drnote">live count + heartbeat; no grace/reattach</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Pure polish for a remote-review path that isn't here. Local desktop review works without grace windows. Defer until remote review is real.</td></tr>
     </tbody>
   </table>
 </section>
@@ -330,49 +342,52 @@
 <section>
   <div class="clab"><span class="tag">G</span><h2>Lifecycle &amp; state extras</h2><span class="stars">★</span></div>
   <table>
-    <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — verified</th></tr></thead>
+    <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
       <tr><td class="gap">plugin_version + migration</td>
-          <td class="pred">immutable version stamp; <span class="code">migrated:true</span> markers</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no version field on Run/RunFrontmatter; no migration logic<span class="ev">domain.rs:286-323 · state.rs:38-79</span></span></td></tr>
+          <td class="pred">version stamp + migrators</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Cheap + worth stamping early (before more on-disk shapes ship); migrators later.</td></tr>
       <tr><td class="gap">external_refs</td>
-          <td class="pred">ticket / PR / design handles on intent + unit</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">only internal <span class="code">Station.pr_ref</span><span class="ev">domain.rs:286-323,392-451</span></span></td></tr>
+          <td class="pred">ticket/PR/design handles</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Additive field — add when integrations land.</td></tr>
       <tr><td class="gap">clarifications</td>
-          <td class="pred">stage-keyed Q&amp;A answers</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no Q&amp;A store; sessions are ephemeral<span class="ev">state.rs:15-17</span></span></td></tr>
+          <td class="pred">stage-keyed Q&amp;A</td>
+          <td class="dr"><span class="pill missing">missing</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>darkrun's elaborate phase already captures clarifications in the run doc / annotations. A separate stage-keyed Q&amp;A store is redundant.</td></tr>
       <tr><td class="gap">Draft-PR lifecycle</td>
-          <td class="pred"><span class="code">draft_pr_status</span> draft→ready→merged + ready_at</td>
-          <td class="dr"><span class="pill partial">ref only</span><span class="drnote"><span class="code">Station.pr_ref</span> is the bare ref; no status lifecycle or ready_at<span class="ev">domain.rs:572</span></span></td></tr>
+          <td class="pred">status draft→ready→merged</td>
+          <td class="dr"><span class="pill partial">ref only</span><span class="drnote"><span class="code">Station.pr_ref</span>, no status</span></td>
+          <td class="rec"><span class="k k-defer">defer</span>Extend <span class="code">pr_ref</span> with a status field when the discrete path matures.</td></tr>
       <tr><td class="gap">Persisted session metadata</td>
-          <td class="pred">survives process restart</td>
-          <td class="dr"><span class="pill missing">in-memory</span><span class="drnote">registry explicitly never persisted<span class="ev">core state.rs:15-17 · http/state.rs:1-10</span></span></td></tr>
+          <td class="pred">survives restart</td>
+          <td class="dr"><span class="pill missing">in-memory</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Sessions are deliberately in-memory so the live WS stays cheap; the run state on disk is the durable truth. Persisting sessions buys little. Skip unless restart-survival is explicitly required.</td></tr>
     </tbody>
   </table>
 </section>
 
 <div class="matter">
-  <h3>what this verified picture says</h3>
-  <p><b>darkrun is further along on safety than the first draft implied</b> — the hook guard suite, agent-write
-  stamping, deadlock/churn halt, and per-path drift idempotency are all real and load-bearing.</p>
-  <p><b>The genuine debt clusters into three things.</b> (1) Cluster A — records hold verdicts, not stories; cheap to
-  close and the highest daily value. (2) The witness-premise half of cluster B — input drift, restamp-on-detect,
-  verifier nonce, integrity checksum, dispatch-lease recovery, fix-chain isolation — the parts that keep a long
-  autonomous run from silently corrupting. (3) Cluster D — quality gates are declared in content but the engine never
-  runs them, so a "passed Audit" today isn't backed by executed tests.</p>
-  <p>Suggested order still holds: <b>A</b> → witness/recovery half of <b>B</b> → <b>D</b> → <b>C</b> → <b>E/F/G</b>.</p>
-  <p><b>Every remaining line now has an explicit disposition</b> — CLOSED (committed),
-  DELIBERATE (darkrun chose a different design on purpose), or DEFERRED (scoped, with
-  why-not-yet) — in the companion <span class="code">engine-parity-gaps.md</span>. Highlights:
-  the big deferred items are D1 (quality-gate execution), B9 (fix-chain worktree isolation),
-  and C1 (multi-signal elaborate loop); the deliberate non-gaps are B2 (revert-self-heal beats
-  auto-restamp), B6 (hooks cover hookless tamper), and C2 (the fixed six stations are the point).</p>
+  <h3>the recommendation, honestly</h3>
+  <p><b>There are only three things I'd actually build:</b> D1 (quality-gate execution) first — it's the one real
+  correctness gap left; then the content-model batch (E2–E7); then the run-level review wiring (C4/C5). After that the
+  ledger is, in my honest read, <em>done enough</em>.</p>
+  <p><b>What I'd argue against building</b> (the <span class="k k-skip">skip</span> rows): C1 multi-signal elaborate,
+  B5 verifier nonce, B7 dispatch leases, B9 fix-chain worktrees, D4 coverage ack, F2 human_write, F4 review_stamp,
+  F5 presence grace, G3 clarifications, G5 persisted sessions. Each solves a problem darkrun either doesn't have or
+  solves another way — porting them just because the predecessor had them would be cargo-culting. Build any only when
+  its triggering condition actually shows up (named in each row).</p>
+  <p><b>Deliberate design differences</b> (the <span class="k k-keep">keep</span> rows) aren't work at all — the fixed
+  six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum. Flip one only to change the design.
+  A few small <span class="k k-defer">defer</span> items (plugin_version stamp, external_refs, draft-PR status, proof
+  upload) are worth doing whenever their integration lands — not urgent. Full per-line detail + commit refs in the
+  companion <span class="code">engine-parity-gaps.md</span>.</p>
 </div>
 
 <footer>
-  darkrun engine parity audit · 44 mechanisms · verified against darkrun source (7 cluster passes) ·
-  predecessor read across 7 subsystems + its own GAPS/REVIEW/DRIFT-CLEANUP docs ·
-  companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
+  darkrun engine parity audit · 44 mechanisms · verified against darkrun source · 15 closed this session (clusters A–E) ·
+  every remaining line dispositioned with a recommendation · companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
 </footer>
 
 </div>
