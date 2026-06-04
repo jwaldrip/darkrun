@@ -9,7 +9,8 @@ is honesty about the gap, not a to-do list yet.
 > name into darkrun code, content, or output.
 
 **Verified tally — 44 mechanisms. Start of work: 3 present · 15 partial · 26 missing.
-After this session's burn-down: 16 present · 11 partial · 17 missing.**
+After this session's burn-down: 18 present · 11 partial · 15 missing.** (A fully;
+B1/B3/B4; C3; D1/D2/D3; E1/E2.)
 
 ## Closed this session (committed to main, each tested)
 
@@ -33,22 +34,19 @@ all of G. A few are deliberate design differences rather than gaps — see notes
 
 ## Recommendation — honest
 
-### Build (the only three I'd actually do)
+### Build
 
-1. **D1 — quality-gate execution. First.** The one real correctness gap left:
-   today a "passed Audit" isn't backed by executed tests, so the Build→Prove
-   guarantee leaks. Shape that fits darkrun (the agent runs commands; the engine
-   records + enforces): a `darkrun_quality_gate_record` tool stamping a
-   `quality_gates` result, and an Audit gate that **requires** it before the
-   checkpoint when gates are declared — with env-blocked classification + a
-   defer-to-CI escape so an unrunnable gate can't wedge.
-2. **The content-model batch — E2–E7.** One coherent, low-risk slice:
-   `interpretation` (lens/strict), `role: plan|build|verify` reject-routing,
-   `run_quality_gates`, structured `inputs`, `applies_to`, compound gates.
-3. **C4/C5 — run-level review + mode shaping.** The roles are already declared;
-   wire a run-level review gate into the walk. Moderate.
+- ✅ **D1 — quality-gate execution. DONE.** Unit declares `quality_gates`;
+  `darkrun_quality_gate_record` stamps results; Audit holds on `gates_unmet`;
+  env-block auto-defers to CI. A "passed Audit" is now backed by recorded gates.
+- ✅ **E2 — reviewer interpretation (lens/strict). DONE.**
+- **Remaining content batch — E4 `run_quality_gates`, E5 structured inputs,
+  E6 `applies_to`, plus E3 (reject-routing to a build worker) and E7 (compound
+  gates) — the last two need a small cursor change.** Low-to-moderate risk.
+- **C4/C5 — run-level review + mode shaping.** The roles are already declared;
+  wire a run-level review gate into the walk. Moderate.
 
-After those three, the ledger is — in my honest read — **done enough**.
+After those, the ledger is — in my honest read — **done enough**.
 
 ### Don't build (skip — cargo-culting the predecessor)
 

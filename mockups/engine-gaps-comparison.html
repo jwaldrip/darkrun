@@ -101,9 +101,9 @@
 </div>
 
 <div class="scorerow">
-  <div class="score h"><div class="n">16</div><div class="l">present</div></div>
+  <div class="score h"><div class="n">18</div><div class="l">present</div></div>
   <div class="score p"><div class="n">11</div><div class="l">partial</div></div>
-  <div class="score m"><div class="n">17</div><div class="l">missing</div></div>
+  <div class="score m"><div class="n">15</div><div class="l">missing</div></div>
 </div>
 
 <div class="legend">
@@ -247,8 +247,8 @@
     <tbody>
       <tr><td class="gap">Quality-gate execution</td>
           <td class="pred">runs gates, env-class, defer-to-CI</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">declared in content; engine never runs or records them</span></td>
-          <td class="rec"><span class="k k-do">do · 1st</span><b>Highest value — start here.</b> <span class="code">darkrun_quality_gate_record</span> tool + an Audit gate that requires the stamp when gates are declared, with env-blocked class + defer-to-CI. Unlocks B5 + D4.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">unit declares <span class="code">quality_gates</span>; <span class="code">darkrun_quality_gate_record</span> stamps results; Audit holds on <span class="code">gates_unmet</span>; env-block auto-defers to CI<span class="ev">domain.rs · units.rs · position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — a "passed Audit" is now backed by recorded gate results, with the defer-to-CI escape.</td></tr>
       <tr><td class="gap">Output-existence gate</td>
           <td class="pred">closeout re-validates outputs</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote">a declared output not on disk holds at <span class="code">missing_output</span></span></td>
@@ -282,8 +282,8 @@
           <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap"><span class="code">interpretation</span> lens/strict</td>
           <td class="pred">dispute posture</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — a frontmatter field injected into the reviewer prompt.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">interpretation: lens|strict</span> resolved per-reviewer; framed in the Review prompt<span class="ev">model.rs · factory.rs · review.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — build's <span class="code">correctness</span> reviewer is now strict.</td></tr>
       <tr><td class="gap"><span class="code">role: plan|build|verify</span></td>
           <td class="pred">reject bounces to build</td>
           <td class="dr"><span class="pill missing">partial</span><span class="drnote">a reject files feedback to Track B; no worker bounce</span></td>
@@ -370,9 +370,10 @@
 
 <div class="matter">
   <h3>the recommendation, honestly</h3>
-  <p><b>There are only three things I'd actually build:</b> D1 (quality-gate execution) first — it's the one real
-  correctness gap left; then the content-model batch (E2–E7); then the run-level review wiring (C4/C5). After that the
-  ledger is, in my honest read, <em>done enough</em>.</p>
+  <p><b>Update:</b> D1 (quality-gate execution) and E2 (reviewer interpretation) are now <span class="k k-done">done</span>.
+  What's left worth building: the rest of the content-model batch — E4 (run_quality_gates), E5 (structured inputs),
+  E6 (applies_to), and the two that need a small cursor change, E3 (reject-routing to a build worker) and E7 (compound
+  gates) — then the run-level review wiring (C4/C5). After that the ledger is, in my honest read, <em>done enough</em>.</p>
   <p><b>What I'd argue against building</b> (the <span class="k k-skip">skip</span> rows): C1 multi-signal elaborate,
   B5 verifier nonce, B7 dispatch leases, B9 fix-chain worktrees, D4 coverage ack, F2 human_write, F4 review_stamp,
   F5 presence grace, G3 clarifications, G5 persisted sessions. Each solves a problem darkrun either doesn't have or
