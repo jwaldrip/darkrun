@@ -19,6 +19,15 @@ Dispatch the **{{ worker }}** beat in parallel across these wave-ready Units:
 No Units are wave-ready this tick. The previous wave's dependents are still blocked, or work is mid-flight.
 {% endif %}
 
+{% if handoffs %}
+## Handoff from the prior beat — read before you act
+
+Each line is the last worker's own account of what it did, or why it bounced this Unit back. This is the baton: act on it, don't re-derive it.
+{% for h in handoffs %}
+- `{{ h.unit }}` — **{{ h.worker }}** ({{ h.result }}): {{ h.note }}
+{% endfor %}
+{% endif %}
+
 ## The Pass loop — make → challenge → resolve
 
 The Pass loop is adversarial on purpose: a single confident pass is exactly where LLM output is most often confidently wrong, so a second pass red-teams the first before anything locks.
@@ -27,7 +36,7 @@ The Pass loop is adversarial on purpose: a single confident pass is exactly wher
 - **challenge** — a second pass attacks what make produced: edge cases, missing handling, lazy assumptions. Assume the first pass was optimistic.
 - **resolve** — reconcile make and challenge into a Unit that satisfies its completion criteria with the challenges answered.
 
-Run **only the `{{ worker }}` beat** this tick. When it returns, call `darkrun_tick`; the manager advances the loop or releases the next wave. A Unit is locked only after Resolve and its completion criteria pass.
+Run **only the `{{ worker }}` beat** this tick. When the beat finishes, **record it** with `darkrun_unit_iterate` — pass the `worker`, the `result` (`advance` or `reject`), and a `note`: on advance, what you did and what the next worker needs to know; on reject, why you bounced it (a reject without a reason is refused). That note becomes the next beat's handoff above. Then call `darkrun_tick`; the manager advances the loop or releases the next wave. A Unit is locked only after Resolve and its completion criteria pass.
 
 A Unit gets a **bounded pass budget** — the manager escalates a Unit that can't converge within it to the operator rather than grinding forever. Don't paper over a stuck Unit to dodge the escalation; a Unit that needs more passes than the budget allows is a signal the spec, the scope, or the approach is wrong, and that's the operator's call to make.
 

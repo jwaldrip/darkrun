@@ -321,6 +321,30 @@ pub struct UnitUpdateInput {
     pub outputs: Option<Vec<String>>,
 }
 
+/// Input for `darkrun_unit_iterate` — record one Pass beat (Make/Challenge/Resolve).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct UnitIterateInput {
+    /// The run slug.
+    pub slug: String,
+    /// The unit slug.
+    pub unit: String,
+    /// The worker that ran this beat (e.g. `make`, `challenge`, `resolve`).
+    pub worker: String,
+    /// The outcome: `advance` (move forward) or `reject` (bounce back).
+    pub result: String,
+    /// The handoff note — REQUIRED on reject, expected on advance. On advance:
+    /// what you did and what the next worker should know. On reject: why you
+    /// bounced. This is threaded into the next worker's dispatch.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// The worker to dispatch next: the following worker on advance, or the
+    /// bounce target (nearest build worker) on reject. Optional — defaults to
+    /// leaving the assignment unchanged.
+    #[serde(default)]
+    pub next_worker: Option<String>,
+}
+
 /// Input for `darkrun_feedback_create`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -1123,6 +1147,42 @@ impl DarkrunServer {
             outputs: input.outputs.clone(),
         };
         match units::update(&store, &input.slug, &input.unit, upd) {
+            Ok(unit) => ok_json(&unit),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Record one Pass beat on a unit: the worker, its advance/reject result,
+    /// and the **handoff note** that carries the story to the next worker.
+    #[tool(
+        name = "darkrun_unit_iterate",
+        description = "Record one Pass beat (Make/Challenge/Resolve): worker + result (advance|reject) + a handoff note (required on reject). The note is threaded into the next worker's dispatch and surfaced to the operator and reflection. Pass count is derived from the iteration history."
+    )]
+    pub fn darkrun_unit_iterate(
+        &self,
+        Parameters(input): Parameters<UnitIterateInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let result = match input.result.trim().to_ascii_lowercase().as_str() {
+            "advance" => darkrun_core::domain::IterationResult::Advance,
+            "reject" => darkrun_core::domain::IterationResult::Reject,
+            other => return Ok(err_text(format!("invalid result `{other}` (want advance|reject)"))),
+        };
+        // A reject without a reason is exactly the story-loss this records against.
+        if matches!(result, darkrun_core::domain::IterationResult::Reject)
+            && input.note.as_deref().map(str::trim).unwrap_or("").is_empty()
+        {
+            return Ok(err_text("a reject must carry a note explaining why it bounced"));
+        }
+        let store = self.store();
+        match units::record_iteration(
+            &store,
+            &input.slug,
+            &input.unit,
+            &input.worker,
+            result,
+            input.note.clone(),
+            input.next_worker.clone(),
+        ) {
             Ok(unit) => ok_json(&unit),
             Err(e) => Ok(err_text(e)),
         }
@@ -2043,7 +2103,11 @@ mod tests {
         assert!(!adapted.iter().any(|t| t.name == "darkrun_direction_result"));
         // Non-visual tools survive.
         assert!(adapted.iter().any(|t| t.name == "darkrun_tick"));
-        assert_eq!(adapted.len(), all.len() - VISUAL_TOOL_NAMES.len());
+        // Visual tools are dropped; the remainder is then clamped to Cursor's
+        // tool budget (the truncation path is covered by its own test).
+        let after_visual = all.len() - VISUAL_TOOL_NAMES.len();
+        let want = caps.max_tools.map_or(after_visual, |cap| after_visual.min(cap));
+        assert_eq!(adapted.len(), want);
     }
 
     #[test]

@@ -184,7 +184,7 @@ mod tests {
 
         // 4b. Last iteration advanced but NOT on the terminal worker → still Manufacture.
         a.frontmatter.iterations.push(UnitIteration {
-            worker: "make".into(), result: Some(IterationResult::Advance), pass: 0, started_at: None,
+            worker: "make".into(), result: Some(IterationResult::Advance), ..Default::default()
         });
         assert_eq!(
             derive_station_phase(
@@ -195,7 +195,7 @@ mod tests {
 
         // 5. Terminal worker advanced, approval missing → Audit.
         a.frontmatter.iterations.push(UnitIteration {
-            worker: "resolve".into(), result: Some(IterationResult::Advance), pass: 0, started_at: None,
+            worker: "resolve".into(), result: Some(IterationResult::Advance), ..Default::default()
         });
         assert_eq!(
             derive_station_phase(

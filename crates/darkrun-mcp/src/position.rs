@@ -33,8 +33,8 @@
 
 use chrono::Utc;
 use darkrun_core::domain::{
-    Checkpoint, CheckpointKind, CheckpointOutcome, Run, RunFrontmatter, SealKind, Station,
-    StationPhase, Status, Unit,
+    Checkpoint, CheckpointKind, CheckpointOutcome, IterationResult, Run, RunFrontmatter, SealKind,
+    Station, StationPhase, Status, Unit,
 };
 use darkrun_core::{RunState, StateStore};
 use darkrun_git::{Git, GitBackend};
@@ -237,6 +237,21 @@ pub struct TickResult {
 /// template's `{% if %}` guards light up exactly the vars that apply to it —
 /// a `tests` template sees `station`/`units`, a `checkpoint` template also sees
 /// `kind`/`kills`/`locked_artifact`, and so on.
+/// A prior worker's handoff for one unit — the story carried into the next
+/// worker's dispatch: which worker spoke, whether it advanced or rejected, and
+/// what it said.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Handoff {
+    /// The unit the note belongs to.
+    pub unit: String,
+    /// The worker that wrote the note.
+    pub worker: String,
+    /// `advance` or `reject`.
+    pub result: String,
+    /// The worker's note — its handoff or its reason.
+    pub note: String,
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct PromptContext {
     /// The run slug.
@@ -264,6 +279,11 @@ pub struct PromptContext {
     /// The worker beat to dispatch this manufacture tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
+    /// The prior worker's handoff note(s), threaded into this Manufacture
+    /// dispatch so the next worker reads the story — what the last beat did or
+    /// why it bounced — before it acts. Keyed by unit slug, newest note per unit.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub handoffs: Vec<Handoff>,
     /// The open feedback id, for the fix track.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback_id: Option<String>,
@@ -836,7 +856,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
 
     // Runaway Pass loop: a unit past its iteration budget escalates instead of
     // looping forever.
-    if let Some(u) = su_all.iter().find(|u| u.frontmatter.pass > MAX_PASSES) {
+    if let Some(u) = su_all.iter().find(|u| u.pass() > MAX_PASSES) {
         return Ok(Position {
             track: Track::Run,
             action: Some(RunAction::Escalate {
@@ -844,7 +864,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
                 station: station.clone(),
                 reason: format!(
                     "unit `{}` has run {} passes (budget {MAX_PASSES}) — escalating",
-                    u.slug, u.frontmatter.pass
+                    u.slug, u.pass()
                 ),
             }),
         });
@@ -1200,10 +1220,32 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
 
     // Overlay the action-specific fields (these win over station-derived ones).
     match action {
-        RunAction::Manufacture { worker, units, .. } => {
+        RunAction::Manufacture { worker, units: wave, .. } => {
             ctx.worker = Some(worker.clone());
             // The action's wave-ready units are the ones the agent dispatches.
-            ctx.units = units.clone();
+            ctx.units = wave.clone();
+            // Thread each wave unit's most-recent handoff note into the dispatch
+            // so the next worker reads what the last beat did, or why it bounced.
+            ctx.handoffs = store
+                .read_units(slug)
+                .unwrap_or_default()
+                .iter()
+                .filter(|u| wave.contains(&u.slug))
+                .filter_map(|u| {
+                    let last = u.frontmatter.iterations.iter().rev().find(|it| it.note.is_some())?;
+                    Some(Handoff {
+                        unit: u.slug.clone(),
+                        worker: last.worker.clone(),
+                        result: match last.result {
+                            Some(IterationResult::Advance) => "advance",
+                            Some(IterationResult::Reject) => "reject",
+                            None => "in_flight",
+                        }
+                        .to_string(),
+                        note: last.note.clone().unwrap_or_default(),
+                    })
+                })
+                .collect();
         }
         RunAction::Checkpoint { kind, .. } => {
             ctx.kind = Some(*kind);

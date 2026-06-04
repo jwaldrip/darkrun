@@ -91,7 +91,7 @@ fn progress_fingerprint(store: &StateStore, slug: &str) -> String {
         .iter()
         .filter(|u| matches!(u.status(), Status::Completed))
         .count();
-    let pass_sum: u32 = units.iter().map(|u| u.frontmatter.pass).sum();
+    let pass_sum: u32 = units.iter().map(|u| u.pass()).sum();
     let (active, status) = store
         .read_run(slug)
         .map(|r| {

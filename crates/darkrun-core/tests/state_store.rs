@@ -506,12 +506,20 @@ fn unit_roundtrip_empty_deps() {
 }
 
 #[test]
-fn unit_roundtrip_preserves_pass_index() {
+fn unit_pass_is_derived_from_iterations() {
+    use darkrun_core::domain::{IterationResult, UnitIteration};
     let (_t, store) = store();
     let mut u = unit("u", Status::Active, &[]);
-    u.frontmatter.pass = 7;
+    // Pass is no longer stored — it is the count of recorded iterations.
+    for w in ["make", "challenge", "resolve"] {
+        u.frontmatter.iterations.push(UnitIteration {
+            worker: w.into(),
+            result: Some(IterationResult::Advance),
+            ..Default::default()
+        });
+    }
     store.write_unit("r", &u).expect("w");
-    assert_eq!(store.read_unit("r", "u").expect("read").frontmatter.pass, 7);
+    assert_eq!(store.read_unit("r", "u").expect("read").pass(), 3);
 }
 
 #[test]

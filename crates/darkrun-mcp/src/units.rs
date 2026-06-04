@@ -11,7 +11,7 @@
 //! once a unit starts executing.
 
 use chrono::Utc;
-use darkrun_core::domain::{Status, Unit, UnitFrontmatter};
+use darkrun_core::domain::{IterationResult, Status, Unit, UnitFrontmatter, UnitIteration};
 use darkrun_core::StateStore;
 
 use crate::error::{McpError, Result};
@@ -116,6 +116,52 @@ pub fn update(store: &StateStore, run: &str, slug: &str, upd: UnitUpdate) -> Res
         unit.frontmatter.status = status;
     }
 
+    store.write_unit(run, &unit)?;
+    Ok(unit)
+}
+
+/// Record one Pass beat on a unit — append-only. A worker reports whether it
+/// `advance`d or `reject`ed, plus a **note**: its handoff to the next worker on
+/// advance, or its reason on reject. The note is what the next dispatch reads,
+/// and what the operator and the reflection pass see — the loop's story.
+///
+/// On `advance` the assigned `worker` rolls forward to the next worker the
+/// caller names (the engine dispatches it next tick); on `reject` it bounces
+/// back to `bounce_to` (the caller resolves the bounce target — typically the
+/// nearest build worker). The unit's `pass` count is the iteration length, so it
+/// grows by one here automatically.
+pub fn record_iteration(
+    store: &StateStore,
+    run: &str,
+    slug: &str,
+    worker: &str,
+    result: IterationResult,
+    note: Option<String>,
+    next_worker: Option<String>,
+) -> Result<Unit> {
+    if worker.trim().is_empty() {
+        return Err(McpError::InvalidInput("iteration worker must not be empty".into()));
+    }
+    let mut unit = get(store, run, slug)?;
+    let now = Utc::now().to_rfc3339();
+    unit.frontmatter.iterations.push(UnitIteration {
+        worker: worker.to_string(),
+        started_at: Some(now.clone()),
+        completed_at: Some(now.clone()),
+        result: Some(result),
+        note,
+    });
+    // The unit leaves Pending the moment its first beat runs.
+    if matches!(unit.frontmatter.status, Status::Pending) {
+        unit.frontmatter.status = Status::InProgress;
+        if unit.frontmatter.started_at.is_none() {
+            unit.frontmatter.started_at = Some(now);
+        }
+    }
+    // Roll the active-worker assignment forward (advance) or back (reject).
+    if let Some(next) = next_worker {
+        unit.frontmatter.worker = next;
+    }
     store.write_unit(run, &unit)?;
     Ok(unit)
 }
@@ -225,5 +271,42 @@ mod tests {
         let (_d, store) = store1();
         let err = get(&store, "r", "ghost").unwrap_err();
         assert!(matches!(err, McpError::UnitNotFound(_)));
+    }
+
+    #[test]
+    fn record_iteration_appends_note_and_derives_pass() {
+        let (_d, store) = store1();
+        create(&store, "r", "u1", "build", None, vec![]).unwrap();
+        let u = record_iteration(
+            &store, "r", "u1", "make", IterationResult::Advance,
+            Some("drafted; next: stress the burst path".into()),
+            Some("challenge".into()),
+        )
+        .unwrap();
+        assert_eq!(u.pass(), 1);
+        assert_eq!(u.frontmatter.status, Status::InProgress);
+        assert_eq!(u.active_worker(), "challenge");
+        assert_eq!(u.last_note(), Some("drafted; next: stress the burst path"));
+        assert!(u.frontmatter.iterations[0].completed_at.is_some());
+
+        // A reject bounces the assignment back and grows the pass count.
+        let u2 = record_iteration(
+            &store, "r", "u1", "challenge", IterationResult::Reject,
+            Some("burst overflows the bucket — bounce to make".into()),
+            Some("make".into()),
+        )
+        .unwrap();
+        assert_eq!(u2.pass(), 2);
+        assert_eq!(u2.active_worker(), "make");
+        assert_eq!(u2.last_note(), Some("burst overflows the bucket — bounce to make"));
+    }
+
+    #[test]
+    fn record_iteration_rejects_empty_worker() {
+        let (_d, store) = store1();
+        create(&store, "r", "u1", "build", None, vec![]).unwrap();
+        let err = record_iteration(&store, "r", "u1", " ", IterationResult::Advance, None, None)
+            .unwrap_err();
+        assert!(matches!(err, McpError::InvalidInput(_)));
     }
 }

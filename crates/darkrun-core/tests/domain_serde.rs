@@ -1188,8 +1188,15 @@ fn run_schema_references_run_frontmatter_definition() {
 // ===========================================================================
 
 #[test]
-fn unit_frontmatter_default_pass_is_zero() {
-    assert_eq!(UnitFrontmatter::default().pass, 0);
+fn unit_default_pass_is_zero_derived_from_empty_iterations() {
+    use darkrun_core::domain::Unit;
+    let u = Unit {
+        slug: "u".into(),
+        frontmatter: UnitFrontmatter::default(),
+        title: "u".into(),
+        body: String::new(),
+    };
+    assert_eq!(u.pass(), 0);
 }
 
 #[test]
@@ -1260,8 +1267,9 @@ fn unit_frontmatter_always_emits_status() {
 }
 
 #[test]
-fn unit_frontmatter_always_emits_pass() {
-    assert_eq!(obj(&UnitFrontmatter::default())["pass"], 0);
+fn unit_frontmatter_does_not_emit_a_stored_pass() {
+    // `pass` is derived, never serialized.
+    assert!(obj(&UnitFrontmatter::default()).get("pass").is_none());
 }
 
 #[test]
@@ -1317,28 +1325,12 @@ fn unit_frontmatter_depends_on_order_preserved() {
 }
 
 #[test]
-fn unit_frontmatter_pass_boundary_max_u32() {
-    let fm = UnitFrontmatter {
-        pass: u32::MAX,
-        ..Default::default()
-    };
-    assert_eq!(json_round(&fm).pass, u32::MAX);
-}
-
-#[test]
-fn unit_frontmatter_pass_negative_is_an_error() {
-    // pass is u32; a negative value must not deserialize.
-    assert!(serde_json::from_str::<UnitFrontmatter>(r#"{"pass":-1}"#).is_err());
-}
-
-#[test]
 fn unit_frontmatter_full_roundtrip_json() {
     let fm = UnitFrontmatter {
         name: Some("Login".into()),
         unit_type: "feature".into(),
         status: Status::InProgress,
         depends_on: vec!["dep1".into()],
-        pass: 3,
         worker: "builder".into(),
         model: Some("opus".into()),
         station: Some("build".into()),
@@ -1354,7 +1346,6 @@ fn unit_frontmatter_full_roundtrip_json() {
     assert_eq!(back.unit_type, "feature");
     assert_eq!(back.status, Status::InProgress);
     assert_eq!(back.depends_on, vec!["dep1"]);
-    assert_eq!(back.pass, 3);
     assert_eq!(back.worker, "builder");
     assert_eq!(back.model.as_deref(), Some("opus"));
     assert_eq!(back.station.as_deref(), Some("build"));
@@ -1369,21 +1360,18 @@ fn unit_frontmatter_full_roundtrip_yaml() {
     let fm = UnitFrontmatter {
         unit_type: "task".into(),
         status: Status::Completed,
-        pass: 7,
         worker: "challenger".into(),
         ..Default::default()
     };
     let back = yaml_round(&fm);
     assert_eq!(back.unit_type, "task");
     assert_eq!(back.status, Status::Completed);
-    assert_eq!(back.pass, 7);
     assert_eq!(back.worker, "challenger");
 }
 
 #[test]
 fn unit_frontmatter_empty_object_yields_default() {
     let fm: UnitFrontmatter = serde_json::from_str("{}").expect("de");
-    assert_eq!(fm.pass, 0);
     assert_eq!(fm.worker, "");
     assert_eq!(fm.status, Status::Pending);
     assert!(fm.depends_on.is_empty());
@@ -1413,7 +1401,6 @@ fn unit_frontmatter_schema_lists_all_properties() {
         "unit_type",
         "status",
         "depends_on",
-        "pass",
         "worker",
         "model",
         "station",
@@ -1421,9 +1408,11 @@ fn unit_frontmatter_schema_lists_all_properties() {
         "outputs",
         "started_at",
         "completed_at",
+        "iterations",
     ] {
         assert!(props.contains_key(key), "missing property {key}");
     }
+    assert!(!props.contains_key("pass"), "pass is derived, not a schema property");
 }
 
 #[test]
@@ -2479,7 +2468,6 @@ fn double_roundtrip_is_idempotent_for_unit_frontmatter() {
         unit_type: "feature".into(),
         status: Status::InProgress,
         depends_on: vec!["a".into(), "b".into()],
-        pass: 4,
         worker: "builder".into(),
         inputs: vec!["i.md".into()],
         outputs: vec!["o.md".into()],
@@ -2721,12 +2709,20 @@ fn pass_index_one_roundtrips() {
 }
 
 #[test]
-fn unit_frontmatter_pass_large_value_roundtrips() {
+fn unit_iterations_roundtrip_json() {
+    use darkrun_core::domain::{IterationResult, UnitIteration};
     let fm = UnitFrontmatter {
-        pass: 4_000_000_000,
+        iterations: vec![UnitIteration {
+            worker: "make".into(),
+            result: Some(IterationResult::Advance),
+            note: Some("handoff".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     };
-    assert_eq!(json_round(&fm).pass, 4_000_000_000);
+    let back = json_round(&fm);
+    assert_eq!(back.iterations.len(), 1);
+    assert_eq!(back.iterations[0].note.as_deref(), Some("handoff"));
 }
 
 #[test]
@@ -2856,7 +2852,6 @@ fn unit_with_full_frontmatter_yaml_roundtrips() {
             unit_type: "feature".into(),
             status: Status::InProgress,
             depends_on: vec!["db".into()],
-            pass: 2,
             worker: "builder".into(),
             model: Some("opus".into()),
             station: Some("build".into()),
@@ -2871,7 +2866,6 @@ fn unit_with_full_frontmatter_yaml_roundtrips() {
         body: "impl".into(),
     };
     let back = yaml_round(&unit);
-    assert_eq!(back.frontmatter.pass, 2);
     assert_eq!(back.station(), "build");
     assert_eq!(back.status(), Status::InProgress);
 }
@@ -2963,13 +2957,10 @@ fn run_git_bool_properties_typed_as_boolean() {
 }
 
 #[test]
-fn unit_frontmatter_pass_property_typed_as_integer() {
+fn unit_frontmatter_iterations_typed_as_array() {
     let s = schema_value!(UnitFrontmatter);
-    let pass = &s["properties"]["pass"];
-    // schemars renders u32 with an integer type and an unsigned format.
-    assert_eq!(pass["type"], "integer");
-    assert_eq!(pass["format"], "uint32");
-    assert_eq!(pass["minimum"], 0.0);
+    let iters = &s["properties"]["iterations"];
+    assert_eq!(iters["type"], "array");
 }
 
 #[test]

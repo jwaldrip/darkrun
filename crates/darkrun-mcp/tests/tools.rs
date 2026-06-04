@@ -4506,10 +4506,12 @@ fn feedback_create_body_with_newlines_preserved() {
 }
 
 #[test]
-fn unit_create_returns_default_pass_zero() {
+fn unit_create_has_no_iterations_so_pass_is_zero() {
     let (_d, server) = started("r");
     let v = body(&create_unit(&server, "r", "u1", "frame"));
-    assert_eq!(v["frontmatter"]["pass"], 0);
+    // `pass` is derived from the (empty) iteration history, not a stored field.
+    assert!(v["frontmatter"].get("pass").is_none());
+    assert!(v["frontmatter"]["iterations"].as_array().map_or(true, |a| a.is_empty()));
 }
 
 #[test]

@@ -358,8 +358,17 @@ pub enum IterationResult {
     Reject,
 }
 
-/// One recorded Pass iteration on a Unit — the signal the phase derivation reads
-/// to decide whether `Manufacture` is done (the last worker `advance`d).
+/// One recorded Pass iteration on a Unit — an **append-only** beat in the
+/// Make→Challenge→Resolve loop. The iteration array is the single source of
+/// truth: the phase derivation reads it to decide whether `Manufacture` is done
+/// (the last worker `advance`d), and the Pass *number* is derived from the array
+/// length — never stored — so it can never disagree with the record.
+///
+/// Each iteration carries a `note`: the worker's **handoff** on advance ("what I
+/// did, what the next worker should know") or its **reason** on reject ("why I
+/// bounced this back"). That note is threaded into the next worker's dispatch so
+/// the loop carries its own story — for the next worker, the operator, and the
+/// reflection pass.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct UnitIteration {
     /// The worker that ran this iteration.
@@ -368,12 +377,24 @@ pub struct UnitIteration {
     /// RFC3339 start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
+    /// RFC3339 completion (absent = still in flight; stamped on terminal result).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
     /// The iteration's result (absent = still in flight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<IterationResult>,
-    /// The Pass number this iteration belongs to.
-    #[serde(default)]
-    pub pass: u32,
+    /// The worker's handoff message — its rationale. On `advance`, what it did
+    /// and what the next worker should know; on `reject`, why it bounced. Read
+    /// into the next worker's dispatch and surfaced to the operator/reflection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl UnitIteration {
+    /// Whether this iteration has reached a terminal result.
+    pub fn is_complete(&self) -> bool {
+        self.result.is_some()
+    }
 }
 
 /// A review/approval stamp on a Unit — the witness that a role signed off.
@@ -402,10 +423,8 @@ pub struct UnitFrontmatter {
     /// Slugs of units this one depends on.
     #[serde(default)]
     pub depends_on: Vec<String>,
-    /// The current Pass index (was: bolt).
-    #[serde(default)]
-    pub pass: u32,
-    /// The Worker currently assigned (was: hat).
+    /// The Worker currently assigned (was: hat). The *active* worker is derived
+    /// from the last iteration; this is the assignment the next dispatch targets.
     #[serde(default)]
     pub worker: String,
     /// Optional model override.
@@ -472,6 +491,35 @@ impl Unit {
     /// The station this unit belongs to, defaulting to the synthetic root.
     pub fn station(&self) -> &str {
         self.frontmatter.station.as_deref().unwrap_or("_root")
+    }
+
+    /// The Pass number — **derived** from the iteration history, never stored.
+    /// One completed iteration is one beat; the count is the engine's runaway
+    /// signal and the operator-visible "how many passes has this unit taken".
+    pub fn pass(&self) -> u32 {
+        self.frontmatter.iterations.len() as u32
+    }
+
+    /// The worker the next beat will dispatch — the current assignment, which
+    /// `record_iteration` rolls forward on advance and back on reject.
+    pub fn active_worker(&self) -> &str {
+        &self.frontmatter.worker
+    }
+
+    /// The worker that ran the most recent beat (distinct from the *next*
+    /// assignment), if any beat has run.
+    pub fn last_worker(&self) -> Option<&str> {
+        self.frontmatter.iterations.last().map(|it| it.worker.as_str())
+    }
+
+    /// The most recent iteration's handoff note, if any — the story the next
+    /// worker (or the operator) should read before acting.
+    pub fn last_note(&self) -> Option<&str> {
+        self.frontmatter
+            .iterations
+            .iter()
+            .rev()
+            .find_map(|it| it.note.as_deref())
     }
 }
 

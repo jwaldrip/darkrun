@@ -594,19 +594,13 @@ fn parse_timestamps_as_strings() {
 }
 
 #[test]
-fn parse_unit_pass_index_numeric() {
+fn legacy_stored_pass_key_is_ignored() {
+    // `pass` is no longer a stored field — it is derived from the iteration
+    // array. A legacy document carrying `pass:` parses fine and the key is
+    // simply dropped (no field to bind it to).
     let raw = "---\npass: 7\n---\nbody\n";
-    let (fm, _) =
-        frontmatter::parse::<UnitFrontmatter>(raw).expect("parse unit");
-    assert_eq!(fm.pass, 7);
-}
-
-#[test]
-fn parse_unit_negative_pass_errors() {
-    // pass is u32; a negative value cannot deserialize.
-    let raw = "---\npass: -1\n---\nbody\n";
-    let err = frontmatter::parse::<UnitFrontmatter>(raw).unwrap_err();
-    assert!(matches!(err, CoreError::Yaml(_)), "got {err:?}");
+    let (_fm, _) =
+        frontmatter::parse::<UnitFrontmatter>(raw).expect("parse tolerates legacy pass key");
 }
 
 // ===========================================================================
@@ -896,7 +890,6 @@ fn roundtrip_unit_full() {
         unit_type: "feature".into(),
         status: Status::InProgress,
         depends_on: vec!["a".into(), "b".into()],
-        pass: 3,
         worker: "builder".into(),
         model: Some("opus".into()),
         station: Some("frame".into()),
@@ -914,7 +907,6 @@ fn roundtrip_unit_full() {
     assert_eq!(back.unit_type, fm.unit_type);
     assert_eq!(back.status, fm.status);
     assert_eq!(back.depends_on, fm.depends_on);
-    assert_eq!(back.pass, fm.pass);
     assert_eq!(back.worker, fm.worker);
     assert_eq!(back.model, fm.model);
     assert_eq!(back.station, fm.station);
@@ -934,7 +926,7 @@ fn roundtrip_unit_default() {
     assert_eq!(back.unit_type, "");
     assert_eq!(back.status, Status::Pending);
     assert!(back.depends_on.is_empty());
-    assert_eq!(back.pass, 0);
+    assert!(back.iterations.is_empty());
     assert_eq!(back.worker, "");
     assert!(back.model.is_none());
     assert!(back.station.is_none());
@@ -991,15 +983,31 @@ fn roundtrip_unit_each_status() {
 }
 
 #[test]
-fn roundtrip_unit_pass_boundary_values() {
-    for p in [0u32, 1, 255, 65535, u32::MAX] {
-        let mut fm = UnitFrontmatter::default();
-        fm.pass = p;
-        let doc = frontmatter::serialize(&fm, "").expect("ser");
-        let (back, _) =
-            frontmatter::parse::<UnitFrontmatter>(&doc).expect("parse");
-        assert_eq!(back.pass, p, "pass {p}");
-    }
+fn roundtrip_unit_iterations_carry_note_and_completed_at() {
+    use darkrun_core::domain::{IterationResult, UnitIteration};
+    let mut fm = UnitFrontmatter::default();
+    fm.iterations = vec![
+        UnitIteration {
+            worker: "make".into(),
+            started_at: Some("2026-06-02T00:00:00Z".into()),
+            completed_at: Some("2026-06-02T00:05:00Z".into()),
+            result: Some(IterationResult::Advance),
+            note: Some("drafted the limiter; next: stress the burst path".into()),
+        },
+        UnitIteration {
+            worker: "challenge".into(),
+            result: Some(IterationResult::Reject),
+            note: Some("burst path overflows the bucket — bounce to make".into()),
+            ..Default::default()
+        },
+    ];
+    let doc = frontmatter::serialize(&fm, "").expect("ser");
+    let (back, _) = frontmatter::parse::<UnitFrontmatter>(&doc).expect("parse");
+    assert_eq!(back.iterations.len(), 2);
+    assert_eq!(back.iterations[0].completed_at.as_deref(), Some("2026-06-02T00:05:00Z"));
+    assert_eq!(back.iterations[0].note.as_deref(), Some("drafted the limiter; next: stress the burst path"));
+    assert_eq!(back.iterations[1].result, Some(IterationResult::Reject));
+    assert_eq!(back.iterations[1].note.as_deref(), Some("burst path overflows the bucket — bounce to make"));
 }
 
 #[test]
@@ -1039,7 +1047,6 @@ fn roundtrip_unit_idempotent() {
         name: Some("U".into()),
         status: Status::Active,
         depends_on: vec!["a".into()],
-        pass: 2,
         ..Default::default()
     };
     let doc1 = frontmatter::serialize(&fm, "# U\n").expect("ser");
@@ -1984,11 +1991,10 @@ fn parse_unit_model_override() {
 }
 
 #[test]
-fn parse_unit_worker_and_pass() {
-    let raw = "---\nworker: challenger\npass: 5\n---\nbody\n";
+fn parse_unit_worker_assignment() {
+    let raw = "---\nworker: challenger\n---\nbody\n";
     let (fm, _) = frontmatter::parse::<UnitFrontmatter>(raw).expect("parse");
     assert_eq!(fm.worker, "challenger");
-    assert_eq!(fm.pass, 5);
 }
 
 #[test]
