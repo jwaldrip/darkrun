@@ -360,6 +360,25 @@ fn unit_complete(unit: &Unit) -> bool {
     matches!(unit.status(), Status::Completed)
 }
 
+/// Slugs of completed units that declared an output which is **not on disk** —
+/// the unit promised an artifact it never produced. The output-existence gate
+/// holds the station here until the file appears. Paths resolve against the repo
+/// root (the parent of the `.darkrun/` state root).
+fn missing_outputs(store: &StateStore, units: &[Unit]) -> Vec<String> {
+    let root = cascade_repo_root(store);
+    units
+        .iter()
+        .filter(|u| matches!(u.status(), Status::Completed))
+        .filter(|u| {
+            u.frontmatter
+                .outputs
+                .iter()
+                .any(|o| !root.join(o).exists())
+        })
+        .map(|u| u.slug.clone())
+        .collect()
+}
+
 /// Wave-ready units: pending units whose declared dependencies are all
 /// completed. Mirrors `Dag::ready_units` semantics for the station's set.
 fn wave_ready(units: &[Unit]) -> Vec<&Unit> {
@@ -919,10 +938,24 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
                     // is done → move to Audit; otherwise subagents are still in
                     // flight → mid-wave noop.
                     if owned.iter().all(unit_complete) {
-                        RunAction::Audit {
-                            run: slug.to_string(),
-                            station: station.clone(),
-                            reviewers: def.reviewers.clone(),
+                        // Output-existence gate: a unit that locked but never
+                        // produced a declared output can't advance to Audit — the
+                        // artifact it promised isn't on disk. Hold at the station
+                        // until it exists (idempotent: re-derives each tick).
+                        let missing = missing_outputs(store, &owned);
+                        if !missing.is_empty() {
+                            RunAction::UnitsInvalid {
+                                run: slug.to_string(),
+                                station: station.clone(),
+                                problem: "missing_output".to_string(),
+                                units: missing,
+                            }
+                        } else {
+                            RunAction::Audit {
+                                run: slug.to_string(),
+                                station: station.clone(),
+                                reviewers: def.reviewers.clone(),
+                            }
                         }
                     } else {
                         return Ok(Position {
@@ -1997,6 +2030,31 @@ mod tests {
         let dir = tempdir().expect("tmp");
         let store = StateStore::new(dir.path());
         (dir, store)
+    }
+
+    #[test]
+    fn missing_outputs_flags_a_declared_artifact_not_on_disk() {
+        // A store rooted under a repo dir so output paths resolve to real files.
+        let dir = tempdir().expect("tmp");
+        let repo = dir.path().to_path_buf();
+        let store = StateStore::new(&repo);
+
+        let mut produced = Unit {
+            slug: "u-ok".into(),
+            frontmatter: Default::default(),
+            title: "ok".into(),
+            body: String::new(),
+        };
+        produced.frontmatter.status = Status::Completed;
+        produced.frontmatter.outputs = vec!["made.txt".into()];
+        std::fs::write(repo.join("made.txt"), b"x").unwrap();
+
+        let mut promised = produced.clone();
+        promised.slug = "u-missing".into();
+        promised.frontmatter.outputs = vec!["never.txt".into()];
+
+        let missing = missing_outputs(&store, &[produced, promised]);
+        assert_eq!(missing, vec!["u-missing".to_string()]);
     }
 
     #[test]
