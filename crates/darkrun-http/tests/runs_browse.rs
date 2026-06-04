@@ -90,6 +90,7 @@ fn station(name: &str, status: Status, phase: StationPhase, started_at: Option<&
         phase,
         elaborated: false,
         checkpoint: None,
+        chosen_checkpoint: None,
         branch: None,
         pr_ref: None,
         started_at: started_at.map(str::to_string),

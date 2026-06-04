@@ -24,8 +24,11 @@ pub struct StationDef {
     pub kills: String,
     /// The durable artifact the station locks on completion.
     pub artifact: String,
-    /// The checkpoint gate that ends the station.
+    /// The checkpoint gate that ends the station (the default path).
     pub checkpoint: CheckpointKind,
+    /// Alternative gate paths the operator may pick (a compound gate). Empty →
+    /// a single fixed gate.
+    pub checkpoint_options: Vec<CheckpointKind>,
     /// The Explorers dispatched in the Spec phase — they gather context in
     /// **tandem** with the elaboration framing (discovery + elaboration run in
     /// parallel, mirroring the predecessor's `elaborate_loop`), before decompose.
@@ -161,6 +164,7 @@ impl StationDef {
             kills: s.frontmatter.kills.clone(),
             artifact: s.frontmatter.locked_artifact.clone(),
             checkpoint: s.checkpoint(),
+            checkpoint_options: s.frontmatter.checkpoint_options.clone(),
             explorers: s.frontmatter.explorers.clone(),
             workers: s.frontmatter.workers.clone(),
             reviewers: s.frontmatter.reviewers.clone(),
@@ -256,6 +260,15 @@ mod tests {
         assert_eq!(build.role_interpretations.get("correctness").map(String::as_str), Some("strict"));
         // A worker that declares a pass-loop `role:` is captured for reject-routing.
         assert_eq!(build.worker_roles.get("self_reviewer").map(String::as_str), Some("verify"));
+        // shape offers a compound gate (ask default, external alternative).
+        let shape = f.station("shape").unwrap();
+        assert_eq!(shape.checkpoint, CheckpointKind::Ask);
+        assert_eq!(
+            shape.checkpoint_options,
+            vec![CheckpointKind::Ask, CheckpointKind::External]
+        );
+        // A single-gate station carries no options.
+        assert!(f.station("frame").unwrap().checkpoint_options.is_empty());
     }
 
     #[test]

@@ -156,6 +156,21 @@ fn validate_station(factory: &str, station: &Station) -> Result<()> {
         return Err(invalid("declares no locked_artifact".into()));
     }
 
+    // A compound checkpoint must offer at least two distinct paths and include
+    // its own declared default — the operator picks among real alternatives, and
+    // the default is always a valid choice.
+    let opts = &station.frontmatter.checkpoint_options;
+    if !opts.is_empty() {
+        if opts.len() < 2 {
+            return Err(invalid("checkpoint_options must offer at least two paths".into()));
+        }
+        if !opts.contains(&station.frontmatter.checkpoint) {
+            return Err(invalid(
+                "checkpoint_options must include the declared `checkpoint` default".into(),
+            ));
+        }
+    }
+
     // No two declared roles within a kind may share a slug — a duplicate
     // reference is almost always a copy-paste mistake and makes the run loop
     // ambiguous about which definition to apply.
@@ -252,6 +267,7 @@ mod tests {
                 workers: vec!["w1".into(), "w2".into(), "w3".into()],
                 reviewers: vec!["r1".into()],
                 checkpoint: CheckpointKind::Auto,
+            checkpoint_options: vec![],
                 locked_artifact: "out.md".into(),
                 inputs: vec![],
                 inputs_waived: vec![],
@@ -495,6 +511,34 @@ mod tests {
         let mut f = valid_factory();
         f.frontmatter.surfaces = vec!["web_ui".into(), "cli".into(), "data".into()];
         validate(&f).expect("known surfaces validate");
+    }
+
+    // --- compound checkpoint gates ---
+
+    #[test]
+    fn accepts_compound_gate_with_default_included() {
+        let mut f = valid_factory();
+        f.stations[0].frontmatter.checkpoint = CheckpointKind::Ask;
+        f.stations[0].frontmatter.checkpoint_options =
+            vec![CheckpointKind::Ask, CheckpointKind::External];
+        validate(&f).expect("a compound gate listing its default validates");
+    }
+
+    #[test]
+    fn rejects_compound_gate_with_a_single_option() {
+        let mut f = valid_factory();
+        f.stations[0].frontmatter.checkpoint = CheckpointKind::Ask;
+        f.stations[0].frontmatter.checkpoint_options = vec![CheckpointKind::Ask];
+        assert!(message(&f).contains("at least two paths"));
+    }
+
+    #[test]
+    fn rejects_compound_gate_missing_its_default() {
+        let mut f = valid_factory();
+        f.stations[0].frontmatter.checkpoint = CheckpointKind::Auto;
+        f.stations[0].frontmatter.checkpoint_options =
+            vec![CheckpointKind::Ask, CheckpointKind::External];
+        assert!(message(&f).contains("must include the declared `checkpoint` default"));
     }
 
     #[test]

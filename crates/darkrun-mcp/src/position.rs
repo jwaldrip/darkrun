@@ -280,6 +280,10 @@ pub struct PromptContext {
     /// The checkpoint gate kind (`auto`/`ask`/`external`/`await`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<CheckpointKind>,
+    /// The alternative gate paths the operator may pick for a compound
+    /// checkpoint (snake_case tokens). Empty → a single fixed gate.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub checkpoint_options: Vec<String>,
     /// The durable artifact the station locks on completion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locked_artifact: Option<String>,
@@ -697,6 +701,53 @@ pub fn elaborate_seal(store: &StateStore, slug: &str, station: &str) -> Result<(
     Ok(())
 }
 
+/// Record the operator's chosen gate path for a compound checkpoint. The kind
+/// must be one the station offers in `checkpoint_options`. Re-derives nothing;
+/// the next tick routes the checkpoint to the chosen kind.
+pub fn choose_checkpoint(
+    store: &StateStore,
+    slug: &str,
+    station: &str,
+    kind: CheckpointKind,
+) -> Result<()> {
+    let run = store.read_run(slug)?;
+    let factory = resolve_factory_for(store, &run.frontmatter.factory)
+        .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
+    let def = factory
+        .station(station)
+        .ok_or_else(|| McpError::UnknownStation(station.to_string()))?;
+    if !def.checkpoint_options.contains(&kind) {
+        return Err(McpError::InvalidInput(format!(
+            "station `{station}` does not offer the `{}` gate path (offers: {:?})",
+            checkpoint_kind_str(kind),
+            def.checkpoint_options
+        )));
+    }
+    let mut state = store
+        .read_state(slug)?
+        .ok_or_else(|| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
+    match state.stations.get_mut(station) {
+        Some(st) => st.chosen_checkpoint = Some(kind),
+        None => {
+            return Err(McpError::InvalidInput(format!(
+                "station `{station}` is not active; cannot choose its gate"
+            )))
+        }
+    }
+    store.write_state(slug, &state)?;
+    Ok(())
+}
+
+/// The snake_case token for a checkpoint kind.
+fn checkpoint_kind_str(kind: CheckpointKind) -> &'static str {
+    match kind {
+        CheckpointKind::Auto => "auto",
+        CheckpointKind::Ask => "ask",
+        CheckpointKind::External => "external",
+        CheckpointKind::Await => "await",
+    }
+}
+
 /// Stamp one whole-Run reviewer's sign-off in the run-level review — without
 /// walking the cursor, so the run reviewers fan out in parallel like station
 /// reviewers and the parent ticks once. The run holds in `RunReview` until every
@@ -744,7 +795,19 @@ fn effective_checkpoint_kind(state: &RunState, def: &crate::factory::StationDef)
         // Full discrete: every station resolves on a human PR merge.
         return CheckpointKind::External;
     }
-    // Hybrid and plain runs alike defer to the factory's declared kind.
+    // Compound gate: if the operator picked an offered path, honour it; else the
+    // declared default. (Hybrid/plain runs both defer to the declared kind.)
+    if !def.checkpoint_options.is_empty() {
+        if let Some(chosen) = state
+            .stations
+            .get(&def.name)
+            .and_then(|st| st.chosen_checkpoint)
+        {
+            if def.checkpoint_options.contains(&chosen) {
+                return chosen;
+            }
+        }
+    }
     def.checkpoint
 }
 
@@ -1376,6 +1439,8 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                 ctx.kills = Some(def.kills.clone());
                 ctx.locked_artifact = Some(def.artifact.clone());
                 ctx.kind = Some(def.checkpoint);
+                ctx.checkpoint_options =
+                    def.checkpoint_options.iter().map(|k| checkpoint_kind_str(*k).to_string()).collect();
                 ctx.explorers = def.explorers.clone();
                 ctx.workers = def.workers.clone();
                 ctx.reviewers = def.reviewers.clone();
@@ -1983,6 +2048,7 @@ fn ensure_station<'a>(
                     entered_at: None,
                     outcome: None,
                 }),
+                chosen_checkpoint: None,
                 branch: None,
                 pr_ref: None,
                 started_at: None,
@@ -2516,6 +2582,36 @@ mod tests {
         let state = store.read_state("u").unwrap().unwrap();
         assert!(state.plan.is_empty());
         assert_eq!(state.active_station, "frame");
+    }
+
+    #[test]
+    fn compound_gate_defaults_then_honours_the_operator_pick() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        // shape is a compound gate: ask (default) | external.
+        let factory = resolve_factory_for(&store, "software").unwrap();
+        let shape = factory.station("shape").unwrap();
+        // Seed shape into state so a choice can be recorded against it.
+        let mut state = store.read_state("r").unwrap().unwrap();
+        ensure_station(&mut state, &factory, "shape").unwrap();
+        store.write_state("r", &state).unwrap();
+        let state = store.read_state("r").unwrap().unwrap();
+
+        // No pick → the declared default (ask).
+        assert_eq!(effective_checkpoint_kind(&state, shape), CheckpointKind::Ask);
+
+        // The operator picks external → effective routes to external.
+        choose_checkpoint(&store, "r", "shape", CheckpointKind::External).unwrap();
+        let state = store.read_state("r").unwrap().unwrap();
+        assert_eq!(effective_checkpoint_kind(&state, shape), CheckpointKind::External);
+
+        // A path the station does not offer is rejected.
+        assert!(choose_checkpoint(&store, "r", "shape", CheckpointKind::Auto).is_err());
+        // A single-gate station (frame) offers no choice.
+        let mut state = store.read_state("r").unwrap().unwrap();
+        ensure_station(&mut state, &factory, "frame").unwrap();
+        store.write_state("r", &state).unwrap();
+        assert!(choose_checkpoint(&store, "r", "frame", CheckpointKind::External).is_err());
     }
 
     #[test]

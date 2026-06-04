@@ -4583,7 +4583,7 @@ fn unit_create_has_no_iterations_so_pass_is_zero() {
     let v = body(&create_unit(&server, "r", "u1", "frame"));
     // `pass` is derived from the (empty) iteration history, not a stored field.
     assert!(v["frontmatter"].get("pass").is_none());
-    assert!(v["frontmatter"]["iterations"].as_array().map_or(true, |a| a.is_empty()));
+    assert!(v["frontmatter"]["iterations"].as_array().is_none_or(|a| a.is_empty()));
 }
 
 #[test]

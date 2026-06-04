@@ -375,6 +375,7 @@ fn state_json_roundtrip() {
             phase: StationPhase::Manufacture,
             elaborated: false,
             checkpoint: None,
+            chosen_checkpoint: None,
             branch: None,
             pr_ref: None,
             started_at: Some("2026-05-30T00:00:00Z".into()),

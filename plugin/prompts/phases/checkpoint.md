@@ -17,6 +17,12 @@ Write the tight closing brief for whoever holds the decision. It is the durable 
 - Any concerns reviewers raised and how they were resolved.
 - The retrospective learnings reflect surfaced, if they bear on the lock.
 
+{% if checkpoint_options %}
+## This station offers a choice of gate paths
+
+Station **{{ station }}** is a **compound gate** — the operator may take any of: {% for o in checkpoint_options %}**`{{ o }}`**{% if not loop.last %}, {% endif %}{% endfor %}. The default is **`{{ kind }}`**. If the operator wants a different path (e.g. route this to a formal `external` review instead of an inline `ask`), record their pick with `darkrun_checkpoint_choose` (station + chosen kind) **before** clearing the gate; the next tick re-routes the checkpoint to that path. With no pick, the default below applies.
+{% endif %}
+
 ## 2. user — the gate decision (`{{ kind }}`)
 
 The gate kind decides *who* clears it. Surface the brief above, then act per the kind:

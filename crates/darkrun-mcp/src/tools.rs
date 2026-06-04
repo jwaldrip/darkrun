@@ -345,6 +345,19 @@ pub struct UnitIterateInput {
     pub next_worker: Option<String>,
 }
 
+/// Input for `darkrun_checkpoint_choose` — the operator picks a compound gate's path.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct CheckpointChooseInput {
+    /// The run slug.
+    pub slug: String,
+    /// The station whose compound checkpoint is being chosen.
+    pub station: String,
+    /// The chosen gate path: `auto` / `ask` / `external` / `await` — must be one
+    /// the station offers.
+    pub kind: String,
+}
+
 /// Input for `darkrun_elaborate_seal` — record that the operator was involved
 /// in shaping a station's spec, clearing the collaboration hold.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -1298,6 +1311,30 @@ impl DarkrunServer {
         let store = self.store();
         match crate::position::run_review_stamp(&store, &input.slug, &input.role) {
             Ok(()) => ok_json(&serde_json::json!({ "ok": true, "role": input.role })),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// The operator picks which path a station's compound checkpoint takes
+    /// (e.g. choose `external` over the default `ask`).
+    #[tool(
+        name = "darkrun_checkpoint_choose",
+        description = "For a station that offers a choice of gate paths (a compound checkpoint), record the operator's pick (auto|ask|external|await — must be one the station offers). The next tick routes the checkpoint to the chosen path; without a choice the station's declared default applies."
+    )]
+    pub fn darkrun_checkpoint_choose(
+        &self,
+        Parameters(input): Parameters<CheckpointChooseInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let kind = match input.kind.trim().to_ascii_lowercase().as_str() {
+            "auto" => darkrun_core::domain::CheckpointKind::Auto,
+            "ask" => darkrun_core::domain::CheckpointKind::Ask,
+            "external" => darkrun_core::domain::CheckpointKind::External,
+            "await" => darkrun_core::domain::CheckpointKind::Await,
+            other => return Ok(err_text(format!("invalid gate kind `{other}`"))),
+        };
+        let store = self.store();
+        match crate::position::choose_checkpoint(&store, &input.slug, &input.station, kind) {
+            Ok(()) => ok_json(&serde_json::json!({ "ok": true, "station": input.station, "kind": input.kind })),
             Err(e) => Ok(err_text(e)),
         }
     }

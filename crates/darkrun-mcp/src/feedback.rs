@@ -478,7 +478,7 @@ mod tests {
         );
         // The invalidated role is re-opened; the untouched one survives.
         let back = store.read_unit("r", "u1").unwrap();
-        assert!(back.frontmatter.approvals.get("correctness").is_none());
+        assert!(!back.frontmatter.approvals.contains_key("correctness"));
         assert!(matches!(back.frontmatter.approvals.get("user"), Some(Some(_))));
     }
 

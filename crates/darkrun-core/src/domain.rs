@@ -696,6 +696,10 @@ pub struct Station {
     /// The checkpoint gating this station.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint: Option<Checkpoint>,
+    /// The operator's chosen gate path for a compound checkpoint (set via
+    /// `darkrun_checkpoint_choose`). `None` → the station's declared default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_checkpoint: Option<CheckpointKind>,
     /// The station's working branch (`darkrun/<slug>/<station>`), set when the
     /// station is entered and a worktree is forked off run-main. `None` on
     /// legacy state and outside a git repo. Retained after landing as a record

@@ -56,6 +56,7 @@ fn valid_station() -> Station {
             workers: vec!["w1".into(), "w2".into(), "w3".into()],
             reviewers: vec!["r1".into()],
             checkpoint: CheckpointKind::Auto,
+            checkpoint_options: vec![],
             locked_artifact: "out.md".into(),
             inputs: vec![],
             inputs_waived: vec![],
