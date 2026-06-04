@@ -690,32 +690,56 @@ fn resolve_template(mode: &str, factory: &FactoryDef) -> (Vec<String>, bool) {
     }
 }
 
-/// Track B — feedback. Returns a `FixFeedback` action for the first open
-/// feedback item, or `None` when no open feedback exists. Feedback is "open"
-/// when its `status:` frontmatter line is not a terminal value.
+/// Track B — feedback. Resolves the single most-urgent open item:
+///
+/// 1. **Questions preempt.** A `question` needs an operator decision before any
+///    fix can proceed, so an open question is returned first (by id order).
+/// 2. **Fixes by severity.** Among fix items, the highest severity goes first
+///    (blocker → high → medium → low → unranked), stable by id within a rank —
+///    so a blocker is never starved behind a nit that happened to be filed first.
+///
+/// Returns `None` when no open feedback exists ("open" = no terminal `status:`).
 fn walk_feedback(store: &StateStore, slug: &str, station: &str) -> Result<Option<RunAction>> {
     let raw = store.read_feedback_raw(slug)?;
-    for (id, content) in raw {
-        if feedback_open(&content) {
-            // A feedback item that is a *question* needs a user decision, not a
-            // code fix — route it to the question half of the track.
-            let action = if feedback_is_question(&content) {
-                RunAction::FeedbackQuestion {
-                    run: slug.to_string(),
-                    station: station.to_string(),
-                    feedback_id: id,
-                }
-            } else {
-                RunAction::FixFeedback {
-                    run: slug.to_string(),
-                    station: station.to_string(),
-                    feedback_id: id,
-                }
+    let mut open: Vec<(String, String)> =
+        raw.into_iter().filter(|(_, c)| feedback_open(c)).collect();
+    // Stable by id first, so equal-severity ties resolve in filing order.
+    open.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Questions preempt fixes.
+    if let Some((id, _)) = open.iter().find(|(_, c)| feedback_is_question(c)) {
+        return Ok(Some(RunAction::FeedbackQuestion {
+            run: slug.to_string(),
+            station: station.to_string(),
+            feedback_id: id.clone(),
+        }));
+    }
+    // Otherwise the highest-severity fix item (min rank = most urgent).
+    let next = open
+        .iter()
+        .filter(|(_, c)| !feedback_is_question(c))
+        .min_by_key(|(_, c)| feedback_severity_rank(c));
+    Ok(next.map(|(id, _)| RunAction::FixFeedback {
+        run: slug.to_string(),
+        station: station.to_string(),
+        feedback_id: id.clone(),
+    }))
+}
+
+/// Severity rank for ordering: blocker=0 (most urgent) … unranked=4.
+fn feedback_severity_rank(raw: &str) -> u8 {
+    for line in raw.lines() {
+        if let Some(rest) = line.trim().strip_prefix("severity:") {
+            return match rest.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+                "blocker" => 0,
+                "high" => 1,
+                "medium" => 2,
+                "low" => 3,
+                _ => 4,
             };
-            return Ok(Some(action));
         }
     }
-    Ok(None)
+    4
 }
 
 /// Whether a feedback document is a *question* (needs a user decision) rather
@@ -2030,6 +2054,26 @@ mod tests {
         let dir = tempdir().expect("tmp");
         let store = StateStore::new(dir.path());
         (dir, store)
+    }
+
+    #[test]
+    fn walk_feedback_prefers_blocker_then_questions_preempt() {
+        let (_d, store) = store();
+        let write = |id: &str, doc: &str| store.write_feedback_raw("r", id, doc).unwrap();
+        // Filed in id order low → blocker; severity must win over filing order.
+        write("fb-01", "---\nstatus: pending\nseverity: low\n---\nnit\n");
+        write("fb-02", "---\nstatus: pending\nseverity: blocker\n---\nbroken\n");
+        write("fb-03", "---\nstatus: pending\nseverity: high\n---\nbad\n");
+        match walk_feedback(&store, "r", "build").unwrap() {
+            Some(RunAction::FixFeedback { feedback_id, .. }) => assert_eq!(feedback_id, "fb-02"),
+            other => panic!("expected blocker fb-02 first, got {other:?}"),
+        }
+        // A question preempts every fix, regardless of severity.
+        write("fb-00", "---\nstatus: pending\nkind: question\n---\nwhich db?\n");
+        match walk_feedback(&store, "r", "build").unwrap() {
+            Some(RunAction::FeedbackQuestion { feedback_id, .. }) => assert_eq!(feedback_id, "fb-00"),
+            other => panic!("expected question preempt, got {other:?}"),
+        }
     }
 
     #[test]
