@@ -88,8 +88,9 @@ pub use factory::{
     list_factories, resolve_factory, resolve_factory_at, FactoryDef, StationDef,
 };
 pub use lifecycle::{
-    enter_station, ensure_run_main, land_run, land_station, resolve_base_branch, run_main_branch,
-    station_branch, LifecycleOutcome,
+    enter_fix, enter_station, enter_unit, ensure_run_main, fix_branch, land_fix, land_run,
+    land_station, land_unit, resolve_base_branch, run_main_branch, station_branch, unit_branch,
+    LifecycleOutcome,
 };
 pub use position::{
     checkpoint_decide, derive_position, render_prompt, run_start, run_tick, Position, PromptContext,

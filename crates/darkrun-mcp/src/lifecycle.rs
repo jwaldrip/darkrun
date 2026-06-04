@@ -4,18 +4,28 @@
 //! (continuous, autopilot, quick, bugfix, refactor, full, and discrete):
 //!
 //! ```text
-//! <base>  <  darkrun/<slug>/main  <  darkrun/<slug>/<station>
+//! <base> < darkrun/<slug>/main < darkrun/<slug>/<station> < darkrun/<slug>/units/<station>/<unit>
+//!                                                         \ darkrun/<slug>/fixes/<station>/<id>
 //! ```
 //!
 //! - **run-main** (`darkrun/<slug>/main`) is the stable per-run base. It only
 //!   ever accumulates *fully-verified* stations.
 //! - **station branches** (`darkrun/<slug>/<station>`) fork off run-main when a
 //!   station is entered, and carry that station's work on an isolated worktree.
+//! - **unit branches** (`darkrun/<slug>/units/<station>/<unit>`) fork off the
+//!   station branch when a unit's Pass-loop begins, isolate one unit's diff on
+//!   its own worktree, and land back onto the station branch when the unit locks.
+//! - **fix branches** (`darkrun/<slug>/fixes/<station>/<id>`) do the same for a
+//!   drift/feedback repair, so a fix's diff never tangles with in-flight units.
 //! - On station completion the station branch lands onto run-main through the
 //!   [`engine_protected_merge`](darkrun_git::engine_protected_merge), and the
 //!   station worktree + branch are removed.
 //! - At run completion run-main lands onto the repo base (the run-completion
 //!   PR/merge).
+//!
+//! Units and fixes live in `units/`/`fixes/` namespaces *parallel* to the station
+//! branches rather than nested beneath them — a station branch is a leaf git ref,
+//! so a child ref directly under it would hit git's directory/file ref conflict.
 //!
 //! The MODE only changes HOW the per-station checkpoint gate resolves (in-process
 //! for the non-discrete modes here; a human PR merge for discrete — a later
@@ -53,6 +63,54 @@ pub fn station_worktree_path(repo_root: &Path, slug: &str, station: &str) -> Pat
         .join("worktrees")
         .join(slug)
         .join(station)
+}
+
+/// A unit's working branch: `darkrun/<slug>/units/<station>/<unit>`. A unit forks
+/// off its station branch, carries one unit's Pass-loop on an isolated worktree,
+/// and lands back onto the station branch when the unit locks — the same
+/// fork/isolate/land discipline a station has against run-main, one level down.
+///
+/// Units live in a `units/` namespace *parallel* to the station branches, not
+/// nested beneath `darkrun/<slug>/<station>`: a station branch is a leaf git ref,
+/// so a child ref under it would hit git's directory/file ref conflict. The
+/// parallel namespace keeps the readable hierarchy without that collision (no
+/// station is ever named `units`).
+pub fn unit_branch(slug: &str, station: &str, unit: &str) -> String {
+    format!("{BRANCH_PREFIX}/{slug}/units/{station}/{unit}")
+}
+
+/// The on-disk worktree path for a unit's branch:
+/// `<repo>/.darkrun/worktrees/<slug>/units/<station>/<unit>`.
+pub fn unit_worktree_path(repo_root: &Path, slug: &str, station: &str, unit: &str) -> PathBuf {
+    repo_root
+        .join(".darkrun")
+        .join("worktrees")
+        .join(slug)
+        .join("units")
+        .join(station)
+        .join(unit)
+}
+
+/// A fix-worker's working branch: `darkrun/<slug>/fixes/<station>/<id>`. A drift
+/// or feedback repair forks off its station branch onto its own worktree so the
+/// fix's diff is isolated from the station's in-flight work, then lands back onto
+/// the station branch — the same isolation a unit gets, for a repair instead of a
+/// fresh unit. Fixes live in a `fixes/` namespace parallel to the stations for
+/// the same directory/file ref reason as [`unit_branch`].
+pub fn fix_branch(slug: &str, station: &str, fix_id: &str) -> String {
+    format!("{BRANCH_PREFIX}/{slug}/fixes/{station}/{fix_id}")
+}
+
+/// The on-disk worktree path for a fix's branch:
+/// `<repo>/.darkrun/worktrees/<slug>/fixes/<station>/<id>`.
+pub fn fix_worktree_path(repo_root: &Path, slug: &str, station: &str, fix_id: &str) -> PathBuf {
+    repo_root
+        .join(".darkrun")
+        .join("worktrees")
+        .join(slug)
+        .join("fixes")
+        .join(station)
+        .join(fix_id)
 }
 
 /// Resolve the base branch a run forks from — `default_branch` out of
@@ -187,27 +245,89 @@ pub fn enter_station(store: &StateStore, slug: &str, station: &str) -> Lifecycle
     }
 
     let branch = station_branch(slug, station);
-    let _ = git.create_branch(&branch, &run_main);
-
-    // Create the station worktree if it isn't already registered.
     let wt_path = station_worktree_path(&root, slug, station);
+    fork_and_worktree(&git, &run_main, &branch, &wt_path, &format!("{slug}-{station}"))
+}
+
+/// Fork `child` off `parent` and attach a worktree at `wt_path` (registered as
+/// `wt_name`). Idempotent: `create_branch` is a no-op when `child` exists, and
+/// the worktree is created only when not already registered — so a re-entered
+/// unit/fix/station reuses its branch + worktree (crash recovery). The caller
+/// guarantees `parent` exists and `git` is open on the repo. Returns the child
+/// branch name in `note` so the caller can stamp it onto state.
+fn fork_and_worktree(
+    git: &Git,
+    parent: &str,
+    child: &str,
+    wt_path: &Path,
+    wt_name: &str,
+) -> LifecycleOutcome {
+    let _ = git.create_branch(child, parent);
     let already = git
         .list_worktrees()
-        .map(|ws| ws.iter().any(|w| w.path == wt_path))
+        .map(|ws| ws.iter().any(|w| w.path == *wt_path))
         .unwrap_or(false);
     if !already {
-        if let Some(parent) = wt_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Some(parent_dir) = wt_path.parent() {
+            let _ = std::fs::create_dir_all(parent_dir);
         }
-        // Attach the worktree to the already-created station branch.
         let opts = darkrun_git::CreateOptions {
-            reference: Some(branch.clone()),
+            reference: Some(child.to_string()),
             new_branch: None,
         };
-        let name = format!("{slug}-{station}");
-        let _ = git.create_worktree(&name, &wt_path, &opts);
+        let _ = git.create_worktree(wt_name, wt_path, &opts);
     }
-    LifecycleOutcome::done(branch)
+    LifecycleOutcome::done(child.to_string())
+}
+
+/// Enter a unit: fork `darkrun/<slug>/<station>/<unit>` off the station branch
+/// and create its worktree. Idempotent (a re-entered unit reuses both). No-op
+/// outside a git repo, or when the station branch doesn't exist yet (the station
+/// hasn't been entered — the unit has no parent to fork from).
+///
+/// Returns the unit branch name in `note` on success so the caller can stamp
+/// `Unit.branch`.
+pub fn enter_unit(store: &StateStore, slug: &str, station: &str, unit: &str) -> LifecycleOutcome {
+    let Some((git, root)) = open_git(store) else {
+        return LifecycleOutcome::noop("not a git repo");
+    };
+    let parent = station_branch(slug, station);
+    if !git.branch_exists(&parent).unwrap_or(false) {
+        return LifecycleOutcome::noop(format!("{parent} unavailable; cannot enter unit"));
+    }
+    let branch = unit_branch(slug, station, unit);
+    let wt_path = unit_worktree_path(&root, slug, station, unit);
+    fork_and_worktree(
+        &git,
+        &parent,
+        &branch,
+        &wt_path,
+        &format!("{slug}-{station}-{unit}"),
+    )
+}
+
+/// Enter a fix: fork `darkrun/<slug>/<station>/fix-<id>` off the station branch
+/// and create its worktree, so a drift/feedback repair's diff is isolated. Same
+/// idempotency + no-op rules as [`enter_unit`].
+///
+/// Returns the fix branch name in `note` on success.
+pub fn enter_fix(store: &StateStore, slug: &str, station: &str, fix_id: &str) -> LifecycleOutcome {
+    let Some((git, root)) = open_git(store) else {
+        return LifecycleOutcome::noop("not a git repo");
+    };
+    let parent = station_branch(slug, station);
+    if !git.branch_exists(&parent).unwrap_or(false) {
+        return LifecycleOutcome::noop(format!("{parent} unavailable; cannot enter fix"));
+    }
+    let branch = fix_branch(slug, station, fix_id);
+    let wt_path = fix_worktree_path(&root, slug, station, fix_id);
+    fork_and_worktree(
+        &git,
+        &parent,
+        &branch,
+        &wt_path,
+        &format!("{slug}-{station}-fix-{fix_id}"),
+    )
 }
 
 /// Land a completed station: engine-protected merge `darkrun/<slug>/<station>`
@@ -220,46 +340,116 @@ pub fn land_station(store: &StateStore, slug: &str, station: &str) -> LifecycleO
     };
     let branch = station_branch(slug, station);
     let run_main = run_main_branch(slug);
+    let wt_path = station_worktree_path(&root, slug, station);
+    land_child(
+        store,
+        &git,
+        &root,
+        slug,
+        &run_main,
+        &branch,
+        &wt_path,
+        &format!("{slug}-{station}"),
+        &format!("darkrun: land station '{station}' -> {run_main}"),
+    )
+}
+
+/// Land a completed unit: engine-protected merge the unit branch -> its station
+/// branch, then remove the unit worktree + branch. Same crash-tolerance as
+/// [`land_station`], one level down (the parent is the station branch, not
+/// run-main). No-op outside a git repo.
+pub fn land_unit(store: &StateStore, slug: &str, station: &str, unit: &str) -> LifecycleOutcome {
+    let Some((git, root)) = open_git(store) else {
+        return LifecycleOutcome::noop("not a git repo");
+    };
+    let branch = unit_branch(slug, station, unit);
+    let parent = station_branch(slug, station);
+    let wt_path = unit_worktree_path(&root, slug, station, unit);
+    land_child(
+        store,
+        &git,
+        &root,
+        slug,
+        &parent,
+        &branch,
+        &wt_path,
+        &format!("{slug}-{station}-{unit}"),
+        &format!("darkrun: land unit '{unit}' -> {parent}"),
+    )
+}
+
+/// Land a completed fix: engine-protected merge the fix branch -> its station
+/// branch, then remove the fix worktree + branch. Mirrors [`land_unit`]. No-op
+/// outside a git repo.
+pub fn land_fix(store: &StateStore, slug: &str, station: &str, fix_id: &str) -> LifecycleOutcome {
+    let Some((git, root)) = open_git(store) else {
+        return LifecycleOutcome::noop("not a git repo");
+    };
+    let branch = fix_branch(slug, station, fix_id);
+    let parent = station_branch(slug, station);
+    let wt_path = fix_worktree_path(&root, slug, station, fix_id);
+    land_child(
+        store,
+        &git,
+        &root,
+        slug,
+        &parent,
+        &branch,
+        &wt_path,
+        &format!("{slug}-{station}-fix-{fix_id}"),
+        &format!("darkrun: land fix '{fix_id}' -> {parent}"),
+    )
+}
+
+/// The shared land discipline: engine-protected merge `child` -> `parent`, then
+/// retire the child's worktree (always — its work is captured on the branch) and
+/// the child branch (only on a clean land, so a conflicted child stays
+/// recoverable). Crash-tolerant: a present branch with unmerged commits whose
+/// worktree is gone still merges; an absent branch or an already-merged ancestor
+/// short-circuits to a no-op after sweeping any leftover worktree/branch.
+#[allow(clippy::too_many_arguments)]
+fn land_child(
+    store: &StateStore,
+    git: &Git,
+    root: &Path,
+    slug: &str,
+    parent: &str,
+    branch: &str,
+    wt_path: &Path,
+    wt_name: &str,
+    message: &str,
+) -> LifecycleOutcome {
     // #8 "complete but never merged": short-circuit to a no-op ONLY when there
     // is genuinely nothing to merge — the branch is absent, OR it's already an
-    // ancestor of run-main (its commits already landed). A present branch with
-    // unmerged commits whose worktree happens to be gone must STILL merge the
-    // durable branch below, never silently report done.
-    if !git.branch_exists(&branch).unwrap_or(false) {
+    // ancestor of the parent (its commits already landed). A present branch with
+    // unmerged commits whose worktree happens to be gone must STILL merge below.
+    if !git.branch_exists(branch).unwrap_or(false) {
         return LifecycleOutcome::noop(format!("{branch} not found; nothing to land"));
     }
-    if !git.branch_exists(&run_main).unwrap_or(false) {
-        return LifecycleOutcome::noop(format!("{run_main} not found; cannot land"));
+    if !git.branch_exists(parent).unwrap_or(false) {
+        return LifecycleOutcome::noop(format!("{parent} not found; cannot land"));
     }
-    if git.is_ancestor(&branch, &run_main).unwrap_or(false) {
-        // Already merged (or an empty fork at run-main's commit) — truly nothing
-        // to land. Retire any leftover worktree, then no-op.
-        let wt_name = format!("{slug}-{station}");
-        let wt_path = station_worktree_path(&root, slug, station);
-        let _ = git.remove_worktree(&wt_name, true);
-        let _ = std::fs::remove_dir_all(&wt_path);
-        let _ = delete_branch(&root, &branch);
-        return LifecycleOutcome::noop(format!("{branch} already in {run_main}; nothing to land"));
+    if git.is_ancestor(branch, parent).unwrap_or(false) {
+        // Already merged (or an empty fork at the parent's commit) — truly
+        // nothing to land. Retire any leftover worktree, then no-op.
+        let _ = git.remove_worktree(wt_name, true);
+        let _ = std::fs::remove_dir_all(wt_path);
+        let _ = delete_branch(root, branch);
+        return LifecycleOutcome::noop(format!("{branch} already in {parent}; nothing to land"));
     }
 
-    let wt_path = station_worktree_path(&root, slug, station);
-    let wt_name = format!("{slug}-{station}");
+    // Merge through a worktree checked out on the parent so the primary checkout
+    // is never touched.
+    let outcome = merge_into_branch(store, git, root, parent, branch, slug, message);
 
-    // Merge through a worktree checked out on run-main so the primary checkout
-    // is never touched. Reuse a temporary run-main worktree as the merge target.
-    let outcome = merge_into_branch(store, &git, &root, &run_main, &branch, slug, &format!(
-        "darkrun: land station '{station}' -> {run_main}"
-    ));
+    // Whether the merge succeeded or not, retire the child worktree (its work is
+    // captured on the branch). Remove the branch only on a clean land so a
+    // conflicted child is left recoverable.
+    let _ = git.remove_worktree(wt_name, true);
+    let _ = std::fs::remove_dir_all(wt_path);
 
-    // Whether the merge succeeded or not, retire the station worktree (its work
-    // is captured on the branch). Remove the branch only on a clean land so a
-    // conflicted station is left recoverable.
-    let _ = git.remove_worktree(&wt_name, true);
-    let _ = std::fs::remove_dir_all(&wt_path);
-
-    if outcome.performed || git.is_ancestor(&branch, &run_main).unwrap_or(false) {
-        // Landed (or already merged) → drop the station branch.
-        let _ = delete_branch(&root, &branch);
+    if outcome.performed || git.is_ancestor(branch, parent).unwrap_or(false) {
+        let _ = delete_branch(root, branch);
     }
     outcome
 }
@@ -666,6 +856,11 @@ mod tests {
     fn branch_name_helpers() {
         assert_eq!(run_main_branch("r"), "darkrun/r/main");
         assert_eq!(station_branch("r", "build"), "darkrun/r/build");
+        // A unit forks off its station, in a parallel `units/` namespace that
+        // dodges the git directory/file ref conflict under the station ref.
+        assert_eq!(unit_branch("r", "build", "u1"), "darkrun/r/units/build/u1");
+        // A fix forks off its station too, in the parallel `fixes/` namespace.
+        assert_eq!(fix_branch("r", "build", "fb-7"), "darkrun/r/fixes/build/fb-7");
     }
 
     #[test]
@@ -687,6 +882,10 @@ mod tests {
         assert!(!ensure_run_main(&store, "r").performed);
         assert!(!enter_station(&store, "r", "build").performed);
         assert!(!land_station(&store, "r", "build").performed);
+        assert!(!enter_unit(&store, "r", "build", "u1").performed);
+        assert!(!land_unit(&store, "r", "build", "u1").performed);
+        assert!(!enter_fix(&store, "r", "build", "fb-1").performed);
+        assert!(!land_fix(&store, "r", "build", "fb-1").performed);
         assert!(!land_run(&store, "r").performed);
     }
 
@@ -742,6 +941,132 @@ mod tests {
             .unwrap();
         assert!(out.status.success(), "feature.txt should be on run-main");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "built\n");
+    }
+
+    /// Commit `file=content` on the worktree at `wt`.
+    fn commit_in(wt: &Path, file: &str, content: &str, msg: &str) {
+        std::fs::write(wt.join(file), content).unwrap();
+        for args in [
+            vec!["add", "-A"],
+            vec!["commit", "-q", "-m", msg],
+        ] {
+            assert!(Command::new("git")
+                .arg("-C")
+                .arg(wt)
+                .args(&args)
+                .status()
+                .unwrap()
+                .success());
+        }
+    }
+
+    #[test]
+    fn enter_unit_forks_off_station_then_land_merges_back_to_station() {
+        let (_d, root, store) = init_repo();
+        ensure_run_main(&store, "r");
+        enter_station(&store, "r", "build");
+
+        // The unit forks off the station branch onto its own worktree.
+        let enter = enter_unit(&store, "r", "build", "u1");
+        assert!(enter.performed, "enter_unit should perform: {enter:?}");
+        assert_eq!(enter.note.as_deref(), Some("darkrun/r/units/build/u1"));
+        assert!(branch_exists(&root, "darkrun/r/units/build/u1"));
+        let wt = unit_worktree_path(&root, "r", "build", "u1");
+        assert!(wt.exists(), "unit worktree should exist on disk");
+
+        // Re-entering is idempotent (crash recovery).
+        assert!(enter_unit(&store, "r", "build", "u1").performed);
+
+        // Do the unit's work, then land it back onto the STATION branch (not
+        // run-main — the unit lands one level down).
+        commit_in(&wt, "u1.txt", "unit one\n", "u1 work");
+        let land = land_unit(&store, "r", "build", "u1");
+        assert!(land.performed, "land_unit should perform: {land:?}");
+
+        // Unit branch + worktree gone; the work is on the station branch, NOT yet
+        // on run-main (the station hasn't landed).
+        assert!(!branch_exists(&root, "darkrun/r/units/build/u1"));
+        assert!(!wt.exists(), "unit worktree should be removed");
+        let on_station = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["show", "darkrun/r/build:u1.txt"])
+            .output()
+            .unwrap();
+        assert!(on_station.status.success(), "u1.txt should be on the station branch");
+        let on_main = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["show", "darkrun/r/main:u1.txt"])
+            .output()
+            .unwrap();
+        assert!(!on_main.status.success(), "u1.txt must NOT be on run-main yet");
+    }
+
+    #[test]
+    fn enter_unit_noops_when_station_branch_absent() {
+        let (_d, _root, store) = init_repo();
+        ensure_run_main(&store, "r");
+        // No enter_station → no parent branch to fork from.
+        let out = enter_unit(&store, "r", "build", "u1");
+        assert!(!out.performed, "a unit cannot fork off a station that wasn't entered");
+        assert!(out.note.unwrap().contains("cannot enter unit"));
+    }
+
+    #[test]
+    fn two_units_isolate_then_both_land_onto_the_station() {
+        let (_d, root, store) = init_repo();
+        ensure_run_main(&store, "r");
+        enter_station(&store, "r", "build");
+
+        enter_unit(&store, "r", "build", "u1");
+        enter_unit(&store, "r", "build", "u2");
+        let wt1 = unit_worktree_path(&root, "r", "build", "u1");
+        let wt2 = unit_worktree_path(&root, "r", "build", "u2");
+        commit_in(&wt1, "a.txt", "from u1\n", "u1");
+        commit_in(&wt2, "b.txt", "from u2\n", "u2");
+
+        assert!(land_unit(&store, "r", "build", "u1").performed);
+        assert!(land_unit(&store, "r", "build", "u2").performed);
+
+        // Both units' work is on the station branch.
+        for f in ["a.txt", "b.txt"] {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["show", &format!("darkrun/r/build:{f}")])
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{f} should be on the station branch");
+        }
+    }
+
+    #[test]
+    fn enter_fix_forks_off_station_then_land_merges_back() {
+        let (_d, root, store) = init_repo();
+        ensure_run_main(&store, "r");
+        enter_station(&store, "r", "build");
+
+        let enter = enter_fix(&store, "r", "build", "fb-1");
+        assert!(enter.performed, "enter_fix should perform: {enter:?}");
+        assert_eq!(enter.note.as_deref(), Some("darkrun/r/fixes/build/fb-1"));
+        assert!(branch_exists(&root, "darkrun/r/fixes/build/fb-1"));
+        let wt = fix_worktree_path(&root, "r", "build", "fb-1");
+        assert!(wt.exists(), "fix worktree should exist on disk");
+
+        commit_in(&wt, "fix.txt", "repaired\n", "fix fb-1");
+        let land = land_fix(&store, "r", "build", "fb-1");
+        assert!(land.performed, "land_fix should perform: {land:?}");
+
+        assert!(!branch_exists(&root, "darkrun/r/fixes/build/fb-1"));
+        assert!(!wt.exists(), "fix worktree should be removed");
+        let on_station = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["show", "darkrun/r/build:fix.txt"])
+            .output()
+            .unwrap();
+        assert!(on_station.status.success(), "the fix should land on the station branch");
     }
 
     #[test]
