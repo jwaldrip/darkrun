@@ -84,7 +84,9 @@ pub use annotation::{
 };
 pub use change::{change_request_intent, ChangeRequestIntent};
 pub use error::{McpError, Result};
-pub use factory::{list_factories, resolve_factory, FactoryDef, StationDef};
+pub use factory::{
+    list_factories, resolve_factory, resolve_factory_at, FactoryDef, StationDef,
+};
 pub use lifecycle::{
     enter_station, ensure_run_main, land_run, land_station, resolve_base_branch, run_main_branch,
     station_branch, LifecycleOutcome,

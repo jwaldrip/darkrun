@@ -46,6 +46,7 @@ pub fn zap(
     station: Option<&str>,
 ) -> std::result::Result<Zap, ZapError> {
     let factory_name = factory.unwrap_or("software");
+    // Zap is stateless (no run, no project context) — embedded resolution.
     let factory = resolve_factory(factory_name).ok_or_else(|| ZapError {
         error: "zap_factory_not_found".to_string(),
         valid_factories: list_factories().iter().map(|f| f.name.clone()).collect(),

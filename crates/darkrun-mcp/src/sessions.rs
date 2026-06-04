@@ -40,7 +40,6 @@ use darkrun_core::StateStore;
 use serde::Serialize;
 
 use crate::error::{McpError, Result};
-use crate::factory::resolve_factory;
 
 /// The focus channel the desktop home watches: when a Review payload appears
 /// under this session id, the app navigates to the run it names.
@@ -65,7 +64,7 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
     // `state.json` yet) yields an empty strip and no phase — the payload stays
     // valid, the pipeline just renders nothing rather than stale data.
     let state = store.read_state(slug)?;
-    let factory_stations: Vec<String> = resolve_factory(&run.frontmatter.factory)
+    let factory_stations: Vec<String> = crate::position::resolve_factory_for(store, &run.frontmatter.factory)
         .map(|f| f.station_names())
         .unwrap_or_default();
 

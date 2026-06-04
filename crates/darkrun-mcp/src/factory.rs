@@ -104,14 +104,24 @@ impl StationDef {
     }
 }
 
-/// Resolve a factory by name from the on-disk corpus. Returns `None` for an
+/// Resolve a factory by name from the embedded corpus. Returns `None` for an
 /// unknown or structurally-invalid factory.
 ///
-/// The source of truth is the embedded `plugin/factories/<name>/` content — there
+/// The source of truth is the on-disk `plugin/factories/<name>/` content — there
 /// is no inline definition in code. The six FSSBPH stations are walked in their
-/// fixed `Position::FLOW` order regardless of the factory's own declarations.
+/// fixed `Position::FLOW` order. For project-override resolution, use
+/// [`resolve_factory_at`].
 pub fn resolve_factory(name: &str) -> Option<FactoryDef> {
     darkrun_content::load_validated(name)
+        .ok()
+        .map(|f| FactoryDef::from_content(&f))
+}
+
+/// Resolve a factory through the full cascade rooted at `repo_root`: a project
+/// override at `<repo_root>/.darkrun/factories/<name>/` beats the embedded
+/// corpus, crossed with the factory's `inherits` chain.
+pub fn resolve_factory_at(repo_root: &std::path::Path, name: &str) -> Option<FactoryDef> {
+    darkrun_content::load_validated_at(Some(repo_root), name)
         .ok()
         .map(|f| FactoryDef::from_content(&f))
 }

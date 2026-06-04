@@ -17,7 +17,6 @@ use darkrun_core::StateStore;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{McpError, Result};
-use crate::factory::resolve_factory;
 use crate::position::derive_position;
 use crate::position::RunAction;
 
@@ -80,7 +79,7 @@ pub fn change_request_intent(
     head_override: Option<String>,
 ) -> Result<ChangeRequestIntent> {
     let run = store.read_run(slug)?;
-    let factory = resolve_factory(&run.frontmatter.factory)
+    let factory = crate::position::resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
 
     // The active station is whatever the cursor currently sits on.

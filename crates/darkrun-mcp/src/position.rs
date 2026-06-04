@@ -41,7 +41,7 @@ use darkrun_git::{Git, GitBackend};
 use serde::Serialize;
 
 use crate::error::{McpError, Result};
-use crate::factory::{resolve_factory, FactoryDef, StationDef};
+use crate::factory::{FactoryDef, StationDef};
 
 /// Which of the three tracks produced the current action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -707,7 +707,7 @@ fn feedback_open(raw: &str) -> bool {
 /// (feedback) -> Track A (run), returning the first non-null action.
 pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     let run = store.read_run(slug)?;
-    let factory = resolve_factory(&run.frontmatter.factory)
+    let factory = resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let state = store.read_state(slug)?.unwrap_or_default();
     let units = store.read_units(slug)?;
@@ -1064,12 +1064,19 @@ fn station_has_merge_debt(store: &StateStore, slug: &str, station: &str) -> bool
 /// The [`StateStore`] is rooted at `<repo_root>/.darkrun`, so the repo root is
 /// that directory's parent. Project overrides live at
 /// `<repo_root>/.darkrun/prompts/<rel>.md`.
-fn cascade_repo_root(store: &StateStore) -> std::path::PathBuf {
+pub(crate) fn cascade_repo_root(store: &StateStore) -> std::path::PathBuf {
     store
         .root()
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| store.root().to_path_buf())
+}
+
+/// Resolve a run's factory through the project-override cascade rooted at the
+/// store's repo root — so a `<repo>/.darkrun/factories/<name>/` override (or an
+/// `inherits` parent) applies. The single resolution path the run walks.
+pub(crate) fn resolve_factory_for(store: &StateStore, name: &str) -> Option<FactoryDef> {
+    crate::factory::resolve_factory_at(&cascade_repo_root(store), name)
 }
 
 /// Serde tag for a [`RunAction`] (its `action` field), used to pick a template.
@@ -1149,7 +1156,7 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
             ctx.bench_surface = surface.is_bench();
             ctx.terminal_surface = surface.is_terminal();
         }
-        if let Some(factory) = resolve_factory(&run.frontmatter.factory) {
+        if let Some(factory) = resolve_factory_for(store, &run.frontmatter.factory) {
             if let Some(def) = factory.station(station) {
                 ctx.kills = Some(def.kills.clone());
                 ctx.locked_artifact = Some(def.artifact.clone());
@@ -1274,7 +1281,7 @@ fn resolve_discrete_gate<H: crate::hosting::Hosting>(
     hosting: &H,
 ) -> Result<()> {
     let run = store.read_run(slug)?;
-    let factory = match resolve_factory(&run.frontmatter.factory) {
+    let factory = match resolve_factory_for(store, &run.frontmatter.factory) {
         Some(f) => f,
         None => return Ok(()),
     };
@@ -1445,7 +1452,7 @@ fn sync_downstream_before_land(store: &StateStore, slug: &str) {
     let Ok(run) = store.read_run(slug) else {
         return;
     };
-    let Some(factory) = resolve_factory(&run.frontmatter.factory) else {
+    let Some(factory) = resolve_factory_for(store, &run.frontmatter.factory) else {
         return;
     };
     let Ok(Some(state)) = store.read_state(slug) else {
@@ -1464,7 +1471,7 @@ fn sync_downstream_before_land(store: &StateStore, slug: &str) {
 /// Stamp the station phase forward based on the action just emitted.
 fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<()> {
     let run = store.read_run(slug)?;
-    let factory = resolve_factory(&run.frontmatter.factory)
+    let factory = resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let mut state = store.read_state(slug)?.unwrap_or_else(|| RunState {
         factory: run.frontmatter.factory.clone(),
@@ -1701,8 +1708,8 @@ pub fn run_start(
     title: Option<String>,
     mode: &str,
 ) -> Result<Run> {
-    let factory =
-        resolve_factory(factory_name).ok_or_else(|| McpError::UnknownFactory(factory_name.into()))?;
+    let factory = resolve_factory_for(store, factory_name)
+        .ok_or_else(|| McpError::UnknownFactory(factory_name.into()))?;
     let factory_first = factory
         .first_station()
         .ok_or_else(|| McpError::UnknownFactory(factory_name.into()))?;
@@ -1795,7 +1802,7 @@ pub fn checkpoint_decide(
     feedback: Option<String>,
 ) -> Result<TickResult> {
     let run = store.read_run(slug)?;
-    let factory = resolve_factory(&run.frontmatter.factory)
+    let factory = resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let mut state = store.read_state(slug)?.unwrap_or_default();
     let station = current_station(&factory, &state)
@@ -2598,7 +2605,7 @@ mod tests {
     /// `frame` (factory `ask`) and `build` (factory `auto`).
     #[test]
     fn full_discrete_makes_every_gate_external() {
-        let factory = resolve_factory("software").unwrap();
+        let factory = crate::factory::resolve_factory("software").unwrap();
         let state = RunState {
             discrete: true,
             ..Default::default()
@@ -2618,7 +2625,7 @@ mod tests {
     /// throughout (no station auto-opens a PR; only full discrete forces that).
     #[test]
     fn hybrid_keeps_factory_gates() {
-        let factory = resolve_factory("software").unwrap();
+        let factory = crate::factory::resolve_factory("software").unwrap();
         let state = RunState {
             discrete: true,
             discrete_hybrid: true,

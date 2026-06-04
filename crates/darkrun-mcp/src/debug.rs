@@ -9,7 +9,6 @@ use darkrun_core::StateStore;
 use serde::Serialize;
 
 use crate::error::{McpError, Result};
-use crate::factory::resolve_factory;
 
 /// The outcome of a debug op.
 #[derive(Debug, Clone, Serialize)]
@@ -59,7 +58,7 @@ pub fn force_station_complete(
 ) -> Result<DebugResult> {
     let reason = require(confirm, reason, "force_station_complete")?;
     let run = store.read_run(slug)?;
-    let factory = resolve_factory(&run.frontmatter.factory)
+    let factory = crate::position::resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let order = factory.station_names();
     let target_idx = order
