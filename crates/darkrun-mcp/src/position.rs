@@ -685,13 +685,13 @@ pub fn elaborate_seal(store: &StateStore, slug: &str, station: &str) -> Result<(
     Ok(())
 }
 
-/// Whether a run mode wants the operator in the loop during elaboration. The
-/// autonomous modes — `autopilot` (runs unattended) and `quick` (a fast
-/// right-sized pass) — skip the Spec collaboration gate; everything else
-/// (continuous / discrete / discrete-hybrid) holds for it.
+/// Whether a run is in the dedicated **collaborative** mode — the one that wants
+/// the operator in the loop *during elaboration*, enforced by a hard Spec hold.
+/// Only this explicit mode gates; `continuous`/`discrete`/`autopilot`/`quick`
+/// keep the linear Spec→Review progression untouched. (Operator decision: the
+/// backpressure is opt-in via mode rather than the continuous default.)
 pub fn collaborative_mode(mode: &str) -> bool {
-    let m = mode.trim().to_ascii_lowercase();
-    !(m.contains("auto") || m == "quick")
+    matches!(mode.trim().to_ascii_lowercase().as_str(), "collaborative" | "collab")
 }
 
 /// Resolve a station's EFFECTIVE Checkpoint kind for a run — the single place
@@ -1757,14 +1757,17 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
                 entered_station = Some(station.clone());
             }
             st.status = Status::InProgress;
-            // Collaboration backpressure (C1) currently runs at the PROMPT level:
-            // in collaborative modes the Spec prompt requires the operator be
-            // involved + `darkrun_elaborate_seal` (see `needs_collaboration`). A
-            // HARD engine hold here — `if collaborative && !st.elaborated { stay
-            // in Spec }` — is the faithful predecessor backpressure, but it
-            // reshapes the linear phase machine; left gated on an operator
-            // decision (it changes continuous-mode semantics + the test suite).
-            st.phase = StationPhase::Review;
+            // Collaboration backpressure (C1): in the dedicated `collaborative`
+            // mode the Spec phase HOLDS until the operator has been involved
+            // (`darkrun_elaborate_seal`) — the agent can't author the spec solo
+            // and skip the human. A stalled, never-sealed Spec is caught by the
+            // deadlock guard and escalated to the operator. Every other mode
+            // keeps the linear Spec→Review progression.
+            if collaborative_mode(&run.frontmatter.mode) && !st.elaborated {
+                st.phase = StationPhase::Spec;
+            } else {
+                st.phase = StationPhase::Review;
+            }
             if st.started_at.is_none() {
                 st.started_at = Some(now.clone());
             }
@@ -2442,6 +2445,46 @@ mod tests {
         let state = store.read_state("u").unwrap().unwrap();
         assert!(state.plan.is_empty());
         assert_eq!(state.active_station, "frame");
+    }
+
+    #[test]
+    fn collaborative_mode_holds_spec_until_elaboration_is_sealed() {
+        let (_d, store) = store();
+        run_start(&store, "c", "software", None, "collaborative").expect("start");
+
+        // Tick 1: Spec — but the collaborative hold keeps the station in Spec
+        // (not Review) until the operator has been involved.
+        let t1 = run_tick(&store, "c").expect("t1");
+        assert!(matches!(t1.action, RunAction::Spec { .. }));
+        assert_eq!(
+            store.read_state("c").unwrap().unwrap().stations["frame"].phase,
+            StationPhase::Spec,
+            "collaborative Spec holds until elaboration is sealed"
+        );
+        // The dispatch flags the collaboration requirement.
+        let prompt = t1.prompt.clone().unwrap_or_default();
+        assert!(prompt.contains("elaborate_seal") || prompt.to_lowercase().contains("operator"));
+
+        // The agent involves the operator and seals; now Spec advances to Review.
+        elaborate_seal(&store, "c", "frame").expect("seal");
+        run_tick(&store, "c").expect("t2");
+        assert_eq!(
+            store.read_state("c").unwrap().unwrap().stations["frame"].phase,
+            StationPhase::Review,
+            "sealed elaboration releases the Spec hold"
+        );
+    }
+
+    #[test]
+    fn continuous_mode_does_not_hold_spec() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        run_tick(&store, "r").expect("spec");
+        // Continuous is linear — Spec advances to Review without an elaborate seal.
+        assert_eq!(
+            store.read_state("r").unwrap().unwrap().stations["frame"].phase,
+            StationPhase::Review
+        );
     }
 
     #[test]
