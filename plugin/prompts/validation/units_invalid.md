@@ -23,6 +23,8 @@ A Unit declares a `depends_on` that names no Unit in this run — a dangling edg
 The Units above form a **dependency cycle** — they depend on each other in a loop, so no wave can ever be ready. Break the cycle: find the edge that doesn't truly need to exist and remove it, or merge the mutually-dependent Units into one. A DAG has no cycles by definition; restore that.
 {% elif problem == "missing_output" %}
 Each Unit above locked but **never produced a declared output** — the artifact it promised in `outputs:` is not on disk. A station cannot advance to Audit on a promise. For each Unit, either **produce the missing artifact** at its declared path, or **correct the `outputs:` declaration** if the path was wrong. Don't audit work that didn't ship its output.
+{% elif problem == "input_not_a_path" %}
+Each Unit above declares an **`input` that names another Unit instead of a file path**. Inputs are *premises* — artifact paths the Unit was built against, which the engine witnesses for drift. A bare Unit slug can't be witnessed. If the Unit must run *after* another, that's a `depends_on` edge, not an `input`. Move the slug to `depends_on`, and declare the real upstream artifact path (e.g. `frame/frame.md`) as the `input`.
 {% else %}
 The decomposition is structurally invalid. Inspect the offending Units, correct their naming / dependencies, and re-validate.
 {% endif %}

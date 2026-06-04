@@ -453,7 +453,26 @@ fn validate_units(all_units: &[Unit], su: &[&Unit]) -> Option<(String, Vec<Strin
         return Some(("unresolved_deps".to_string(), unresolved));
     }
 
-    // 3. Dependency cycle among the station's units. Catches `dag_cycle_detected`.
+    // 3. Input shape — a declared `input` must be an artifact *path*, not a
+    //    sibling unit's slug. Naming a unit where a file path belongs is the
+    //    predecessor's `unit_inputs_not_declared` wedge: the engine can't
+    //    witness a premise that isn't a file. A bare slug that matches a known
+    //    unit (and looks like a slug, not a path) is the tell.
+    let misdeclared_inputs: Vec<String> = su
+        .iter()
+        .filter(|u| {
+            u.frontmatter.inputs.iter().any(|i| {
+                let i = i.trim();
+                known.contains(i) && !i.contains('/') && !i.contains('.')
+            })
+        })
+        .map(|u| u.slug.clone())
+        .collect();
+    if !misdeclared_inputs.is_empty() {
+        return Some(("input_not_a_path".to_string(), misdeclared_inputs));
+    }
+
+    // 4. Dependency cycle among the station's units. Catches `dag_cycle_detected`.
     if let Some(cycle) = first_cycle(su) {
         return Some(("dependency_cycle".to_string(), cycle));
     }
@@ -2074,6 +2093,33 @@ mod tests {
             Some(RunAction::FeedbackQuestion { feedback_id, .. }) => assert_eq!(feedback_id, "fb-00"),
             other => panic!("expected question preempt, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn validate_units_flags_an_input_that_names_a_unit_not_a_path() {
+        let mk = |slug: &str, inputs: Vec<&str>| Unit {
+            slug: slug.into(),
+            frontmatter: darkrun_core::domain::UnitFrontmatter {
+                inputs: inputs.into_iter().map(String::from).collect(),
+                ..Default::default()
+            },
+            title: slug.into(),
+            body: String::new(),
+        };
+        let a = mk("limiter", vec![]);
+        // `b` wrongly lists the sibling unit `limiter` as an input premise.
+        let b = mk("middleware", vec!["limiter"]);
+        let units = vec![a, b];
+        let su: Vec<&Unit> = units.iter().collect();
+        let (problem, bad) = validate_units(&units, &su).expect("should flag");
+        assert_eq!(problem, "input_not_a_path");
+        assert_eq!(bad, vec!["middleware".to_string()]);
+
+        // A real path input is fine.
+        let c = mk("ok", vec!["frame/frame.md"]);
+        let units2 = vec![c];
+        let su2: Vec<&Unit> = units2.iter().collect();
+        assert!(validate_units(&units2, &su2).is_none());
     }
 
     #[test]
