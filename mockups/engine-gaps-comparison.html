@@ -348,8 +348,13 @@
   verifier nonce, integrity checksum, dispatch-lease recovery, fix-chain isolation — the parts that keep a long
   autonomous run from silently corrupting. (3) Cluster D — quality gates are declared in content but the engine never
   runs them, so a "passed Audit" today isn't backed by executed tests.</p>
-  <p>Suggested order still holds: <b>A</b> → witness/recovery half of <b>B</b> → <b>D</b> → <b>C</b> → <b>E/F/G</b>.
-  This remains a ledger to react to, not a committed backlog. No plan until you've reacted.</p>
+  <p>Suggested order still holds: <b>A</b> → witness/recovery half of <b>B</b> → <b>D</b> → <b>C</b> → <b>E/F/G</b>.</p>
+  <p><b>Every remaining line now has an explicit disposition</b> — CLOSED (committed),
+  DELIBERATE (darkrun chose a different design on purpose), or DEFERRED (scoped, with
+  why-not-yet) — in the companion <span class="code">engine-parity-gaps.md</span>. Highlights:
+  the big deferred items are D1 (quality-gate execution), B9 (fix-chain worktree isolation),
+  and C1 (multi-signal elaborate loop); the deliberate non-gaps are B2 (revert-self-heal beats
+  auto-restamp), B6 (hooks cover hookless tamper), and C2 (the fixed six stations are the point).</p>
 </div>
 
 <footer>
