@@ -1,328 +1,194 @@
-# Engine Parity — what darkrun ported, and what it missed (VERIFIED)
+# Engine Parity — what darkrun ported, and what it missed
 
 A full read of the predecessor engine (its `packages/haiku/src`, ~85K LOC) against
-darkrun's current engine. **Every row below has been verified against darkrun
-source** — verdict (HAVE / PARTIAL / MISSING) with `file:line` evidence. The point
-is honesty about the gap, not a to-do list yet.
+darkrun's current engine. Every row is verified against darkrun source. The
+authoritative, machine-readable ledger is **`engine-parity-gaps.csv`** (one row per
+mechanism, with a comment column); this doc is the prose companion.
 
 > Vocabulary: "the predecessor" is the prior TypeScript system. Never write its
 > name into darkrun code, content, or output.
 
-**Verified tally — 44 mechanisms. Start of work: 3 present · 15 partial · 26 missing.
-After this session's burn-down: 18 present · 11 partial · 15 missing.** (A fully;
-B1/B3/B4; C3; D1/D2/D3; E1/E2.)
+---
 
-## Closed this session (committed to main, each tested)
+## ◆ Current status — 2026-06-04
 
-- **Cluster A — fully closed.** Iterations carry a handoff `note` + `completed_at`;
-  `pass`/active-worker derived from the array (`darkrun_unit_iterate` records a
-  beat; the next dispatch shows the prior handoff). Feedback gained `origin`,
-  `closure_reply`, and `invalidates` (a close re-opens the stamps it undercut).
-  Append-only `action-log.jsonl` audit journal per run.
-- **Cluster B — B1 input/premise drift** (the sweep now witnesses + checks
-  declared inputs, files `DriftKind::Input`); **B3 dedup** (per-(unit,input) id);
-  **B4 cascade breaker** (`DARKRUN_DRIFT_CASCADE_CAP`). B8 (deadlock halt) was
-  already present.
-- **Cluster C — C3 severity-ordered feedback** (questions preempt; blocker before
-  nit; no starvation).
-- **Cluster D — D2 output-existence gate** (a unit can't reach Audit on a declared
-  output that isn't on disk); **D3 input-shape gate** (an `input` that names a
-  unit, not a path, is held).
+**44 mechanisms. 27 built · 17 intentionally not built (4 deliberate-design · 5
+redundant · 8 deferred). Every confident gap is closed** — nothing is left on the
+"should build" list. What remains is either a deliberate design difference, a
+genuine redundancy, or a deferred item waiting on an integration that isn't here
+yet.
 
-Still open (next): B2/B5/B6/B7/B9, C1/C2/C4/C5/C6, D1/D4/D5, all of E, F2/F4/F5,
-all of G. A few are deliberate design differences rather than gaps — see notes.
+Start of the work: 3 present · 15 partial · 26 missing → now: 27 built, the rest
+dispositioned with a reason.
 
-## Recommendation — honest
+### Built (27)
 
-### Build
+- **Cluster A — records carry the story (A1–A7, all done).** Iterations are an
+  append-only array with a handoff `note` + `completed_at`; `pass`/active-worker are
+  derived from the array (`darkrun_unit_iterate` records each beat and the next
+  dispatch shows the prior handoff). Feedback gained `origin` (8 variants),
+  `closure_reply`, and `invalidates` (a close re-opens exactly the stamps it
+  undercut, re-firing the gate). Append-only `action-log.jsonl` audit journal per run.
+- **Cluster B — immune system.** B1 input/premise drift (the sweep witnesses + checks
+  declared inputs, files `DriftKind::Input`); B3 per-(unit,input) dedup; B4 cascade
+  breaker (`DARKRUN_DRIFT_CASCADE_CAP`); B8 deadlock/churn halt (pre-existing);
+  **B9 per-unit AND per-fix worktree isolation** — each unit's Pass-loop and each
+  drift/feedback fix forks onto its own branch + worktree off the station branch and
+  lands back on lock/resolution.
+- **Cluster C — cursor richness.** C1 collaboration backpressure (a dedicated
+  `collaborative` mode hard-holds Spec until `darkrun_elaborate_seal`); C3
+  severity-ordered feedback (questions preempt; blocker before nit); **C4 run-level
+  review** (a whole-run cross-station audit gates before seal via
+  `darkrun_run_review_stamp`).
+- **Cluster D — gate & proof depth.** D1 quality-gate execution (declared gates must
+  be `pass`/deferred-to-CI before Audit; env-block auto-defers); D2 output-existence
+  gate; D3 input-shape gate; **D4 cross-station input coverage** (every upstream
+  locked artifact must be carried forward in `inputs` or consciously `inputs_waived`).
+- **Cluster E — content expressiveness.** E1 per-role model; E2 reviewer
+  interpretation (lens/strict); E3 worker plan/build/verify reject-routing (a reject
+  bounces to the nearest preceding build worker); **E5 runtime input coverage** (the
+  cursor holds before Manufacture if the decomposition drops a carried input the
+  plan produces — the runtime complement to D4's template check); **E7 compound
+  gates** (a station offers a choice of checkpoint paths; the operator picks via
+  `darkrun_checkpoint_choose`).
+- **Cluster F — agent safety.** F1 guard-workflow-fields + the 8-hook suite
+  (pre-existing); F3 stamp-agent-write → `drift-witness.log` (pre-existing);
+  **F4 per-role review stamp** (`darkrun_review_stamp` records one role without a
+  cursor walk, so reviewers/explorers fan out in parallel and the parent ticks once).
 
-- ✅ **D1 — quality-gate execution. DONE.** Unit declares `quality_gates`;
-  `darkrun_quality_gate_record` stamps results; Audit holds on `gates_unmet`;
-  env-block auto-defers to CI. A "passed Audit" is now backed by recorded gates.
-- ✅ **E2 — reviewer interpretation (lens/strict). DONE.**
-- **Remaining content batch — E5 structured inputs, E6 `applies_to`, plus E3
-  (reject-routing to a build worker) and E7 (compound gates) — the last two need a
-  small cursor change.** Low-to-moderate risk. (E4 `run_quality_gates` is now
-  redundant: D1's Audit gate already forces gate recording.)
-- **C4/C5 — run-level review + mode shaping.** The roles are already declared;
-  wire a run-level review gate into the walk. Moderate.
+### Deliberate design — not a gap (4: keep)
 
-After those, the ledger is — in my honest read — **done enough**.
+- **B2** revert-self-heal + explicit `accept()` over auto-restamp-on-detect (the
+  stronger model for darkrun's filesystem-truth design).
+- **B6** the hook suite + `drift-witness.log` over an FSM checksum sidecar.
+- **C2** the fixed six FSSBPH stations (the whole orientation refactor rests on the
+  invariant spine; right-sizing collapses at run start).
+- **C6** delivery verification — the discrete gate already polls PR merge; a
+  non-discrete run has no PR to re-audit.
 
-### Don't build (skip — cargo-culting the predecessor)
+### Redundant in darkrun's model (5: skip)
 
-I do **not** think we should port these. Each solves a problem darkrun either
-doesn't have or already solves another way. Build any only if its named trigger
-actually shows up.
+- **B7** dispatch leases — the deadlock halt + automatic `Pending` re-dispatch already
+  recover an abandoned unit (backstopped).
+- **E4** `run_quality_gates` — subsumed by D1's Audit gate, which already forces every
+  declared gate to be recorded.
+- **E6** `applies_to` globs — reviewers are per-station rosters, so you scope by simply
+  not listing a reviewer where it doesn't apply.
+- **G3** clarifications — already captured in the run doc / annotations.
+- **G5** persisted session metadata — sessions are in-memory by design; the on-disk run
+  state is the durable truth.
 
-- **C1 multi-signal elaborate loop** — the predecessor's own hardest refactor, and
-  its GAPS.md admits the payoff was behavioral-only. The Spec prompt already
-  invites concurrent elaborate/discover/decompose. *Trigger:* agents demonstrably
-  serialize when they shouldn't.
-- **B5 verifier nonce** — anti-self-certification the predecessor itself left
-  instruction-gated. *Trigger:* D1's gate proves gameable in practice.
-- **B7 dispatch leases** — the deadlock halt + Pending-re-dispatch already recover
-  an abandoned unit. *Trigger:* a real crash leaves a wedge the halt misses.
-- **B9 fix-chain worktree isolation** — the valuable half (downstream invalidation)
-  already landed via A6. *Trigger:* parallel fixes actually collide on disk.
-- **D4 coverage acknowledgement** — only meaningful once cross-station coverage is
-  enforced, which isn't planned. Don't build the ack before the thing it acks.
-- **F2 human_write** — no conversational-write flow exists; the guard hook blocks
-  raw writes. *Trigger:* a "save this for me" UX appears.
-- **F4 review_stamp** — darkrun doesn't fan reviewers out in parallel, so the
-  loop-guard problem it solves doesn't exist. *Trigger:* we parallelize reviews.
-- **F5 presence grace** — polish for a remote-review path that isn't here.
-- **G3 clarifications / G5 persisted sessions** — redundant with the run doc /
-  annotations and the in-memory-by-design session registry.
+### Deferred — real, but waiting on a trigger / integration (8)
 
-### Keep (deliberate design — not work)
-
-B2 (revert-self-heal over auto-restamp), B6 (hooks over an FSM checksum), C2 (the
-fixed six stations), C6/D5 (hosting integration). Flip one only to change the
-design — they aren't on the build path.
-
-### Defer (worth it, not urgent)
-
-G1 plugin_version stamp (cheap, worth doing early), G2 external_refs, G4 draft-PR
-status — do whenever their integration lands.
-
-## The one-paragraph truth (post-verification)
-
-darkrun ported the predecessor's **shape** (three tracks, station phase machine,
-four checkpoint kinds, units with iterations, reviews/approvals stamps,
-surface-routed proof) and — correcting the first draft — **more of its safety
-layer than I first credited**: a full 8-hook agent guard suite, a cursor-level
-**deadlock/churn halt** (`deadlock.rs`), per-path drift idempotency, and a
-drift-witness log. What's still genuinely absent is the **witness-based drift
-immune system** (premise/input drift, restamp-on-detect, verifier nonce, integrity
-checksum, dispatch-lease recovery, fix-chain isolation), the **quality-gate
-execution engine** (gates are declared in content but the engine never runs them),
-and — the cluster that started this — records that carry the **story** (an
-iteration has no "why"; feedback has no origin or closure reply).
-
-## Corrections from the first draft (darkrun has more than I credited)
-
-- **B8 deadlock/churn halt → HAVE.** `deadlock.rs:1-354` is a real cursor-level
-  detector (HALT_THRESHOLD=4, A↔B churn window=10, persisted to `deadlock.json`),
-  on top of the per-unit MAX_PASSES=8 guard (`position.rs:369,839`).
-- **F1 guard-workflow-fields → HAVE**, and the hook suite is full: `hooks.json`
-  wires 8 hooks (guard-workflow-fields, prompt-guard, workflow-guard,
-  stamp-agent-write, context-monitor, redirect-plan-mode, inject-state-file,
-  edit-auto-read-hint); the guard exits(2) with a redirect and suspends during
-  merge (`cli/src/hook.rs:170-206`).
-- **F3 stamp-agent-write → HAVE.** PostToolUse hook appends every agent Write/Edit
-  to `drift-witness.log`, read by the drift track (`cli/src/hook.rs:393-431`).
-- **B2/B3 drift → PARTIAL, not missing.** Re-witness exists via the explicit
-  `accept()` tool (`drift.rs:106-138`); `drift_id_for(path)` makes filing
-  idempotent per artifact path (`drift.rs:36-42`).
-- **F5 presence → PARTIAL.** WS layer tracks live connections + a heartbeat
-  endpoint (`http/state.rs:130-177`); missing only grace windows + reattach.
-
-## Disposition of every remaining line
-
-Each open line is now one of: **CLOSED** (committed this session), **DELIBERATE**
-(darkrun chose a different design on purpose — not a gap), or **DEFERRED** (a real
-gap, scoped, with why-not-yet). Nothing is left unaccounted for.
-
-**Cluster A — all CLOSED** (A1–A7).
-
-**Cluster B**
-- B1 input/premise drift — **CLOSED**. B3 dedup — **CLOSED** (per-premise id).
-  B4 cascade breaker — **CLOSED**. B8 deadlock halt — **already present**.
-- B2 restamp-on-detect — **DELIBERATE**. darkrun's drift self-heals on revert and
-  re-witnesses via the explicit `accept()` tool; auto-restamping on detect would
-  destroy revert-self-heal (the witness would chase the mutation). The chosen
-  model is stronger for darkrun's filesystem-truth design.
-- B6 FSM checksum sidecar — **DELIBERATE**. darkrun covers hookless tamper a
-  different way: the `stamp-agent-write` hook logs every agent edit to
-  `drift-witness.log` and `guard-workflow-fields` blocks raw writes to managed
-  files. A checksum sidecar would duplicate that.
-- B5 verifier nonce — **DEFERRED**. darkrun has no verifier-subagent/seal split to
-  bind a nonce to yet; the analogue is requiring recorded proof at Audit before
-  the checkpoint. Worth doing after the proof-at-Audit gate (relates to D1).
-- B7 dispatch leases + recovery — **DEFERRED (low)**. darkrun's model re-dispatches
-  `Pending` units automatically and the deadlock halt catches an abandoned
-  in-flight unit; a TTL lease would tighten recovery but the wedge is already
-  caught. 
-- B9 fix-chain isolation + downstream invalidation — **DEFERRED (large)**.
-  Per-fix worktree isolation is a real feature; downstream invalidation is partly
-  delivered (feedback `invalidates` now re-opens stamps — A6). The worktree-per-fix
-  half is scoped but large (git plumbing).
-
-**Cluster C**
-- C3 severity-ordered feedback — **CLOSED**.
-- C1 multi-signal elaborate loop — **DEFERRED (large)**. The Spec phase prompt
-  already choreographs elaborate→discover→decompose; exposing them as concurrent
-  cursor signals is the predecessor's own biggest refactor (its GAPS.md §1). High
-  effort, behavioral-only gain.
-- C2 optional stations — **DELIBERATE**. The six FSSBPH positions are a fixed
-  invariant by design (the whole orientation refactor rests on it); right-sizing
-  collapses at run-start. A live keep-or-drop gate would reintroduce variable
-  spines we deliberately removed.
-- C4/C5 run-level reviews + mode shaping at run scope — **DEFERRED**. The content
-  model already declares run reviewers/reflections; wiring a run-level review gate
-  into the walk (distinct from per-station) is scoped, moderate.
-- C6 delivery verification re-audit — **DELIBERATE/PARTIAL**. The discrete gate
-  already polls PR merge before advancing; a separate pre-seal re-audit is
-  redundant for non-discrete runs (no PR).
-
-**Cluster D**
-- D2 output-existence gate — **CLOSED**. D3 input-shape gate — **CLOSED**.
-- D1 quality-gate execution — **DEFERRED (large, high value)**. In darkrun's
-  architecture the agent runs commands (it has Bash); the gap is structured
-  recording + enforcement that gates passed. The right shape is a
-  `darkrun_quality_gate_record` tool + a `quality_gates` approval stamp required
-  at Audit when the factory declares gates. Scoped; next major item.
-- D4 coverage acknowledgement — **DEFERRED (moderate)**. A tool + state to mark
-  upstream outputs out-of-scope / covered. Needed only once cross-station input
-  coverage is enforced.
-- D5 proof upload to PR/MR — **DELIBERATE/DEFERRED**. Proof is stored locally and
-  surface-checked; pushing it to a PR asset is a hosting-integration feature,
-  valuable but orthogonal to engine correctness.
-
-**Cluster E**
-- E1 per-role model — **CLOSED** (resolved at dispatch).
-- E2 interpretation lens/strict, E3 role plan/build/verify reject-routing,
-  E4 run_quality_gates, E5 structured inputs, E6 applies_to, E7 compound gates —
-  **DEFERRED (content-model expressiveness)**. Each is a frontmatter field + a
-  cursor/prompt behavior; individually moderate, collectively the next content
-  pass. E3's reject-routing partly exists (a reject files feedback to Track B).
-
-**Cluster F**
-- F1 guard-workflow-fields, F3 stamp-agent-write — **already present (HAVE)**.
-- F2 human_write, F4 review_stamp — **DEFERRED**. Both are real (a guarded
-  conversational write tool; a parallel-safe review self-stamp). F4 matters once
-  reviewers fan out in parallel.
-- F5 session presence grace/reattach — **DEFERRED (low)**. Presence + heartbeat
-  exist; grace windows are polish.
-
-**Cluster G** — plugin_version+migration, external_refs, clarifications, draft-PR
-lifecycle, persisted sessions — **DEFERRED (lifecycle polish)**. None block engine
-correctness; each is additive state. G's fixed-six-stations line is **DELIBERATE**
-(see C2).
-
-## What darkrun already has (so we don't cry wolf)
-
-- Three-track manager (drift → feedback → run) and the FSSBPH phase machine.
-- All four `CheckpointKind`s (auto/ask/external/await) and the gate-review session.
-- 43 MCP tools incl. proof attach/get, drift accept, reflections, annotations,
-  direction/question/picker sessions, surface classification, scaffold.
-- Drift *accept* + re-witness (for **outputs**), feedback triage (severity, move,
-  reject, resolve), a `hooks.json` manifest.
-- The data model already carries `input_witnesses`, `reviews`, `approvals`, and a
-  `Stamp` type — several fields exist but are **not yet wired** into sweeps/gates.
+- **B5** verifier nonce — do alongside a future seal/verifier split; low value until a
+  gate is shown gameable.
+- **C5** run-level mode shaping — bundle with the C4 run-level gate.
+- **D5** proof upload to PR/MR — hosting integration, orthogonal to engine correctness.
+- **F2** human_write — build when a "save this for me" UX appears.
+- **F5** session presence grace — polish for a remote-review path that isn't here.
+- **G1** plugin_version + migration — worth stamping the version early; migrators later.
+- **G2** external_refs — additive field; add when integrations land.
+- **G4** draft-PR lifecycle — extend `pr_ref` with a status field when the discrete
+  path matures.
 
 ---
 
-## Gap clusters, by theme. Severity: ★★★ correctness/durability · ★★ behavior · ★ expressiveness/polish
+## Disposition of every line (authoritative — mirrors the CSV)
 
-### A. Records carry verdicts, not stories ★★★  (this is where the conversation started)
+**Cluster A** — A1–A7 all **done**.
 
-| Gap | Predecessor | darkrun | Confirmed |
-|---|---|---|---|
-| Iteration handoff/`reason`/`message` | `iteration.reason` (required on reject) + `message` (v9 forward handoff); `renderPriorHandoff` feeds it to the next worker (`prompts/_helpers.ts:232-367`) | `UnitIteration` has none — only worker/started_at/result/pass | ✅ domain.rs:364 |
-| Iteration `completed_at` | stamped at terminal result (`schemas/iteration.ts`) | missing (only `started_at`) | ✅ |
-| `pass`/`worker` are derived, not stored | bolt = `iterations.length`; hat = `iterations[-1].hat` (`units.ts:147`) | `pass: u32` and `worker: String` stored on the unit → dual source of truth | ✅ domain.rs:406,410 |
-| Feedback `origin` taxonomy (12 values) | adversarial-review, drift, discovery, user-chat, … (`schemas/feedback.ts:35`) | `Feedback` has no origin | ✅ |
-| Feedback `closure_reply` (+unread) | what the fixer did, surfaced to requester (`feedback.ts:159`) | missing | ✅ |
-| Feedback `targets.invalidates[]` | which approval roles clear on close (`feedback.ts:138`) | invalidation is implicit in code, not persisted | ✅ |
-| Audit journals | `action-log.jsonl` + `write-audit.jsonl` + per-stage `decisions.jsonl` | none | ✅ |
+**Cluster B** — B1 **done** · B2 **keep** (deliberate) · B3 **done** · B4 **done** ·
+B5 **defer** · B6 **keep** (deliberate) · B7 **skip** (backstopped) · B8 **done**
+(pre-existing) · B9 **done** (per-unit + per-fix isolation).
 
-The fix here is cheap and self-contained, and it's the thing you already named:
-make `UnitIteration` append-only with a `note`/`reason`, derive pass/worker from
-the array, and thread the prior note into the next worker's dispatch.
+**Cluster C** — C1 **done** · C2 **keep** (deliberate) · C3 **done** · C4 **done** ·
+C5 **defer** · C6 **keep** (mostly redundant).
 
-### B. The self-healing immune system — the biggest architectural miss ★★★
+**Cluster D** — D1 **done** · D2 **done** · D3 **done** · D4 **done** · D5 **defer**.
 
-| Gap | Predecessor | darkrun |
+**Cluster E** — E1 **done** · E2 **done** · E3 **done** · E4 **skip** (subsumed by
+D1) · E5 **done** (runtime input coverage) · E6 **skip** (per-station rosters) ·
+E7 **done** (compound gates).
+
+**Cluster F** — F1 **done** (pre-existing) · F2 **defer** · F3 **done**
+(pre-existing) · F4 **done** (parallel review stamp) · F5 **defer**.
+
+**Cluster G** — G1 **defer** · G2 **defer** · G3 **skip** (redundant) · G4 **defer** ·
+G5 **skip** (in-memory by design).
+
+---
+
+## Reference — the gap clusters by theme
+
+The predecessor-side mechanics, kept as reference. Severity: ★★★
+correctness/durability · ★★ behavior · ★ expressiveness/polish. Current darkrun
+status is in the disposition list above and the CSV.
+
+### A. Records carry the story ★★★ (where the conversation started) — DONE
+
+Iterations were verdict-only; now they're an append-only array carrying the *why*:
+a handoff `note` on advance, a reason on reject, `completed_at` per beat, with
+`pass`/worker derived from the array. Feedback carries `origin`, `closure_reply`,
+and `invalidates`. A per-run `action-log.jsonl` records how the run actually walked.
+
+### B. The self-healing immune system ★★★ — DONE / deliberate
+
+| Mechanic | Predecessor | darkrun now |
 |---|---|---|
-| Drift on **premises** (inputs), not just outputs | sweeps every witnessed input file + dir inventory; detects input mutation/add/delete (`drift-sweep.ts:330-716`) | sweep iterates `outputs` only (`drift.rs:62`); the `input_witnesses` field exists but is never swept |
-| Witness **restamp on detect** | restamps witness to current SHA before filing FB, so drift can't re-fire (`drift-handle-events.ts:247`) | no restamp |
-| Cross-sweep **dedup** | `source_ref: drift:<kind>:<file>:<sha>`, skip if already open | none — same drift can file repeatedly |
-| **Cascade alarm** circuit breaker | stop filing at ≥10 open drift FBs (`drift-handle-events.ts:409`) | none |
-| Baton **exemption** | a file that is both an input-witness and a current output is exempt (in-loop writes don't re-fire) | none |
-| **Verifier nonce** anti-self-certify | cursor mints a one-time nonce; seal tools refuse without it (`verifier-nonce.ts`) | seal/advance is instruction-gated only |
-| **FSM checksum** sidecar | `.fsm_checksum` detects tampering on hookless harnesses (`state-integrity.ts:108`) | none |
-| Pre-tick **self-repair** | synthesize missing approvals; recover stale dispatch **leases**; reset lost worktree/branch units (`run-tick.ts`, `unit-branch-recovery.ts`) | no dispatch-lease concept, no recovery |
-| **Deadlock / churn halt** | same action signature ≥4 ticks, or A↔B churn ≥8 ticks → `loop_halted` (`deadlock-detector.ts`) | **HAVE** — real detector `deadlock.rs:1-354` (HALT_THRESHOLD=4, churn window=10) + per-unit MAX_PASSES=8 |
-| Fix-chain **merge gate** + downstream invalidation | fix runs on an isolated branch, merge-gated; revisit clears downstream approvals (`fix-chain-merge-gate.ts`, `invalidate-downstream.ts`) | PARTIAL — `FixFeedback` action exists; no worktree-per-fix, no downstream invalidation |
+| Drift on **premises** (inputs), not just outputs | sweeps witnessed input files + dir inventory | **done** — `drift.rs` sweep + `DriftKind::Input` + `input_witnesses` |
+| Cross-sweep **dedup** | `source_ref` skip-if-open | **done** — `drift_id_for` + per-(unit,input) id |
+| **Cascade alarm** breaker | stop filing at ≥10 open | **done** — `cascade_cap` / `DARKRUN_DRIFT_CASCADE_CAP` |
+| Witness **restamp on detect** | restamp before filing | **keep** — darkrun reverts-to-self-heal + explicit `accept()` instead |
+| **FSM checksum** sidecar | `.fsm_checksum` tamper detect | **keep** — hook suite + `drift-witness.log` cover it |
+| **Verifier nonce** | one-time token required by seal | **defer** — no seal/verifier split to bind to yet |
+| Dispatch **leases** + recovery | `dispatched_at` + TTL recovery | **skip** — deadlock halt + `Pending` re-dispatch backstop it |
+| **Deadlock / churn halt** | signature/churn → halt | **done** — `deadlock.rs` (pre-existing) |
+| Fix-chain **isolation** + downstream invalidation | fix on isolated branch, merge-gated; revisit clears downstream | **done** — per-unit + per-fix worktree isolation; `invalidates` clears downstream stamps |
 
-### C. Cursor richness ★★
+### C. Cursor richness ★★ — DONE / deliberate
 
-- **Multi-signal elaborate loop**: one action carries every unmet signal
-  (conversation / verify / discovery:<agent> / decompose / verify_decompose); the
-  agent stacks several in a tick. darkrun's Spec phase is monolithic.
-- **Optional stages**: keep-or-drop offer on first arrival + `dependents[]`.
-  darkrun's six are all mandatory (by design — but the predecessor's right-sizing
-  was a live gate, not just run-start collapse).
-- **Severity-threshold feedback waves** + batching + **stuck-reject escalation**
-  (≥2 consecutive rejects on the same hat → escalate). darkrun returns the first
-  open feedback, no batching, no escalation.
-- **Intent-scope vs stage-scope** reviews and quality gates (union, deduped).
-- **Mode-shaped role lists at two levels** (autopilot drops user gate per-stage but
-  the final intent user gate is always sacred).
-- **Forward-only gates** (briefs/observations never interrupt an in-flight wave).
-- **Delivery verification**: re-audit PR merge state before sealing.
+- **Collaboration backpressure (elaborate)** — **done**, gated to a dedicated
+  `collaborative` mode that hard-holds Spec until `darkrun_elaborate_seal`.
+- **Severity-ordered feedback** — **done** (questions preempt; blocker before nit).
+- **Run-level review** — **done** (`RunReview` holds after the last station until the
+  whole-run reviewers stamp, before seal).
+- **Optional stations** — **keep** (the fixed six are the point; right-size at start).
+- **Run-level mode shaping** — **defer** (bundle with the run-level gate).
+- **Delivery verification** — **keep** (discrete gate already polls PR merge).
 
-### D. Gate / proof depth ★★
+### D. Gate / proof depth ★★ — DONE / deferred
 
-- **Quality-gate dispatch**: run declared gates at stage + intent scope;
-  **environment-blocked** classification (DB down ≠ test failed); **defer-to-CI**
-  escape hatch after N non-convergent attempts (prevents permanent wedge).
-- **Output-existence gate** at closeout (declared outputs must exist; repairs
-  extension typos).
-- **Input-shape validation gate** (inputs declared as file paths, not unit names).
-- **Coverage acknowledgement** (out-of-scope / covered-by-unit decisions).
-- **Proof upload to the PR/MR** as a durable asset.
+- **Quality-gate execution** — **done** (declared gates run + recorded; Audit holds on
+  `gates_unmet`; env-block auto-defers to CI).
+- **Output-existence gate** — **done**. **Input-shape gate** — **done**.
+- **Cross-station input coverage** — **done** at the template level (D4:
+  `validate_input_coverage`) AND at runtime (E5: the cursor holds if a unit drops a
+  carried input the plan produces).
+- **Proof upload to PR/MR** — **defer** (hosting integration).
 
-darkrun has `CheckpointKind` + `proof.rs` + `run_surface`, but none of these gates.
+### E. Content-model expressiveness ★ — DONE / redundant
 
-### E. Content-model expressiveness ★  (post-orientation-refactor, still missing)
+`model` (**done**), `interpretation` lens/strict (**done**), `role: plan|build|verify`
+reject-routing (**done**), compound gates `checkpoint: [external, ask]` (**done**),
+runtime input coverage (**done**). `run_quality_gates` (**skip** — subsumed by D1) and
+`applies_to` globs (**skip** — per-station rosters) are redundant in darkrun's model.
 
-Per-role frontmatter the predecessor's hats/agents carried that darkrun roles don't:
-`model`, `interpretation` (lens vs strict dispute posture), `run_quality_gates`,
-and `role: plan|build|verify` (reject bounces to the nearest **build** role).
-Also: structured cross-stage `inputs: [{stage, output}]`, `review-agents-include`,
-`applies_to` artifact globs, `produces: build|knowledge`, **compound gates**
-(`checkpoint: [external, ask]`), per-worker output ownership, and studio-level
-intent-completion reviewers/fix-hats.
+### F. Agent-safety / write path ★★ — DONE / deferred
 
-### F. Agent-safety / write path ★★
+- **guard-workflow-fields + 8-hook suite** — **done** (pre-existing).
+- **stamp-agent-write** → `drift-witness.log` — **done** (pre-existing).
+- **review_stamp** — **done** (`darkrun_review_stamp`: a subagent records one role
+  without a cursor walk, so reviewers/explorers fan out in parallel).
+- **human_write** — **defer**. **Session presence grace** — **defer** (presence +
+  heartbeat exist; grace windows are polish).
 
-- **guard-workflow-fields → HAVE.** `hooks.json` wires the full 8-hook suite; the
-  PreToolUse guard blocks raw Write/Edit on managed files, exits(2) with a
-  redirect-to-tool message, and suspends during merge (`cli/src/hook.rs:170-206`).
-- **human_write → MISSING.** No conversational write tool with allow/deny-list +
-  symlink guard. HTTP feedback only stamps `author="user"` (`http/handlers.rs:381`).
-- **record_agent_write / stamp-agent-write → HAVE.** PostToolUse hook appends every
-  agent Write/Edit to `drift-witness.log`, read by the drift track (`cli/src/hook.rs:393-431`).
-- **review_stamp → MISSING.** Reviews resolve only via `checkpoint_decide` → full
-  tick (`tools.rs:1049`); no parallel-safe self-stamp, so concurrent review waves
-  risk the churn the predecessor engineered around.
-- Session **presence/heartbeat → PARTIAL** — live-connection count + heartbeat
-  endpoint exist (`http/state.rs:130-177`); missing the grace windows and
-  reattach precedence (arg > live registry > FM pointer).
+### G. Lifecycle / state extras ★ — deferred / redundant
 
-### G. Lifecycle / state extras ★
-
-`plugin_version` + migration markers (`migrated: true`); `external_refs` (ticket/
-PR/design handles); `clarifications` (stage Q&A); draft-PR lifecycle
-(status/ready_at, not just a ref); variable stage list (drop) vs the fixed six;
-persisted session metadata (survives restart).
+`plugin_version` + migration (**defer**), `external_refs` (**defer**), draft-PR
+lifecycle (**defer**); `clarifications` (**skip** — in the run doc / annotations) and
+persisted session metadata (**skip** — in-memory by design).
 
 ---
 
-## Recommended sequence (dependency-ordered, no commitment yet)
-
-1. **Cluster A** — the story-bearing records. Smallest, highest daily value, and
-   the one already surfaced. Append-only iteration with `note`; derive pass/worker;
-   thread the handoff into the next worker; add feedback `origin` + `closure_reply`.
-2. **Cluster B** — the immune system. This is the real debt: premise-witness drift,
-   restamp, dedup, cascade alarm, dispatch leases + recovery, deadlock halt. Without
-   it, long autonomous runs corrupt or wedge.
-3. **Cluster D** then **C** — gate depth and cursor richness.
-4. **E / F / G** — expressiveness and safety polish, prioritized by which actually
-   bite in practice.
-
-Each line above should be verified against darkrun source before it's scheduled —
-this doc is the starting ledger, not the final word.
+*Authoritative ledger: `engine-parity-gaps.csv`. This doc and the
+`engine-gaps-comparison.html` view are kept in sync with it.*

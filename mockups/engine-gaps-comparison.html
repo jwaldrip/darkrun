@@ -84,26 +84,27 @@
 <div class="wrap">
 
 <header class="hero">
-  <div class="word"><b>dark</b>run · engine parity audit · <span class="vstamp">✓ verified · dispositioned · burned down</span></div>
-  <h1>What we ported, what we missed, and what's next</h1>
+  <div class="word"><b>dark</b>run · engine parity audit · <span class="vstamp">✓ verified · dispositioned · every confident gap closed</span></div>
+  <h1>What we ported, what we missed, and what we built</h1>
   <p class="lead">Every mechanism read in the predecessor engine and verified against darkrun source. Each row carries the
-  <b>current</b> darkrun status (after this session's burn-down) and a <b>per-row recommendation</b>. 44 mechanisms:
-  <span style="color:var(--have)">16 present</span>, <span style="color:var(--partial)">11 partial</span>,
-  <span style="color:var(--missing)">17 missing</span>.</p>
+  <b>current</b> darkrun status and a <b>per-row disposition</b>. 44 mechanisms — as of <b>2026-06-04</b>:
+  <span style="color:var(--have)">27 built</span>, the rest intentionally not built
+  (<span style="color:var(--partial)">4 deliberate · 5 redundant</span>, <span style="color:var(--missing)">8 deferred</span>).</p>
 </header>
 
 <div class="tldr">
-  <b>State of play.</b> Cluster A (records carry the story) is fully closed; B/C/D/E have their highest-value gaps closed
-  and committed. The genuine debt left is the <b>quality-gate execution engine (D1)</b> — close it first — then the
-  content-model expressiveness pass (E), then the large refactors (B9 fix-chain worktrees, C1 multi-signal elaborate).
-  A handful of lines are <b>deliberate design differences</b>, not gaps (the fixed six stations, revert-self-heal over
-  auto-restamp, hooks over an FSM checksum) — keep them unless you decide otherwise.
+  <b>State of play.</b> Every confident gap is closed — there is nothing left on the "should build" list. Cluster A
+  (records carry the story) is fully closed; the immune system (B), cursor richness (C), gate &amp; proof depth (D), and
+  content expressiveness (E) all have their gaps built and committed, including the two big ones — <b>per-unit AND
+  per-fix worktree isolation (B9)</b> and <b>quality-gate execution (D1)</b>. What remains is either a <b>deliberate
+  design difference</b> (the fixed six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum), a
+  genuine <b>redundancy</b>, or a <b>deferred</b> item waiting on an integration that isn't here yet.
 </div>
 
 <div class="scorerow">
-  <div class="score h"><div class="n">18</div><div class="l">present</div></div>
-  <div class="score p"><div class="n">11</div><div class="l">partial</div></div>
-  <div class="score m"><div class="n">15</div><div class="l">missing</div></div>
+  <div class="score h"><div class="n">27</div><div class="l">built</div></div>
+  <div class="score p"><div class="n">9</div><div class="l">deliberate / redundant</div></div>
+  <div class="score m"><div class="n">8</div><div class="l">deferred</div></div>
 </div>
 
 <div class="legend">
@@ -113,11 +114,10 @@
   <span class="sev">★★★ correctness/durability · ★★ behavior · ★ expressiveness</span>
 </div>
 <div class="reclegend">
-  <span><span class="k k-done">done</span> closed this session</span>
-  <span><span class="k k-do">do</span> build next (ordered)</span>
+  <span><span class="k k-done">done</span> built + committed</span>
   <span><span class="k k-keep">keep</span> deliberate design — don't build</span>
   <span><span class="k k-defer">defer</span> worth building, later</span>
-  <span><span class="k k-skip">skip</span> honestly, probably never — only if X</span>
+  <span><span class="k k-skip">skip</span> redundant in darkrun's model</span>
 </div>
 
 <!-- A -->
@@ -199,8 +199,8 @@
           <td class="rec"><span class="k k-done">done</span>Already present before this session.</td></tr>
       <tr><td class="gap">Fix-chain isolation + downstream invalidation</td>
           <td class="pred">isolated branch + revisit clears downstream</td>
-          <td class="dr"><span class="pill partial">half</span><span class="drnote">downstream invalidation via feedback <span class="code">invalidates</span> (A6); fixes run in the shared station worktree, no per-fix isolation</span></td>
-          <td class="rec"><span class="k k-do">do</span><b>You're right.</b> A fix produces code like a unit does — same isolation value, same reason. Give each fix its own branch+worktree off the station, with clean retry + conflict-pause + guarded merge-back. (Note: today units isolate per-STATION, not per-unit — worth confirming if you want per-unit too.)</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">per-unit AND per-fix worktree isolation: each unit's Pass-loop and each drift/feedback fix forks onto its own branch+worktree off the station branch and lands back on lock/resolution; downstream invalidation via feedback <span class="code">invalidates</span> (A6)<span class="ev">lifecycle.rs · position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped BOTH per-unit and per-fix isolation (your call) — clean retry, conflict-pause, guarded merge-back. Verified end-to-end on git-backed runs.</td></tr>
     </tbody>
   </table>
 </section>
@@ -213,8 +213,8 @@
     <tbody>
       <tr><td class="gap">Multi-signal elaborate loop</td>
           <td class="pred">one action, every unmet signal</td>
-          <td class="dr"><span class="pill partial">prompt-only</span><span class="drnote">Spec prompt choreographs it; not exposed as cursor signals</span></td>
-          <td class="rec"><span class="k k-do">do</span><b>I was wrong to skip this.</b> The signals aren't a cosmetic refactor — they're <b>collaboration backpressure</b>: agents routinely leave the operator out, and the unmet-signal gate forces the collaboration the mode requires (conversation, verify-conversation, decompose-verify). That's the core of "checkpoints, not babysitting." Build it as mode-aware cursor signals — held in collaborative modes, relaxed under autopilot.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">collaboration backpressure: a dedicated <span class="code">collaborative</span> mode hard-holds Spec until <span class="code">darkrun_elaborate_seal</span>; continuous stays linear<span class="ev">position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — the unmet-signal gate forces the collaboration the mode requires, gated to an explicit collaborative mode (your call) so continuous runs stay linear.</td></tr>
       <tr><td class="gap">Optional stations</td>
           <td class="pred">keep-or-drop + dependents</td>
           <td class="dr"><span class="pill have">by design</span><span class="drnote">fixed six; right-size at run-start</span></td>
@@ -225,8 +225,8 @@
           <td class="rec"><span class="k k-done">done</span>Ordering shipped. Batching/escalation can follow if waves get noisy.</td></tr>
       <tr><td class="gap">Intent vs station scope</td>
           <td class="pred">run-level reviews + gate union</td>
-          <td class="dr"><span class="pill partial">station-only walk</span><span class="drnote">content declares run reviewers; walk gates per-station</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Wire a run-level review gate into the walk — the roles are already declared. Moderate.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">a whole-run <span class="code">RunReview</span> holds after the last station until the run reviewers stamp via <span class="code">darkrun_run_review_stamp</span>, before seal<span class="ev">position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — the cross-station audit gates before seal. (C5 run-level mode shaping bundled with it stays <span class="k k-defer">defer</span>.)</td></tr>
       <tr><td class="gap">Mode-shaped role lists</td>
           <td class="pred">two levels; final gate sacred</td>
           <td class="dr"><span class="pill partial">station level</span><span class="drnote">autopilot trims station <span class="code">user</span>; no run-level shaping</span></td>
@@ -257,10 +257,10 @@
           <td class="pred">inputs as paths not names</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">input_not_a_path</span> + naming/deps/cycle checks</span></td>
           <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
-      <tr><td class="gap">Coverage acknowledgement</td>
-          <td class="pred">out-of-scope / covered-by-unit</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Only meaningful if we enforce cross-station input coverage — which isn't planned. Don't build the acknowledgement before the thing it acknowledges exists.</td></tr>
+      <tr><td class="gap">Cross-station input coverage (+ ack)</td>
+          <td class="pred">cumulative input coverage + out-of-scope / covered acks</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">every upstream locked artifact must be carried forward in a later station's <span class="code">inputs</span> or consciously <span class="code">inputs_waived</span><span class="ev">validate.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — no silent loss of the run's distillation; an intentionally-dropped artifact is acknowledged via <span class="code">inputs_waived</span>. Paired with the runtime check (E5).</td></tr>
       <tr><td class="gap">Proof upload to PR/MR</td>
           <td class="pred">durable asset on the change request</td>
           <td class="dr"><span class="pill partial">local only</span><span class="drnote"><span class="code">proof_attach</span> stores + surface-checks; no PR upload</span></td>
@@ -272,7 +272,7 @@
 <!-- E -->
 <section>
   <div class="clab"><span class="tag">E</span><h2>Content-model expressiveness</h2><span class="stars">★</span></div>
-  <p class="csub">One coherent batch — recommendation step 2.</p>
+  <p class="csub">The expressiveness batch — built; two fields turned out redundant.</p>
   <table>
     <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
@@ -286,24 +286,24 @@
           <td class="rec"><span class="k k-done">done</span>Shipped — build's <span class="code">correctness</span> reviewer is now strict.</td></tr>
       <tr><td class="gap"><span class="code">role: plan|build|verify</span></td>
           <td class="pred">reject bounces to build</td>
-          <td class="dr"><span class="pill missing">partial</span><span class="drnote">a reject files feedback to Track B; no worker bounce</span></td>
-          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — adds reject-routing to the nearest build worker.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">worker declares its role; a reject bounces to the nearest preceding <span class="code">build</span> worker via <span class="code">unit_iterate</span> next_worker<span class="ev">model.rs · factory.rs · manufacture.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — reject-routing composes with the iteration model.</td></tr>
       <tr><td class="gap"><span class="code">run_quality_gates</span></td>
           <td class="pred">auto-test-and-reject</td>
           <td class="dr"><span class="pill missing">n/a</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Largely subsumed by D1 — the Audit gate already forces every declared gate to be recorded before the station advances. A per-worker "run gates now" flag is marginal; build only if a worker needs to gate mid-loop rather than at Audit.</td></tr>
-      <tr><td class="gap">Structured inputs</td>
+          <td class="rec"><span class="k k-skip">skip</span>Subsumed by D1 — the Audit gate already forces every declared gate to be recorded before the station advances. Build only if a worker needs to gate mid-loop rather than at Audit.</td></tr>
+      <tr><td class="gap">Runtime input coverage <span class="code">(was: structured inputs)</span></td>
           <td class="pred"><span class="code">[{stage, output}]</span> + include</td>
-          <td class="dr"><span class="pill partial">flat names</span></td>
-          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — structure the input list.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">before Manufacture, every station input the plan produces must be consumed by a unit, else the station holds (<span class="code">station_inputs_dropped</span>) — the runtime complement to D4's template check<span class="ev">position.rs · units_invalid.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Reframed + shipped — the <span class="code">{stage,output}</span> typing was redundant (D4 derives the wiring), but you were right the RUNTIME unit-level check was missing and lands earlier than a reviewer would.</td></tr>
       <tr><td class="gap"><span class="code">applies_to</span> globs</td>
           <td class="pred">scope reviewer by artifact</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — conditional reviewer dispatch.</td></tr>
+          <td class="dr"><span class="pill missing">n/a</span></td>
+          <td class="rec"><span class="k k-skip">skip</span>Redundant in darkrun's model — reviewers are per-station rosters, so you scope by simply not listing a reviewer where it doesn't apply.</td></tr>
       <tr><td class="gap">Compound gates</td>
           <td class="pred"><span class="code">[external, ask]</span> user picks</td>
-          <td class="dr"><span class="pill missing">single value</span></td>
-          <td class="rec"><span class="k k-do">do · 2nd</span>Content batch — checkpoint as a list + a pick at the gate.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">a station declares <span class="code">checkpoint_options</span>; the operator picks via <span class="code">darkrun_checkpoint_choose</span>; the effective kind honors the pick<span class="ev">model.rs · position.rs · checkpoint.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — shape offers <span class="code">[ask, external]</span> as a worked example.</td></tr>
     </tbody>
   </table>
 </section>
@@ -328,8 +328,8 @@
           <td class="rec"><span class="k k-done">done</span>Already present.</td></tr>
       <tr><td class="gap">review_stamp</td>
           <td class="pred">subagent self-stamp, no cursor walk</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no per-role stamp tool; reviews/approvals are only written in test fixtures today — the production gate runs off stored phase progression</span></td>
-          <td class="rec"><span class="k k-do">do</span><b>Enabler for parallel reviewers + explorers (both wanted).</b> A <span class="code">darkrun_review_stamp</span> that records one role's verdict (and an explorer-finding equivalent) <em>without</em> walking the cursor, so N subagents fan out, each writes its own result, and the parent ticks once. Pair with making the Review/Audit prompts dispatch in parallel (today only Spec/explorers do).</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">darkrun_review_stamp</span> records one role's verdict without walking the cursor; Review/Audit dispatch in parallel<span class="ev">units.rs · review.md</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — N reviewers fan out, each self-stamps, the parent ticks once. (Explorers already fan out + fold into the spec.)</td></tr>
       <tr><td class="gap">Session presence grace</td>
           <td class="pred">attached/never-attached grace</td>
           <td class="dr"><span class="pill partial">presence only</span><span class="drnote">live count + heartbeat; no grace/reattach</span></td>
@@ -369,26 +369,27 @@
 </section>
 
 <div class="matter">
-  <h3>the recommendation, honestly</h3>
-  <p><b>Update:</b> D1 (quality-gate execution) and E2 (reviewer interpretation) are now <span class="k k-done">done</span>.
-  What's left worth building: E5 (structured inputs), E6 (applies_to), and the two that need a small cursor change —
-  E3 (reject-routing to a build worker) and E7 (compound gates) — then the run-level review wiring (C4/C5). E4 is now
-  redundant (D1's Audit gate already forces gate recording). After those, the ledger is, in my honest read, <em>done enough</em>.</p>
-  <p><b>What I'd argue against building</b> (the <span class="k k-skip">skip</span> rows): C1 multi-signal elaborate,
-  B5 verifier nonce, B7 dispatch leases, B9 fix-chain worktrees, D4 coverage ack, F2 human_write, F4 review_stamp,
-  F5 presence grace, G3 clarifications, G5 persisted sessions. Each solves a problem darkrun either doesn't have or
-  solves another way — porting them just because the predecessor had them would be cargo-culting. Build any only when
-  its triggering condition actually shows up (named in each row).</p>
-  <p><b>Deliberate design differences</b> (the <span class="k k-keep">keep</span> rows) aren't work at all — the fixed
-  six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum. Flip one only to change the design.
-  A few small <span class="k k-defer">defer</span> items (plugin_version stamp, external_refs, draft-PR status, proof
-  upload) are worth doing whenever their integration lands — not urgent. Full per-line detail + commit refs in the
-  companion <span class="code">engine-parity-gaps.md</span>.</p>
+  <h3>where it landed, honestly</h3>
+  <p><b>Every confident gap is closed.</b> 27 of 44 mechanisms are built and committed — including the ones I had
+  initially wanted to skip and was corrected on: <b>C1</b> collaboration backpressure, <b>B9</b> per-unit + per-fix
+  worktree isolation, <b>F4</b> parallel review stamp, <b>D4/E5</b> cross-station input coverage (template <em>and</em>
+  runtime). The last one, E5, started as "structured inputs" and was reframed: the <span class="code">{stage,output}</span>
+  typing was genuinely redundant with D4, but the <em>runtime</em> per-unit coverage check it implied was missing — and
+  lands earlier than a reviewer would.</p>
+  <p><b>Intentionally not built.</b> The <span class="k k-keep">keep</span> rows are deliberate design differences, not
+  work — the fixed six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum, the discrete PR-merge
+  poll. The <span class="k k-skip">skip</span> rows are redundant in darkrun's model (dispatch leases backstopped by the
+  deadlock halt; <span class="code">run_quality_gates</span> subsumed by D1; <span class="code">applies_to</span> by
+  per-station rosters; clarifications by the run doc; in-memory sessions by design).</p>
+  <p><b>Deferred</b> (the <span class="k k-defer">defer</span> rows) — real, but waiting on a trigger or integration:
+  B5 verifier nonce, C5 run-level mode shaping, D5 proof-upload, F2 human_write, F5 presence grace, G1 plugin_version,
+  G2 external_refs, G4 draft-PR status. None block engine correctness. Full per-line detail in the companion
+  <span class="code">engine-parity-gaps.md</span> and the row-level <span class="code">engine-parity-gaps.csv</span>.</p>
 </div>
 
 <footer>
-  darkrun engine parity audit · 44 mechanisms · verified against darkrun source · 15 closed this session (clusters A–E) ·
-  every remaining line dispositioned with a recommendation · companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
+  darkrun engine parity audit · 44 mechanisms · verified against darkrun source · 2026-06-04 · 27 built · every
+  confident gap closed · the rest deliberate / redundant / deferred · companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
 </footer>
 
 </div>
