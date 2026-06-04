@@ -19,6 +19,15 @@ Dispatch the **{{ worker }}** beat in parallel across these wave-ready Units:
 No Units are wave-ready this tick. The previous wave's dependents are still blocked, or work is mid-flight.
 {% endif %}
 
+{% if worktrees %}
+## Each Unit has its own worktree — work in it
+
+Every wave Unit is isolated on its own branch + worktree, forked off the station branch. Run that Unit's beat **inside its worktree** so its diff never tangles with another Unit's in-flight work; the manager lands each Unit back onto the station branch when it locks. Do **not** commit a Unit's work to the station branch yourself.
+{% for w in worktrees %}
+- `{{ w.unit }}` → `{{ w.path }}` (branch `{{ w.branch }}`)
+{% endfor %}
+{% endif %}
+
 {% if handoffs %}
 ## Handoff from the prior beat — read before you act
 

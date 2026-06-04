@@ -493,6 +493,13 @@ pub struct UnitFrontmatter {
     /// Run-relative paths to artifacts the unit produced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outputs: Vec<String>,
+    /// The unit's isolation branch (`darkrun/<slug>/units/<station>/<unit>`),
+    /// stamped when the unit's Pass-loop enters its worktree. The Manufacture
+    /// dispatch points the worker at this worktree so each unit's diff is
+    /// isolated; it lands back onto the station branch when the unit locks.
+    /// `None` outside a git-backed run. Engine-managed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
     /// RFC3339 start timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,

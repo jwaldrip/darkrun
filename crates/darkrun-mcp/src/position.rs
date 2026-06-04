@@ -259,6 +259,19 @@ pub struct Handoff {
     pub note: String,
 }
 
+/// One wave unit's isolation worktree (B9), surfaced into the Manufacture
+/// dispatch so the worker runs that unit's beat in its own checkout — keeping
+/// each unit's diff isolated until it lands back onto the station branch.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Worktree {
+    /// The unit the worktree belongs to.
+    pub unit: String,
+    /// The unit's isolation branch (`darkrun/<slug>/units/<station>/<unit>`).
+    pub branch: String,
+    /// The on-disk worktree path the worker should `cd` into for this unit.
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct PromptContext {
     /// The run slug.
@@ -300,6 +313,11 @@ pub struct PromptContext {
     /// why it bounced — before it acts. Keyed by unit slug, newest note per unit.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub handoffs: Vec<Handoff>,
+    /// Per wave-unit isolation worktrees (B9): the branch + on-disk path the
+    /// worker should run each unit's beat in, so each unit's diff stays isolated
+    /// until it lands onto the station branch. Empty outside a git-backed run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<Worktree>,
     /// The open feedback id, for the fix track.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback_id: Option<String>,
@@ -1493,9 +1511,8 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
             }
             // Thread each wave unit's most-recent handoff note into the dispatch
             // so the next worker reads what the last beat did, or why it bounced.
-            ctx.handoffs = store
-                .read_units(slug)
-                .unwrap_or_default()
+            let wave_units = store.read_units(slug).unwrap_or_default();
+            ctx.handoffs = wave_units
                 .iter()
                 .filter(|u| wave.contains(&u.slug))
                 .filter_map(|u| {
@@ -1510,6 +1527,24 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                         }
                         .to_string(),
                         note: last.note.clone().unwrap_or_default(),
+                    })
+                })
+                .collect();
+            // Surface each wave unit's isolation worktree (B9) so the worker runs
+            // that unit's beat in its own checkout. Only units that have actually
+            // forked a branch (a git-backed run) appear.
+            let repo_root = cascade_repo_root(store);
+            ctx.worktrees = wave_units
+                .iter()
+                .filter(|u| wave.contains(&u.slug))
+                .filter_map(|u| {
+                    let branch = u.frontmatter.branch.clone()?;
+                    let path =
+                        crate::lifecycle::unit_worktree_path(&repo_root, slug, mstation, &u.slug);
+                    Some(Worktree {
+                        unit: u.slug.clone(),
+                        branch,
+                        path: path.to_string_lossy().into_owned(),
                     })
                 })
                 .collect();
@@ -1870,6 +1905,12 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
     // derive_position; they run on the side once state.json is written.
     let mut entered_station: Option<String> = None;
     let mut landed_station: Option<String> = None;
+    // Per-unit branch side-effects (B9): the wave-ready units to fork onto their
+    // own worktrees this tick, and — when the station leaves Manufacture — the
+    // completed units to land back onto the station branch. Same out-of-derive,
+    // after-persist discipline as the station side-effects.
+    let mut entered_units: Vec<(String, String)> = Vec::new();
+    let mut landed_units: Vec<(String, String)> = Vec::new();
     // Whether an auto-checkpoint just COMPLETED a station (independent of
     // whether that station carried merge debt to land). Drives run completion.
     let mut auto_completed = false;
@@ -1926,11 +1967,17 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             st.phase = StationPhase::UserGate;
             state.active_station = station.clone();
         }
-        RunAction::Manufacture { station, .. } => {
+        RunAction::Manufacture { station, units, .. } => {
             // One wave per tick — stay in Manufacture until every unit locks.
             let st = ensure_station(&mut state, &factory, station)?;
             st.phase = StationPhase::Manufacture;
             state.active_station = station.clone();
+            // B9: fork each wave-ready unit onto its own worktree off the station
+            // branch, so its Pass-loop diff is isolated. Idempotent downstream —
+            // a re-dispatched unit reuses its branch + worktree.
+            for unit in units {
+                entered_units.push((station.clone(), unit.clone()));
+            }
         }
         RunAction::Audit { station, .. } => {
             // Audit absorbs what tests did — it verifies the output AND runs
@@ -1938,6 +1985,17 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             let st = ensure_station(&mut state, &factory, station)?;
             st.phase = StationPhase::Reflect;
             state.active_station = station.clone();
+            // B9: the station is leaving Manufacture — land every unit that
+            // carries an isolation branch back onto the station branch, so Audit
+            // verifies the integrated station tree. Idempotent: an already-landed
+            // (or never-forked) unit no-ops.
+            if let Ok(units) = store.read_units(slug) {
+                for u in units.iter().filter(|u| u.station() == station) {
+                    if u.frontmatter.branch.is_some() {
+                        landed_units.push((station.clone(), u.slug.clone()));
+                    }
+                }
+            }
         }
         RunAction::Reflect { station, .. } => {
             let st = ensure_station(&mut state, &factory, station)?;
@@ -2000,28 +2058,83 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
 
     // Run the branch side-effects AFTER state is persisted, so the durable
     // record reflects the decision and the lifecycle reads a consistent disk.
-    run_branch_side_effects(store, slug, entered_station, landed_station, run_now_complete)?;
+    run_branch_side_effects(BranchSideEffects {
+        store,
+        slug,
+        entered_station,
+        landed_station,
+        entered_units,
+        landed_units,
+        run_now_complete,
+    })?;
     Ok(())
+}
+
+/// The per-tick branch side-effects a resolved [`advance_state`] enqueues, run
+/// after state is persisted.
+struct BranchSideEffects<'a> {
+    store: &'a StateStore,
+    slug: &'a str,
+    entered_station: Option<String>,
+    landed_station: Option<String>,
+    /// `(station, unit)` pairs to fork onto their own worktrees (B9).
+    entered_units: Vec<(String, String)>,
+    /// `(station, unit)` pairs to land back onto the station branch (B9).
+    landed_units: Vec<(String, String)>,
+    run_now_complete: bool,
 }
 
 /// Apply the per-tick branch lifecycle side-effects. All best-effort + non-fatal
 /// (a non-git project no-ops cleanly); the side-effects run only after state is
 /// persisted so they never block the manager's forward progress.
-fn run_branch_side_effects(
-    store: &StateStore,
-    slug: &str,
-    entered_station: Option<String>,
-    landed_station: Option<String>,
-    run_now_complete: bool,
-) -> Result<()> {
-    if let Some(station) = entered_station {
-        enter_station_and_record(store, slug, &station)?;
+///
+/// Order matters: enter station → enter its units (units fork off the station
+/// branch, so it must exist first); land units → land station (a station lands
+/// only the work its units already merged into its branch).
+fn run_branch_side_effects(fx: BranchSideEffects) -> Result<()> {
+    let BranchSideEffects {
+        store,
+        slug,
+        entered_station,
+        landed_station,
+        entered_units,
+        landed_units,
+        run_now_complete,
+    } = fx;
+    if let Some(station) = &entered_station {
+        enter_station_and_record(store, slug, station)?;
     }
-    if let Some(station) = landed_station {
-        crate::lifecycle::land_station(store, slug, &station);
+    for (station, unit) in &entered_units {
+        enter_unit_and_record(store, slug, station, unit)?;
+    }
+    for (station, unit) in &landed_units {
+        crate::lifecycle::land_unit(store, slug, station, unit);
+    }
+    if let Some(station) = &landed_station {
+        crate::lifecycle::land_station(store, slug, station);
     }
     if run_now_complete {
         crate::lifecycle::land_run(store, slug);
+    }
+    Ok(())
+}
+
+/// Enter a unit's branch + worktree (forked off the station branch) and record
+/// the resulting branch on `Unit.branch`. Best-effort: outside a git repo (or
+/// before the station branch exists) the lifecycle no-ops and no branch is
+/// recorded. Idempotent — a re-entered unit reuses its branch + worktree.
+fn enter_unit_and_record(store: &StateStore, slug: &str, station: &str, unit: &str) -> Result<()> {
+    let outcome = crate::lifecycle::enter_unit(store, slug, station, unit);
+    if outcome.performed {
+        if let Some(branch) = outcome.note {
+            let Ok(mut u) = store.read_unit(slug, unit) else {
+                return Ok(());
+            };
+            if u.frontmatter.branch.as_deref() != Some(branch.as_str()) {
+                u.frontmatter.branch = Some(branch);
+                store.write_unit(slug, &u)?;
+            }
+        }
     }
     Ok(())
 }
@@ -2281,8 +2394,18 @@ pub fn checkpoint_decide(
 
     // Land the just-verified station (and the run, if it was the last) AFTER
     // state is persisted. The next station's branch is forked when its Spec
-    // tick first enters it inside the re-tick below.
-    run_branch_side_effects(store, slug, None, landed_station, run_now_complete)?;
+    // tick first enters it inside the re-tick below. The station's units already
+    // landed onto its branch when it left Manufacture, so there are no per-unit
+    // side-effects here.
+    run_branch_side_effects(BranchSideEffects {
+        store,
+        slug,
+        entered_station: None,
+        landed_station,
+        entered_units: Vec::new(),
+        landed_units: Vec::new(),
+        run_now_complete,
+    })?;
 
     // Re-tick so the caller sees the new cursor position immediately.
     run_tick(store, slug)
@@ -3423,5 +3546,94 @@ mod tests {
             }
             other => panic!("expected MergeConflict, got {other:?}"),
         }
+    }
+
+    /// B9: a wave unit forks onto its own worktree + branch when Manufacture
+    /// dispatches it, the worker's commits stay on that unit branch (NOT the
+    /// station branch), and the unit lands back onto the station branch when the
+    /// station leaves Manufacture for Audit.
+    #[test]
+    fn manufacture_isolates_each_unit_then_lands_it_on_audit() {
+        let (_d, root, store) = git_store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        // run_start entered the first station (frame), so its branch exists.
+        assert!(branch_exists_at(&root, "darkrun/r/frame"));
+
+        // A unit decomposed into the first station.
+        let unit = Unit {
+            slug: "u1".into(),
+            frontmatter: darkrun_core::domain::UnitFrontmatter {
+                status: Status::Pending,
+                station: Some("frame".into()),
+                ..Default::default()
+            },
+            title: "u1".into(),
+            body: String::new(),
+        };
+        store.write_unit("r", &unit).expect("write unit");
+
+        // Spec -> Review -> UserGate, then the operator clears the gate.
+        run_tick(&store, "r").expect("spec");
+        run_tick(&store, "r").expect("review");
+        checkpoint_decide(&store, "r", true, None).expect("clear gate");
+
+        // Manufacture: the unit forks onto its own worktree + branch.
+        let t = run_tick(&store, "r").expect("manufacture");
+        assert!(matches!(t.action, RunAction::Manufacture { .. }), "got {:?}", t.action);
+        let u = store.read_unit("r", "u1").unwrap();
+        assert_eq!(
+            u.frontmatter.branch.as_deref(),
+            Some("darkrun/r/units/frame/u1"),
+            "the unit's isolation branch is stamped"
+        );
+        let wt = crate::lifecycle::unit_worktree_path(&root, "r", "frame", "u1");
+        assert!(wt.exists(), "the unit worktree exists on disk");
+
+        // The worker does the unit's work IN ITS OWN worktree and commits.
+        std::fs::write(wt.join("u1.txt"), "unit one\n").unwrap();
+        let git_wt = |args: &[&str]| {
+            std::process::Command::new("git").arg("-C").arg(&wt).args(args).status().unwrap().success()
+        };
+        assert!(git_wt(&["add", "-A"]));
+        assert!(git_wt(&["commit", "-q", "-m", "u1 work"]));
+        // The work is on the unit branch, NOT yet on the station branch.
+        assert!(!show_path(&root, "darkrun/r/frame", "u1.txt"), "u1's work must be isolated");
+
+        // Complete the unit; the next tick leaves Manufacture for Audit and lands
+        // the unit onto the station branch.
+        let mut done = store.read_unit("r", "u1").unwrap();
+        done.frontmatter.status = Status::Completed;
+        store.write_unit("r", &done).unwrap();
+
+        let t2 = run_tick(&store, "r").expect("audit");
+        assert!(matches!(t2.action, RunAction::Audit { .. }), "got {:?}", t2.action);
+
+        // The unit branch + worktree are gone; the work landed on the station.
+        assert!(!branch_exists_at(&root, "darkrun/r/units/frame/u1"), "unit branch retired");
+        assert!(!wt.exists(), "unit worktree removed");
+        assert!(show_path(&root, "darkrun/r/frame", "u1.txt"), "u1's work landed on the station");
+        // …but NOT yet on run-main (the station hasn't completed).
+        assert!(!show_path(&root, "darkrun/r/main", "u1.txt"), "station hasn't landed yet");
+    }
+
+    fn branch_exists_at(root: &std::path::Path, branch: &str) -> bool {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["rev-parse", "--verify", &format!("refs/heads/{branch}")])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Whether `branch:path` resolves (the file exists on that branch).
+    fn show_path(root: &std::path::Path, branch: &str, path: &str) -> bool {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["cat-file", "-e", &format!("{branch}:{path}")])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 }
