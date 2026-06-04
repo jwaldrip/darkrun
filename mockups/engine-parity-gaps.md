@@ -31,6 +31,36 @@ After this session's burn-down: 16 present · 11 partial · 17 missing.**
 Still open (next): B2/B5/B6/B7/B9, C1/C2/C4/C5/C6, D1/D4/D5, all of E, F2/F4/F5,
 all of G. A few are deliberate design differences rather than gaps — see notes.
 
+## Recommendation (what to do next, in order)
+
+1. **D1 — quality-gate execution. Do this first.** It's the highest-value open
+   item: today a "passed Audit" isn't backed by executed tests, so the Build→Prove
+   guarantee leaks. Concrete shape that fits darkrun's architecture (the agent runs
+   commands; the engine records and enforces): a `darkrun_quality_gate_record`
+   tool that stamps a `quality_gates` result onto the unit, and an Audit gate that
+   **requires** that stamp before the checkpoint when the factory/station declares
+   gates — with an environment-blocked classification and a defer-to-CI escape so a
+   genuinely-unrunnable gate can't wedge the run. This also unlocks **B5** (bind a
+   verifier nonce to the recorded gate) and **D4** (coverage acknowledgement).
+2. **The content-model pass — E2–E7, as one batch.** Each is a frontmatter field
+   plus a small cursor/prompt behavior: `interpretation` (lens/strict),
+   `role: plan|build|verify` reject-routing, `run_quality_gates`, structured
+   `inputs`, `applies_to`, compound gates. Individually moderate; together they're
+   the next coherent slice, and they're low-risk (additive content + dispatch).
+3. **C4/C5 — run-level review + mode shaping.** The content already declares run
+   reviewers/reflections; wire a run-level review gate into the walk. Moderate.
+4. **The large architectural items — B9 (fix-chain worktree isolation) and
+   C1 (multi-signal elaborate loop) — last.** Bank the cheaper wins first; these
+   are big and C1 was the predecessor's own hardest refactor (its GAPS.md §1).
+5. **Confirm the DELIBERATE calls.** B2 (revert-self-heal over auto-restamp),
+   B6 (hooks over an FSM checksum), C2 (the fixed six stations), D5/C6 (hosting
+   integration) are kept as-is on purpose. If you disagree with any, that's a
+   design decision to make before it becomes "work" — they aren't on the build path
+   otherwise.
+
+The through-line: **close the correctness gaps (D1) before the expressiveness ones
+(E), and the cheap wins before the large refactors (B9/C1).**
+
 ## The one-paragraph truth (post-verification)
 
 darkrun ported the predecessor's **shape** (three tracks, station phase machine,

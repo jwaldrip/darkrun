@@ -124,6 +124,18 @@
   </ul>
 </div>
 
+<div class="corr" style="border-color:var(--accent-dim)">
+  <h3 style="color:var(--accent)">recommendation — what to do next, in order</h3>
+  <ul>
+    <li><b>1. D1 — quality-gate execution. Do this first.</b> Highest-value open item: a "passed Audit" isn't backed by executed tests, so the Build→Prove guarantee leaks. Shape that fits darkrun (the agent runs commands; the engine records + enforces): a <span class="code">darkrun_quality_gate_record</span> tool stamping a <span class="code">quality_gates</span> result, and an Audit gate that <b>requires</b> it before the checkpoint when gates are declared — with env-blocked classification + defer-to-CI so an unrunnable gate can't wedge. Unlocks B5 (verifier nonce) and D4 (coverage).</li>
+    <li><b>2. The content-model pass — E2–E7, one batch.</b> Each is a frontmatter field + a small dispatch/prompt behavior (interpretation lens/strict, role plan/build/verify reject-routing, run_quality_gates, structured inputs, applies_to, compound gates). Low-risk, additive, the next coherent slice.</li>
+    <li><b>3. C4/C5 — run-level review + mode shaping.</b> The content already declares run reviewers/reflections; wire a run-level gate into the walk. Moderate.</li>
+    <li><b>4. The large refactors last — B9 (fix-chain worktree isolation) and C1 (multi-signal elaborate loop).</b> Bank the cheap wins first; C1 was the predecessor's own hardest refactor.</li>
+    <li><b>5. Confirm the DELIBERATE calls.</b> B2 (revert-self-heal over auto-restamp), B6 (hooks over FSM checksum), C2 (the fixed six stations), D5/C6 (hosting integration) are kept on purpose. Disagree with any? That's a design decision to make before it becomes work.</li>
+  </ul>
+  <p style="margin-top:10px;color:var(--text)"><b>Through-line:</b> close the correctness gaps (D1) before the expressiveness ones (E), and the cheap wins before the large refactors (B9/C1).</p>
+</div>
+
 <div class="legend">
   <span><i class="dot d-have"></i> darkrun has it</span>
   <span><i class="dot d-partial"></i> partial / field exists, not fully wired</span>
