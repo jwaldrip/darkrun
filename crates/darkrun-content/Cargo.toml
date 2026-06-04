@@ -13,3 +13,6 @@ serde.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true
 rust-embed = { version = "8", features = ["interpolate-folder-path", "debug-embed"] }
+
+[dev-dependencies]
+tempfile = "3"

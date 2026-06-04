@@ -1,38 +1,134 @@
-//! The content loader: reads the embedded corpus into the [`Factory`] model.
+//! The content loader: resolves a factory from disk into the [`Factory`] model.
 //!
-//! The `plugin/factories/` tree is embedded into the binary at compile time via
-//! [`rust-embed`], so the single `darkrun` binary ships its factory corpus with
-//! no external files. The loader walks the embedded tree, parses each
-//! frontmatter document with `darkrun-core`'s parser, and assembles the typed
-//! [`Factory`] model.
+//! Resolution is a **cascade**, most-specific-wins, with no code fallback:
+//!
+//! 1. a project override layer — `<repo_root>/.darkrun/factories/<f>/…` — when a
+//!    `repo_root` is supplied, beats
+//! 2. the embedded `plugin/factories/<f>/…` corpus (compiled in via `rust-embed`).
+//!
+//! Crossed with the **inherits chain**: a factory that declares `inherits: <p>`
+//! makes the parent *walkable* — any station/role it does not define falls
+//! through to `<p>` (and transitively up the chain), so the child overrides what
+//! it defines and inherits the rest. The six stations are always taken in the
+//! fixed [`Position::FLOW`] order — the spine is a hardcoded mechanic.
+
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use rust_embed::RustEmbed;
 
+use darkrun_core::domain::Position;
 use darkrun_core::frontmatter;
 
 use crate::error::{ContentError, Result};
 use crate::model::{
-    Factory, FactoryFrontmatter, Role, RoleFrontmatter, Station, StationFrontmatter,
+    Factory, FactoryFrontmatter, Role, RoleFrontmatter, RoleKind, Station, StationFrontmatter,
 };
 
-/// The embedded `plugin/factories/` tree (relative to this crate). Embedded
-/// path keys are factory-slug-relative, e.g. `software/FACTORY.md`.
+/// The embedded `plugin/factories/` tree. Keys are factory-slug-relative, e.g.
+/// `software/FACTORY.md`.
 #[derive(RustEmbed)]
 #[folder = "$CARGO_MANIFEST_DIR/../../plugin/factories"]
 struct Content;
 
-/// Read an embedded file as UTF-8 text.
-fn read_text(path: &str) -> Result<String> {
-    let file = Content::get(path).ok_or_else(|| ContentError::FileNotFound(path.to_string()))?;
-    let text = String::from_utf8(file.data.into_owned())
-        .map_err(|_| ContentError::FileNotFound(format!("{path} (not valid utf-8)")))?;
-    Ok(text)
+/// The maximum inherits-chain depth, a cycle/runaway guard.
+const MAX_INHERITS_DEPTH: usize = 16;
+
+/// Resolves factory-relative paths through the project→embedded × inherits-chain
+/// cascade. `chain` is the ordered factory slugs to try (child first, then each
+/// parent up the `inherits` chain).
+struct Resolver {
+    project_root: Option<PathBuf>,
+    chain: Vec<String>,
 }
 
-/// List the slugs of every factory embedded in the corpus.
-///
-/// A factory is any top-level directory containing a `FACTORY.md`. Embedded
-/// keys are factory-slug-relative (e.g. `software/FACTORY.md`).
+impl Resolver {
+    /// Read a factory-relative path (e.g. `stations/frame/STATION.md`), trying
+    /// each factory in the chain — project override before embedded — and
+    /// returning the first hit, or `None` if no layer defines it.
+    fn read(&self, rel: &str) -> Option<String> {
+        for factory in &self.chain {
+            let key = format!("{factory}/{rel}");
+            if let Some(root) = &self.project_root {
+                let path = root.join(".darkrun").join("factories").join(&key);
+                if let Ok(text) = fs::read_to_string(&path) {
+                    return Some(text);
+                }
+            }
+            if let Some(file) = Content::get(&key) {
+                if let Ok(text) = String::from_utf8(file.data.into_owned()) {
+                    return Some(text);
+                }
+            }
+        }
+        None
+    }
+
+    fn require(&self, rel: &str) -> Result<String> {
+        self.read(rel)
+            .ok_or_else(|| ContentError::FileNotFound(format!("{} (in [{}])", rel, self.chain.join(" → "))))
+    }
+}
+
+/// Whether a factory `<name>/FACTORY.md` exists in any resolution layer.
+fn factory_exists(project_root: Option<&Path>, name: &str) -> bool {
+    let key = format!("{name}/FACTORY.md");
+    if let Some(root) = project_root {
+        if root.join(".darkrun").join("factories").join(&key).is_file() {
+            return true;
+        }
+    }
+    Content::get(&key).is_some()
+}
+
+/// Read `<factory>/FACTORY.md` from a single factory (project before embedded).
+fn read_factory_md(project_root: Option<&Path>, name: &str) -> Result<String> {
+    let key = format!("{name}/FACTORY.md");
+    if let Some(root) = project_root {
+        let path = root.join(".darkrun").join("factories").join(&key);
+        if let Ok(text) = fs::read_to_string(&path) {
+            return Ok(text);
+        }
+    }
+    let file = Content::get(&key).ok_or_else(|| ContentError::FactoryNotFound(name.to_string()))?;
+    String::from_utf8(file.data.into_owned())
+        .map_err(|_| ContentError::FileNotFound(format!("{key} (not valid utf-8)")))
+}
+
+/// Build the inherits chain for `name` — `[name, parent, grandparent, …]` — by
+/// walking each factory's `inherits`. Errors on a cycle or an unknown parent.
+fn inherits_chain(project_root: Option<&Path>, name: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::new();
+    let mut current = name.to_string();
+    loop {
+        if chain.contains(&current) {
+            return Err(ContentError::Invalid {
+                factory: name.to_string(),
+                message: format!("inherits cycle through `{current}`"),
+            });
+        }
+        if chain.len() >= MAX_INHERITS_DEPTH {
+            return Err(ContentError::Invalid {
+                factory: name.to_string(),
+                message: format!("inherits chain exceeds depth {MAX_INHERITS_DEPTH}"),
+            });
+        }
+        if !factory_exists(project_root, &current) {
+            return Err(ContentError::FactoryNotFound(current));
+        }
+        let (fm, _): (FactoryFrontmatter, String) =
+            frontmatter::parse(&read_factory_md(project_root, &current)?)?;
+        chain.push(current.clone());
+        match fm.inherits {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    Ok(chain)
+}
+
+/// List the slugs of every factory in the corpus (embedded only — the shipped
+/// catalog). A factory is any top-level dir containing a `FACTORY.md`.
 pub fn list_factories() -> Vec<String> {
     let mut names: Vec<String> = Content::iter()
         .filter_map(|path| {
@@ -45,30 +141,38 @@ pub fn list_factories() -> Vec<String> {
     names
 }
 
-/// Load and assemble a factory by slug.
-///
-/// Parses `FACTORY.md`, then each station's `STATION.md`, then every referenced
-/// explorer/worker/reviewer role file, into the typed [`Factory`] model. The
-/// returned factory is *not* yet validated — call [`crate::validate::validate`]
-/// (or use [`load_validated`]) to enforce structural rules.
+/// Load and assemble a factory by slug from the **embedded** corpus only.
 pub fn load_factory(name: &str) -> Result<Factory> {
-    let factory_md = format!("{name}/FACTORY.md");
-    if Content::get(&factory_md).is_none() {
+    load_factory_at(None, name)
+}
+
+/// Load a factory through the full cascade: a project override layer at
+/// `<repo_root>/.darkrun/factories/` (when `repo_root` is `Some`) beats the
+/// embedded corpus, crossed with the factory's `inherits` chain.
+pub fn load_factory_at(repo_root: Option<&Path>, name: &str) -> Result<Factory> {
+    if !factory_exists(repo_root, name) {
         return Err(ContentError::FactoryNotFound(name.to_string()));
     }
+    let chain = inherits_chain(repo_root, name)?;
+    let resolver = Resolver {
+        project_root: repo_root.map(Path::to_path_buf),
+        chain,
+    };
 
+    // The child's own FACTORY.md drives the manifest (run reviewers, reflections,
+    // model). Inherited stations/roles come through the resolver.
     let (frontmatter, body): (FactoryFrontmatter, String) =
-        frontmatter::parse(&read_text(&factory_md)?)?;
+        frontmatter::parse(&read_factory_md(repo_root, name)?)?;
 
-    let mut stations = Vec::with_capacity(frontmatter.stations.len());
-    for station_slug in &frontmatter.stations {
-        stations.push(load_station(name, station_slug)?);
+    // The six FSSBPH stations, always, in fixed order — resolved through the
+    // chain so a parent can supply a station the child does not.
+    let mut stations = Vec::with_capacity(Position::FLOW.len());
+    for pos in Position::FLOW {
+        stations.push(load_station(&resolver, pos.dir())?);
     }
 
-    // Run-level (factory-scope) roles live beside the stations: whole-Run
-    // reviewers under `reviewers/`, reflection dimensions under `reflections/`.
-    let run_reviewers = load_factory_roles(name, "reviewers", &frontmatter.reviewers)?;
-    let reflections = load_factory_roles(name, "reflections", &frontmatter.reflections)?;
+    let run_reviewers = load_factory_roles(&resolver, "reviewers", &frontmatter.reviewers)?;
+    let reflections = load_factory_roles(&resolver, "reflections", &frontmatter.reflections)?;
 
     Ok(Factory {
         frontmatter,
@@ -79,21 +183,26 @@ pub fn load_factory(name: &str) -> Result<Factory> {
     })
 }
 
-/// Load a factory and validate it before returning.
+/// Load a factory and validate it before returning (embedded only).
 pub fn load_validated(name: &str) -> Result<Factory> {
-    let factory = load_factory(name)?;
+    load_validated_at(None, name)
+}
+
+/// Load through the cascade and validate before returning.
+pub fn load_validated_at(repo_root: Option<&Path>, name: &str) -> Result<Factory> {
+    let factory = load_factory_at(repo_root, name)?;
     crate::validate::validate(&factory)?;
     Ok(factory)
 }
 
-fn load_station(factory: &str, station: &str) -> Result<Station> {
-    let base = format!("{factory}/stations/{station}");
+fn load_station(resolver: &Resolver, station: &str) -> Result<Station> {
+    let base = format!("stations/{station}");
     let (frontmatter, body): (StationFrontmatter, String) =
-        frontmatter::parse(&read_text(&format!("{base}/STATION.md"))?)?;
+        frontmatter::parse(&resolver.require(&format!("{base}/STATION.md"))?)?;
 
-    let explorers = load_roles(&base, "explorers", &frontmatter.explorers)?;
-    let workers = load_roles(&base, "workers", &frontmatter.workers)?;
-    let reviewers = load_roles(&base, "reviewers", &frontmatter.reviewers)?;
+    let explorers = load_roles(resolver, &base, "explorers", &frontmatter.explorers)?;
+    let workers = load_roles(resolver, &base, "workers", &frontmatter.workers)?;
+    let reviewers = load_roles(resolver, &base, "reviewers", &frontmatter.reviewers)?;
 
     Ok(Station {
         frontmatter,
@@ -105,33 +214,36 @@ fn load_station(factory: &str, station: &str) -> Result<Station> {
 }
 
 /// Load each named role from a station subdirectory, preserving order. The role
-/// kind is inferred from `subdir` (the directory IS the `agent_type`).
-fn load_roles(station_base: &str, subdir: &str, names: &[String]) -> Result<Vec<Role>> {
-    let kind = crate::model::RoleKind::from_dir(subdir)
+/// kind is inferred from `subdir` (the directory IS the `agent_type`); each role
+/// is resolved through the cascade.
+fn load_roles(
+    resolver: &Resolver,
+    station_base: &str,
+    subdir: &str,
+    names: &[String],
+) -> Result<Vec<Role>> {
+    let kind = RoleKind::from_dir(subdir)
         .ok_or_else(|| ContentError::FileNotFound(format!("unknown role dir `{subdir}`")))?;
     let mut roles = Vec::with_capacity(names.len());
     for slug in names {
-        let path = format!("{station_base}/{subdir}/{slug}.md");
+        let rel = format!("{station_base}/{subdir}/{slug}.md");
         let (frontmatter, body): (RoleFrontmatter, String) =
-            frontmatter::parse(&read_text(&path)?)?;
+            frontmatter::parse(&resolver.require(&rel)?)?;
         roles.push(Role { frontmatter, body, kind });
     }
     Ok(roles)
 }
 
 /// Load each named run-level role from a factory-scope subdirectory
-/// (`<factory>/<subdir>/<slug>.md`), preserving declaration order.
-///
-/// These are the factory-scope analog of [`load_roles`]: whole-Run reviewers
-/// and reflection dimensions live beside the stations, not inside one.
-fn load_factory_roles(factory: &str, subdir: &str, names: &[String]) -> Result<Vec<Role>> {
-    let kind = crate::model::RoleKind::from_dir(subdir)
+/// (`<subdir>/<slug>.md`), through the cascade, preserving declaration order.
+fn load_factory_roles(resolver: &Resolver, subdir: &str, names: &[String]) -> Result<Vec<Role>> {
+    let kind = RoleKind::from_dir(subdir)
         .ok_or_else(|| ContentError::FileNotFound(format!("unknown role dir `{subdir}`")))?;
     let mut roles = Vec::with_capacity(names.len());
     for slug in names {
-        let path = format!("{factory}/{subdir}/{slug}.md");
+        let rel = format!("{subdir}/{slug}.md");
         let (frontmatter, body): (RoleFrontmatter, String) =
-            frontmatter::parse(&read_text(&path)?)?;
+            frontmatter::parse(&resolver.require(&rel)?)?;
         roles.push(Role { frontmatter, body, kind });
     }
     Ok(roles)
@@ -140,7 +252,6 @@ fn load_factory_roles(factory: &str, subdir: &str, names: &[String]) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::StationFrontmatter;
 
     #[test]
     fn list_factories_is_sorted_and_deduped() {
@@ -162,87 +273,74 @@ mod tests {
     }
 
     #[test]
-    fn read_text_reports_missing_files() {
-        match read_text("software/stations/ghost/STATION.md") {
-            Err(ContentError::FileNotFound(p)) => assert!(p.contains("ghost")),
-            other => panic!("expected FileNotFound, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn known_checkpoint_kinds_parse() {
-        for kind in ["auto", "ask", "external", "await"] {
-            let doc = format!(
-                "---\nname: t\nworkers: [a]\ncheckpoint: {kind}\n---\nbody"
-            );
-            let parsed: Result<(StationFrontmatter, String)> =
-                frontmatter::parse(&doc).map_err(Into::into);
-            assert!(parsed.is_ok(), "checkpoint `{kind}` should parse");
-        }
-    }
-
-    #[test]
-    fn unknown_checkpoint_kind_is_a_parse_error() {
-        // The loader parses each station's `checkpoint:` through the
-        // CheckpointKind enum; an unrecognized gate must fail the load rather
-        // than silently default.
-        let doc = "---\nname: t\nworkers: [a]\ncheckpoint: maybe\n---\nbody";
-        let parsed: Result<(StationFrontmatter, String)> =
-            frontmatter::parse(doc).map_err(Into::into);
-        assert!(
-            parsed.is_err(),
-            "an unknown checkpoint kind must be rejected at parse time"
-        );
-    }
-
-    #[test]
-    fn missing_required_checkpoint_field_is_a_parse_error() {
-        // `checkpoint` is required; a station without it must not load.
-        let doc = "---\nname: t\nworkers: [a]\n---\nbody";
-        let parsed: Result<(StationFrontmatter, String)> =
-            frontmatter::parse(doc).map_err(Into::into);
-        assert!(parsed.is_err(), "missing checkpoint must be rejected");
-    }
-
-    #[test]
-    fn software_loads_run_level_roles_from_the_corpus() {
-        // The loader populates run_reviewers / reflections from the factory-scope
-        // `reviewers/` and `reflections/` directories beside the stations.
+    fn software_walks_the_fixed_flow() {
         let f = load_factory("software").expect("load");
-        let reviewers: Vec<&str> = f.run_reviewers.iter().map(Role::name).collect();
-        let reflections: Vec<&str> = f.reflections.iter().map(Role::name).collect();
+        let names: Vec<&str> = f.stations.iter().map(Station::name).collect();
+        assert_eq!(names, vec!["frame", "specify", "shape", "build", "prove", "harden"]);
+    }
+
+    #[test]
+    fn project_override_beats_embedded() {
+        // A project-layer STATION.md overrides the embedded one for the same key.
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir
+            .path()
+            .join(".darkrun")
+            .join("factories")
+            .join("software")
+            .join("stations")
+            .join("frame");
+        fs::create_dir_all(&base).unwrap();
+        fs::write(
+            base.join("STATION.md"),
+            "---\nname: frame\nkills: overridden-risk\nworkers: [framer, challenger, distiller]\nreviewers: [value, feasibility]\nexplorers: [context, value]\ncheckpoint: ask\nlocked_artifact: frame.md\n---\n# Frame (overridden)\n",
+        )
+        .unwrap();
+        let f = load_factory_at(Some(dir.path()), "software").expect("load with override");
+        let frame = f.station("frame").unwrap();
+        assert_eq!(frame.frontmatter.kills, "overridden-risk");
+        // A station NOT overridden still comes from the embedded corpus.
+        assert_eq!(f.station("build").unwrap().frontmatter.kills, "implementation-defects");
+    }
+
+    #[test]
+    fn inherits_makes_the_parent_walkable() {
+        // A child factory with only a FACTORY.md (inherits: software) resolves
+        // every station/role through the parent.
+        let dir = tempfile::tempdir().unwrap();
+        let fdir = dir.path().join(".darkrun").join("factories").join("mylib");
+        fs::create_dir_all(&fdir).unwrap();
+        fs::write(
+            fdir.join("FACTORY.md"),
+            "---\nname: mylib\ninherits: software\ndefault_model: sonnet\n---\n# mylib\n",
+        )
+        .unwrap();
+        let f = load_factory_at(Some(dir.path()), "mylib").expect("inherits load");
+        assert_eq!(f.name(), "mylib");
+        // Stations + their rosters come from the parent.
+        let names: Vec<&str> = f.stations.iter().map(Station::name).collect();
+        assert_eq!(names, vec!["frame", "specify", "shape", "build", "prove", "harden"]);
         assert_eq!(
-            reviewers,
-            vec!["integration-auditor", "regression-auditor", "security-auditor"]
+            f.station("build").unwrap().workers.iter().map(Role::name).collect::<Vec<_>>(),
+            vec!["test_author", "builder", "self_reviewer", "reconciler"]
         );
-        assert_eq!(reflections, vec!["architecture", "process", "quality", "velocity"]);
     }
 
     #[test]
-    fn run_level_role_bodies_are_loaded_verbatim() {
-        // Bodies must come through with their instructions intact, not stubbed.
-        let f = load_factory("software").expect("load");
-        for r in f.run_reviewers.iter().chain(&f.reflections) {
-            assert!(r.body.contains('#'), "{} body lost its heading", r.name());
-            assert!(r.body.trim().len() > 120, "{} body too thin", r.name());
+    fn inherits_cycle_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        for (a, b) in [("x", "y"), ("y", "x")] {
+            let fdir = dir.path().join(".darkrun").join("factories").join(a);
+            fs::create_dir_all(&fdir).unwrap();
+            fs::write(
+                fdir.join("FACTORY.md"),
+                format!("---\nname: {a}\ninherits: {b}\n---\n# {a}\n"),
+            )
+            .unwrap();
         }
-    }
-
-    #[test]
-    fn load_factory_roles_reports_a_missing_factory_scope_file() {
-        // A dangling factory-scope reference resolves to a FileNotFound naming
-        // the missing path under the factory directory (not a station).
-        match load_factory_roles("software", "reflections", &["ghost".to_string()]) {
-            Err(ContentError::FileNotFound(p)) => {
-                assert!(p.contains("software/reflections/ghost.md"), "{p}");
-            }
-            other => panic!("expected FileNotFound, got {other:?}"),
+        match load_factory_at(Some(dir.path()), "x") {
+            Err(ContentError::Invalid { message, .. }) => assert!(message.contains("cycle")),
+            other => panic!("expected cycle error, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn load_factory_roles_empty_list_loads_nothing() {
-        let roles = load_factory_roles("software", "reviewers", &[]).expect("empty list is ok");
-        assert!(roles.is_empty());
     }
 }

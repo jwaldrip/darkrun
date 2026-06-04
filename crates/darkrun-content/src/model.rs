@@ -25,7 +25,14 @@ pub struct FactoryFrontmatter {
     /// Default model assigned to roles that do not override it.
     #[serde(default)]
     pub default_model: String,
-    /// Ordered station slugs, in cost-of-late-discovery order.
+    /// Optional single parent factory this one specializes. The parent becomes
+    /// **walkable in the resolution path**: any station/role this factory does
+    /// not define falls through to the parent (and transitively up the chain).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherits: Option<String>,
+    /// Ordered station slugs, in cost-of-late-discovery order. Vestigial — the
+    /// engine walks the fixed `Position::FLOW`; kept for tolerant parsing.
+    #[serde(default)]
     pub stations: Vec<String>,
     /// fix-worker slugs that handle drift/feedback repairs.
     #[serde(default)]

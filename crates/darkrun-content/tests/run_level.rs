@@ -85,6 +85,7 @@ fn valid_run_level_factory() -> Factory {
             description: "demo factory".into(),
             category: "engineering".into(),
             default_model: "sonnet".into(),
+            inherits: None,
             stations: vec!["s1".into()],
             fix_workers: vec![],
             reviewers: vec!["audit".into()],

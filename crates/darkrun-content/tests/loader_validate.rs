@@ -75,6 +75,7 @@ fn valid_factory() -> Factory {
             description: "demo factory".into(),
             category: "engineering".into(),
             default_model: "sonnet".into(),
+            inherits: None,
             stations: vec!["s1".into()],
             fix_workers: vec![],
             reviewers: vec![],
@@ -1461,9 +1462,13 @@ fn factory_frontmatter_parses_minimal() {
 }
 
 #[test]
-fn factory_frontmatter_requires_stations() {
+fn factory_frontmatter_stations_is_optional() {
+    // `stations` is vestigial — the engine walks the fixed Position::FLOW — so a
+    // FACTORY.md without it parses (and defaults to empty).
     let yaml = "name: demo";
-    assert!(serde_yaml::from_str::<FactoryFrontmatter>(yaml).is_err());
+    let fm = serde_yaml::from_str::<FactoryFrontmatter>(yaml).expect("parses without stations");
+    assert!(fm.stations.is_empty());
+    assert_eq!(fm.inherits, None);
 }
 
 #[test]

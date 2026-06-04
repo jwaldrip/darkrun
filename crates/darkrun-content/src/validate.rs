@@ -231,6 +231,7 @@ mod tests {
                 description: String::new(),
                 category: String::new(),
                 default_model: "sonnet".into(),
+                inherits: None,
                 stations: vec!["s1".into()],
                 fix_workers: vec![],
                 reviewers: vec![],

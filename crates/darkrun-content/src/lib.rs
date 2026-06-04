@@ -27,7 +27,9 @@ mod model;
 mod validate;
 
 pub use error::{ContentError, Result};
-pub use loader::{list_factories, load_factory, load_validated};
+pub use loader::{
+    list_factories, load_factory, load_factory_at, load_validated, load_validated_at,
+};
 pub use model::{
     Factory, FactoryFrontmatter, Role, RoleFrontmatter, RoleKind, Station, StationFrontmatter,
 };
