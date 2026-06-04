@@ -164,7 +164,6 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::FeedbackQuestion { .. } => "feedback_question",
-        RunAction::ResolveDrift { .. } => "resolve_drift",
         RunAction::UnitsInvalid { .. } => "units_invalid",
         RunAction::Escalate { .. } => "escalate",
         RunAction::SafeRepair { .. } => "safe_repair",

@@ -26,8 +26,7 @@ use darkrun_api::{
     AdvanceResponse, ApproveAction, ApproveActionKind, AuthorType, ClosureReply,
     DirectionAnnotations, DirectionArchetype, DirectionPin, DirectionSelectRequest,
     DirectionSelectResponse, DirectionSessionPayload,
-    DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
-    FeedbackAnchor, FeedbackCreateRequest, FeedbackCreateResponse,
+    DiscoveredReviewUrl,     FeedbackAnchor, FeedbackCreateRequest, FeedbackCreateResponse,
     FeedbackDeleteResponse, FeedbackInlineAnchor, FeedbackItem, FeedbackIteration,
     FeedbackListResponse, FeedbackOrigin, FeedbackReply, FeedbackReplyCreateRequest,
     FeedbackReplyCreateResponse, FeedbackResolution, FeedbackScope, FeedbackSeverity,
@@ -844,29 +843,6 @@ fn unit_output_type_tokens() {
         (UnitOutputType::Html, "html"),
         (UnitOutputType::Image, "image"),
         (UnitOutputType::File, "file"),
-    ] {
-        assert_eq!(serde_json::to_value(v).unwrap(), json!(s));
-    }
-}
-
-#[test]
-fn drift_action_tokens() {
-    for (v, s) in [
-        (DriftAction::Modified, "modified"),
-        (DriftAction::Added, "added"),
-        (DriftAction::Deleted, "deleted"),
-    ] {
-        assert_eq!(serde_json::to_value(v).unwrap(), json!(s));
-    }
-}
-
-#[test]
-fn drift_kind_tokens() {
-    for (v, s) in [
-        (DriftKind::Spec, "spec"),
-        (DriftKind::Output, "output"),
-        (DriftKind::DiscoveryOutput, "discovery_output"),
-        (DriftKind::DiscoveryMandate, "discovery_mandate"),
     ] {
         assert_eq!(serde_json::to_value(v).unwrap(), json!(s));
     }
@@ -2026,24 +2002,6 @@ fn discovered_review_url_pr_number_u64() {
     let j = serde_json::to_value(&url).unwrap();
     assert_eq!(j["pr_number"], 42);
     assert_eq!(j["source"], "github-pr-ref");
-}
-
-#[test]
-fn drift_entry_roundtrip_with_optionals() {
-    let d = DriftEntry {
-        path: "a/b.md".into(),
-        station: "frame".into(),
-        run: "run".into(),
-        action: DriftAction::Modified,
-        age: "2m ago".into(),
-        kind: Some(DriftKind::Output),
-        unit: Some("u1".into()),
-        role: Some("explorer".into()),
-    };
-    let j = serde_json::to_value(&d).unwrap();
-    assert_eq!(j["action"], "modified");
-    assert_eq!(j["kind"], "output");
-    roundtrips_stably(&d);
 }
 
 #[test]

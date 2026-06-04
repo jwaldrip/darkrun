@@ -64,7 +64,7 @@ pub use runs::{
 };
 pub use session::{
     ApproveAction, ApproveActionKind, DirectionAnnotations, DirectionArchetype, DirectionPin,
-    DirectionSessionPayload, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
+    DirectionSessionPayload, DiscoveredReviewUrl,
     KnowledgeFile, MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision,
     PickerKind, PickerOption, PickerSelection, PickerSessionPayload, PreviousReviewSnapshot,
     ProgressMilestone, ProofSessionPayload, QuestionAnswer, QuestionOption, QuestionSessionPayload,

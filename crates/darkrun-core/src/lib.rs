@@ -39,7 +39,7 @@ pub use derive::{derive_station_phase, station_status, station_units_complete};
 pub use error::{CoreError, Result};
 pub use locks::{LockGuard, LockManager};
 pub use state::{run_is_complete, RunState, StateStore, StationStatus};
-pub use witness::{hash_bytes, hash_file, Witness};
+pub use witness::{hash_bytes, hash_file};
 
 #[cfg(test)]
 mod tests {

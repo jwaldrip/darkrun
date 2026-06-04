@@ -187,56 +187,6 @@ pub struct UnitOutputPreview {
     pub exists: bool,
 }
 
-/// One drift-sweep entry surfaced in the review payload's drift banner.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct DriftEntry {
-    /// Run-relative path of the mutated artifact.
-    pub path: String,
-    /// The station the artifact belongs to.
-    pub station: String,
-    /// The run the artifact belongs to.
-    pub run: String,
-    /// What changed (`modified` / `added` / `deleted`).
-    pub action: DriftAction,
-    /// Human-readable age string.
-    pub age: String,
-    /// What kind of artifact drifted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<DriftKind>,
-    /// The unit that owns the artifact, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unit: Option<String>,
-    /// The role that witnessed the artifact, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-}
-
-/// The change a drift entry witnessed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DriftAction {
-    /// Content changed in place.
-    Modified,
-    /// A new artifact appeared.
-    Added,
-    /// An artifact was removed.
-    Deleted,
-}
-
-/// The kind of artifact a drift entry concerns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DriftKind {
-    /// A unit body.
-    Spec,
-    /// A declared output.
-    Output,
-    /// An explorer output.
-    DiscoveryOutput,
-    /// An explorer mandate.
-    DiscoveryMandate,
-}
-
 /// A snapshot of a prior review, attached when the current review follows a
 /// changes-requested decision.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -456,9 +406,6 @@ pub struct ReviewSessionPayload {
     /// The prior review snapshot, on a changes-requested follow-up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_review: Option<PreviousReviewSnapshot>,
-    /// Drift-sweep results for the active station.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub drift: Vec<DriftEntry>,
     /// An auto-discovered delivery PR/MR.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovered_review_url: Option<DiscoveredReviewUrl>,

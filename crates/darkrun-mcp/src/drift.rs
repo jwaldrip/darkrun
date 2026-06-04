@@ -44,16 +44,6 @@ fn repo_root(store: &StateStore) -> PathBuf {
         .unwrap_or_else(|| store.root().to_path_buf())
 }
 
-/// A filename-safe id derived from an artifact path — used for the fix-worktree
-/// branch a drift repair forks (B9) and for stable drift references.
-pub(crate) fn drift_id_for(path: &str) -> String {
-    let mut id = String::from("drift-");
-    for c in path.chars() {
-        id.push(if c.is_ascii_alphanumeric() { c } else { '_' });
-    }
-    id
-}
-
 /// The artifact basename — the last path segment — so `specify/spec.md` and
 /// `spec.md` compare equal (premises and outputs are written in either form).
 fn artifact_basename(s: &str) -> String {

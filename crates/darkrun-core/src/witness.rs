@@ -1,29 +1,10 @@
-//! Artifact witnesses — the baseline the drift sweep compares against.
-//!
-//! When a station locks, the engine records a [`Witness`] for each durable
-//! artifact it produced: the artifact's run-root-relative path and a content
-//! hash. A later sweep re-hashes the file and, if the hash no longer matches,
-//! knows the locked artifact has drifted — someone changed it out from under
-//! the run. Witnesses persist as a single `witnesses.json` per run.
+//! Content hashing — the baseline the drift sweep compares input premises
+//! against. A premise witness is a `path -> sha256` entry on the consuming unit
+//! (`UnitFrontmatter.input_witnesses`); these helpers compute the digests.
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-/// A recorded baseline for one locked artifact.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Witness {
-    /// The artifact path, relative to the repo root.
-    pub path: String,
-    /// The SHA-256 hex digest of the artifact's content at lock time.
-    pub hash: String,
-    /// The station that locked it.
-    pub station: String,
-    /// The unit that produced it, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unit: Option<String>,
-}
 
 /// The SHA-256 hex digest of a file's content, or `None` if the file is missing
 /// or unreadable (a missing locked artifact is itself drift).

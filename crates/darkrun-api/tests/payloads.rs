@@ -16,8 +16,7 @@ use darkrun_api::common::{GateType, ReviewAnnotations, SessionStatus, SessionTyp
 use darkrun_api::direction::{DirectionSelectRequest, PickerSelectRequest};
 use darkrun_api::session::{
     ApproveAction, ApproveActionKind, DirectionAnnotations, DirectionArchetype, DirectionPin,
-    DirectionSessionPayload, DiscoveredReviewUrl, DriftAction, DriftEntry, DriftKind,
-    KnowledgeFile, MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision,
+    DirectionSessionPayload, DiscoveredReviewUrl,     KnowledgeFile, MilestoneStatus, OutputArtifact, OutputArtifactType, PendingDecision,
     PickerKind, PickerOption, PickerSelection, PickerSessionPayload, PreviousReviewSnapshot,
     ProgressMilestone, QuestionAnswer, QuestionOption, QuestionSessionPayload,
     ReviewSessionPayload, RunCurrentState, RunPhase, SealStatus, SessionPayload,
@@ -562,127 +561,10 @@ fn progress_milestone_requires_all_fields() {
     assert!(parsed.is_err(), "missing status must fail");
 }
 
-// -----------------------------------------------------------------------------
-// DriftAction / DriftKind
-// -----------------------------------------------------------------------------
-
-#[test]
-fn drift_action_snake_case_each() {
-    for (variant, wire) in [
-        (DriftAction::Modified, "modified"),
-        (DriftAction::Added, "added"),
-        (DriftAction::Deleted, "deleted"),
-    ] {
-        assert_eq!(serde_json::to_value(variant).unwrap(), json!(wire));
-        let back: DriftAction = serde_json::from_value(json!(wire)).unwrap();
-        assert_eq!(back, variant);
-    }
-}
-
-#[test]
-fn drift_action_rejects_unknown() {
-    let parsed: Result<DriftAction, _> = serde_json::from_value(json!("renamed"));
-    assert!(parsed.is_err());
-}
-
-#[test]
-fn drift_kind_snake_case_each() {
-    for (variant, wire) in [
-        (DriftKind::Spec, "spec"),
-        (DriftKind::Output, "output"),
-        (DriftKind::DiscoveryOutput, "discovery_output"),
-        (DriftKind::DiscoveryMandate, "discovery_mandate"),
-    ] {
-        assert_eq!(serde_json::to_value(variant).unwrap(), json!(wire));
-        let back: DriftKind = serde_json::from_value(json!(wire)).unwrap();
-        assert_eq!(back, variant);
-    }
-}
-
-#[test]
-fn drift_kind_rejects_unknown() {
-    let parsed: Result<DriftKind, _> = serde_json::from_value(json!("mystery"));
-    assert!(parsed.is_err());
-}
-
-#[test]
-fn drift_entry_minimal_omits_optional_fields() {
-    let e = DriftEntry {
-        path: "frame/spec.md".into(),
-        station: "frame".into(),
-        run: "my-run".into(),
-        action: DriftAction::Modified,
-        age: "2m ago".into(),
-        kind: None,
-        unit: None,
-        role: None,
-    };
-    let json = serde_json::to_value(&e).unwrap();
-    assert!(json.get("kind").is_none());
-    assert!(json.get("unit").is_none());
-    assert!(json.get("role").is_none());
-    assert_eq!(json["action"], "modified");
-    assert_stable(&e);
-}
-
-#[test]
-fn drift_entry_full_roundtrips_with_kind_unit_role() {
-    let e = DriftEntry {
-        path: "frame/out.html".into(),
-        station: "frame".into(),
-        run: "my-run".into(),
-        action: DriftAction::Added,
-        age: "just now".into(),
-        kind: Some(DriftKind::Output),
-        unit: Some("unit-1".into()),
-        role: Some("explorer".into()),
-    };
-    let json = serde_json::to_value(&e).unwrap();
-    assert_eq!(json["kind"], "output");
-    assert_eq!(json["unit"], "unit-1");
-    assert_eq!(json["role"], "explorer");
-    assert_stable(&e);
-}
-
-#[test]
-fn drift_entry_in_review_payload_vec() {
-    let p = review(ReviewSessionPayload {
-        session_id: "d".into(),
-        drift: vec![
-            DriftEntry {
-                path: "a".into(),
-                station: "frame".into(),
-                run: "r".into(),
-                action: DriftAction::Modified,
-                age: "1m".into(),
-                kind: Some(DriftKind::Spec),
-                unit: None,
-                role: None,
-            },
-            DriftEntry {
-                path: "b".into(),
-                station: "frame".into(),
-                run: "r".into(),
-                action: DriftAction::Deleted,
-                age: "5m".into(),
-                kind: Some(DriftKind::DiscoveryMandate),
-                unit: Some("u2".into()),
-                role: Some("reviewer".into()),
-            },
-        ],
-        ..Default::default()
-    });
-    let json = serde_json::to_value(&p).unwrap();
-    assert_eq!(json["drift"].as_array().unwrap().len(), 2);
-    assert_eq!(json["drift"][1]["kind"], "discovery_mandate");
-    assert_stable(&p);
-}
-
 #[test]
 fn empty_drift_vec_is_omitted() {
     let p = review(ReviewSessionPayload {
         session_id: "d".into(),
-        drift: vec![],
         ..Default::default()
     });
     let json = serde_json::to_value(&p).unwrap();
@@ -1760,71 +1642,6 @@ fn review_payload_ad_hoc_false_still_serializes() {
     assert_eq!(json["ad_hoc"], false);
 }
 
-#[test]
-fn review_payload_kitchen_sink_roundtrips() {
-    let station_states = vec![StationStateInfo {
-        station: "frame".into(),
-        merged_into_main: true,
-        status: Some("complete".into()),
-        phase: Some("checkpoint".into()),
-        started_at: Some("t0".into()),
-        completed_at: Some("t1".into()),
-        gate_entered_at: Some("t0.5".into()),
-        gate_outcome: Some("approved".into()),
-    }];
-    let p = review(ReviewSessionPayload {
-        session_id: "sink".into(),
-        status: SessionStatus::ChangesRequested,
-        run_slug: Some("run".into()),
-        run_dir: Some("/runs/run".into()),
-        gate_type: Some(GateType::Await),
-        target: Some("frame".into()),
-        decision: Some("changes_requested".into()),
-        feedback: Some("redo".into()),
-        annotations: Some(ReviewAnnotations::default()),
-        run: Some(json!({ "k": "v" })),
-        units: vec![json!({ "slug": "u" })],
-        criteria: vec![json!("c")],
-        mermaid: Some("graph".into()),
-        station_states,
-        reflection: Some("reflect".into()),
-        current_state: Some(RunCurrentState {
-            factory: "software".into(),
-            station: "frame".into(),
-            phase: Some(RunPhase::Audit),
-            ..Default::default()
-        }),
-        knowledge_files: vec![KnowledgeFile {
-            name: "k".into(),
-            content: "c".into(),
-        }],
-        drift: vec![DriftEntry {
-            path: "p".into(),
-            station: "frame".into(),
-            run: "run".into(),
-            action: DriftAction::Modified,
-            age: "1m".into(),
-            kind: Some(DriftKind::Spec),
-            unit: None,
-            role: None,
-        }],
-        approve_action: Some(ApproveAction {
-            label: "Go".into(),
-            kind: ApproveActionKind::CompleteRun,
-        }),
-        await_active: Some(true),
-        await_count: Some(2),
-        ..Default::default()
-    });
-    assert_stable(&p);
-    let json = serde_json::to_value(&p).unwrap();
-    assert_eq!(json["session_type"], "review");
-    assert_eq!(json["status"], "changes_requested");
-    assert_eq!(json["gate_type"], "await");
-    assert_eq!(json["approve_action"]["kind"], "complete_run");
-    assert_eq!(json["current_state"]["phase"], "audit");
-}
-
 // -----------------------------------------------------------------------------
 // QuestionSessionPayload + QuestionDef + QuestionAnswer
 // -----------------------------------------------------------------------------
@@ -2475,32 +2292,6 @@ fn btreemap_keys_serialize_in_sorted_order() {
     let mike = text.find("mike").unwrap();
     let zebra = text.find("zebra").unwrap();
     assert!(alpha < mike && mike < zebra, "BTreeMap must emit sorted keys");
-}
-
-#[test]
-fn double_roundtrip_is_idempotent() {
-    let p = review(ReviewSessionPayload {
-        session_id: "idem".into(),
-        units: vec![json!({ "a": 1 })],
-        drift: vec![DriftEntry {
-            path: "p".into(),
-            station: "s".into(),
-            run: "r".into(),
-            action: DriftAction::Added,
-            age: "now".into(),
-            kind: Some(DriftKind::Output),
-            unit: Some("u".into()),
-            role: None,
-        }],
-        ..Default::default()
-    });
-    let j1 = serde_json::to_value(&p).unwrap();
-    let back1: SessionPayload = serde_json::from_value(j1.clone()).unwrap();
-    let j2 = serde_json::to_value(&back1).unwrap();
-    let back2: SessionPayload = serde_json::from_value(j2.clone()).unwrap();
-    let j3 = serde_json::to_value(&back2).unwrap();
-    assert_eq!(j1, j2);
-    assert_eq!(j2, j3);
 }
 
 #[test]

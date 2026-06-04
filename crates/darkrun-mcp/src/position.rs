@@ -47,9 +47,7 @@ use crate::factory::{FactoryDef, StationDef};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Track {
-    /// Witnessed artifact drift.
-    Drift,
-    /// Open feedback.
+    /// Open feedback (an input-premise drift arrives here as `origin=drift`).
     Feedback,
     /// Forward run progress.
     Run,
@@ -111,12 +109,6 @@ pub enum RunAction {
         run: String,
         station: String,
         feedback_id: String,
-    },
-    /// Reconcile a witnessed drift event (Track C).
-    ResolveDrift {
-        run: String,
-        station: String,
-        path: String,
     },
     /// Answer an open feedback item that is a *question* (needs a user
     /// decision, not a code fix). Track B's question half — parity for the predecessor's
@@ -326,9 +318,6 @@ pub struct PromptContext {
     /// branch. Present only on a git-backed run where the worktree was forked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix_worktree: Option<String>,
-    /// The drifted artifact path, for the drift track.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
     /// What's structurally wrong, for `UnitsInvalid` (`invalid_naming` etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -1462,7 +1451,6 @@ pub fn action_tag(action: &RunAction) -> &'static str {
         RunAction::Checkpoint { .. } => "checkpoint",
         RunAction::FixFeedback { .. } => "fix_feedback",
         RunAction::FeedbackQuestion { .. } => "feedback_question",
-        RunAction::ResolveDrift { .. } => "resolve_drift",
         RunAction::UnitsInvalid { .. } => "units_invalid",
         RunAction::Escalate { .. } => "escalate",
         RunAction::SafeRepair { .. } => "safe_repair",
@@ -1495,7 +1483,6 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         | RunAction::Checkpoint { station, .. }
         | RunAction::FixFeedback { station, .. }
         | RunAction::FeedbackQuestion { station, .. }
-        | RunAction::ResolveDrift { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
         | RunAction::SafeRepair { station, .. }
@@ -1657,11 +1644,6 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         }
         RunAction::FeedbackQuestion { feedback_id, .. } => {
             ctx.feedback_id = Some(feedback_id.clone());
-        }
-        RunAction::ResolveDrift { path, station, .. } => {
-            ctx.path = Some(path.clone());
-            ctx.fix_worktree =
-                fix_worktree_for(store, slug, station, &crate::drift::drift_id_for(path));
         }
         RunAction::UnitsInvalid { problem, units, .. } => {
             ctx.problem = Some(problem.clone());
@@ -1917,7 +1899,6 @@ fn station_of(action: &RunAction) -> Option<&str> {
         | RunAction::Checkpoint { station, .. }
         | RunAction::FixFeedback { station, .. }
         | RunAction::FeedbackQuestion { station, .. }
-        | RunAction::ResolveDrift { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
         | RunAction::SafeRepair { station, .. }
@@ -1934,7 +1915,6 @@ fn station_of(action: &RunAction) -> Option<&str> {
 /// Append one resolved-action entry to `action-log.jsonl`. Best-effort.
 fn append_action_log(store: &StateStore, slug: &str, track: &Track, action: &RunAction) {
     let track = match track {
-        Track::Drift => "drift",
         Track::Feedback => "feedback",
         Track::Run => "run",
     };
@@ -2132,15 +2112,13 @@ fn advance_state(store: &StateStore, slug: &str, action: &RunAction) -> Result<(
             });
             state.active_station = station.clone();
         }
-        // A feedback/drift repair is a HOLD (it doesn't advance the phase
-        // machine), but it gets its own isolation worktree (B9) so the
-        // fix-worker's diff is forked off the station branch. Idempotent re-entry
-        // across the ticks the fix takes; it lands back on resolution.
+        // A feedback repair (incl. an `origin=drift` premise change) is a HOLD —
+        // it doesn't advance the phase machine — but it gets its own isolation
+        // worktree (B9) so the fix-worker's diff is forked off the station
+        // branch. Idempotent re-entry across the ticks the fix takes; it lands
+        // back on resolution.
         RunAction::FixFeedback { station, feedback_id, .. } => {
             entered_fix = Some((station.clone(), feedback_id.clone()));
-        }
-        RunAction::ResolveDrift { station, path, .. } => {
-            entered_fix = Some((station.clone(), crate::drift::drift_id_for(path)));
         }
         // Validation / question / seal / noop actions are all HOLDS — they don't
         // advance the run phase machine on their own. The next tick re-derives

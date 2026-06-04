@@ -1276,13 +1276,6 @@
             ],
             "description": "An auto-discovered delivery PR/MR."
           },
-          "drift": {
-            "description": "Drift-sweep results for the active station.",
-            "items": {
-              "$ref": "#/definitions/DriftEntry"
-            },
-            "type": "array"
-          },
           "feedback": {
             "description": "Reviewer free-text feedback.",
             "type": [
@@ -1913,13 +1906,6 @@
                   }
                 ],
                 "description": "An auto-discovered delivery PR/MR."
-              },
-              "drift": {
-                "description": "Drift-sweep results for the active station.",
-                "items": {
-                  "$ref": "#/definitions/DriftEntry"
-                },
-                "type": "array"
               },
               "feedback": {
                 "description": "Reviewer free-text feedback.",

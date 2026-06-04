@@ -658,78 +658,6 @@ fn feedback_status_tokens_are_unique() {
 }
 
 // ===========================================================================
-// DriftKind
-// ===========================================================================
-
-const ALL_DRIFT_KINDS: [(DriftKind, &str); 5] = [
-    (DriftKind::Spec, "spec"),
-    (DriftKind::Output, "output"),
-    (DriftKind::Input, "input"),
-    (DriftKind::DiscoveryOutput, "discovery_output"),
-    (DriftKind::DiscoveryMandate, "discovery_mandate"),
-];
-
-#[test]
-fn drift_kind_spec_token() {
-    assert_eq!(json_token(&DriftKind::Spec), "spec");
-}
-
-#[test]
-fn drift_kind_output_token() {
-    assert_eq!(json_token(&DriftKind::Output), "output");
-}
-
-#[test]
-fn drift_kind_discovery_output_token_is_snake_case() {
-    assert_eq!(json_token(&DriftKind::DiscoveryOutput), "discovery_output");
-}
-
-#[test]
-fn drift_kind_discovery_mandate_token_is_snake_case() {
-    assert_eq!(
-        json_token(&DriftKind::DiscoveryMandate),
-        "discovery_mandate"
-    );
-}
-
-#[test]
-fn drift_kind_every_variant_roundtrips() {
-    for (kind, token) in ALL_DRIFT_KINDS {
-        assert_eq!(json_token(&kind), token);
-        assert_eq!(from_token::<DriftKind>(token).unwrap(), kind);
-        assert_eq!(yaml_round(&kind), kind);
-    }
-}
-
-#[test]
-fn drift_kind_spec_token_shared_with_drift_kind_alone() {
-    // DriftKind::Spec and StationPhase::Spec both render "spec" but are
-    // separate enums; the shared label is intentional.
-    assert_eq!(json_token(&DriftKind::Spec), json_token(&StationPhase::Spec));
-}
-
-#[test]
-fn drift_kind_rejects_unknown() {
-    assert!(from_token::<DriftKind>("premise").is_err());
-    assert!(from_token::<DriftKind>("discovery").is_err());
-}
-
-#[test]
-fn drift_kind_schema_tokens() {
-    let s = schema_value!(DriftKind);
-    let tokens: Vec<&str> = s["oneOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v["enum"][0].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        tokens,
-        vec!["spec", "output", "input", "discovery_output", "discovery_mandate"]
-    );
-}
-
-// ===========================================================================
 // RunGit
 // ===========================================================================
 
@@ -2325,142 +2253,6 @@ fn feedback_preserves_multiline_body() {
 }
 
 // ===========================================================================
-// Drift
-// ===========================================================================
-
-fn sample_drift() -> Drift {
-    Drift {
-        path: "units/u1.md".into(),
-        station: "build".into(),
-        run: "r".into(),
-        kind: DriftKind::Spec,
-        age: String::new(),
-        unit: None,
-    }
-}
-
-#[test]
-fn drift_minimal_roundtrips() {
-    let back = json_round(&sample_drift());
-    assert_eq!(back.path, "units/u1.md");
-    assert_eq!(back.station, "build");
-    assert_eq!(back.run, "r");
-    assert_eq!(back.kind, DriftKind::Spec);
-}
-
-#[test]
-fn drift_skips_none_unit() {
-    assert!(!obj(&sample_drift()).contains_key("unit"));
-}
-
-#[test]
-fn drift_always_emits_age_even_when_empty() {
-    // age has #[serde(default)] but no skip rule.
-    assert_eq!(obj(&sample_drift())["age"], "");
-}
-
-#[test]
-fn drift_always_emits_kind() {
-    assert_eq!(obj(&sample_drift())["kind"], "spec");
-}
-
-#[test]
-fn drift_emits_unit_when_present() {
-    let d = Drift {
-        unit: Some("u1".into()),
-        ..sample_drift()
-    };
-    assert_eq!(obj(&d)["unit"], "u1");
-}
-
-#[test]
-fn drift_with_unit_roundtrips() {
-    let d = Drift {
-        path: "out/x.rs".into(),
-        station: "build".into(),
-        run: "run-1".into(),
-        kind: DriftKind::Output,
-        age: "2h".into(),
-        unit: Some("auth".into()),
-    };
-    let back = json_round(&d);
-    assert_eq!(back.kind, DriftKind::Output);
-    assert_eq!(back.age, "2h");
-    assert_eq!(back.unit.as_deref(), Some("auth"));
-}
-
-#[test]
-fn drift_every_kind_roundtrips_in_struct() {
-    for (kind, _) in ALL_DRIFT_KINDS {
-        let d = Drift {
-            kind,
-            ..sample_drift()
-        };
-        assert_eq!(json_round(&d).kind, kind);
-    }
-}
-
-#[test]
-fn drift_required_fields_in_schema() {
-    let s = schema_value!(Drift);
-    let required: Vec<&str> = s["required"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect();
-    for key in ["path", "station", "run", "kind"] {
-        assert!(required.contains(&key), "must require {key}");
-    }
-    assert!(!required.contains(&"age"));
-    assert!(!required.contains(&"unit"));
-}
-
-#[test]
-fn drift_missing_kind_is_an_error() {
-    let v = json!({ "path": "p", "station": "s", "run": "r" });
-    assert!(serde_json::from_value::<Drift>(v).is_err());
-}
-
-#[test]
-fn drift_missing_path_is_an_error() {
-    let v = json!({ "station": "s", "run": "r", "kind": "spec" });
-    assert!(serde_json::from_value::<Drift>(v).is_err());
-}
-
-#[test]
-fn drift_age_defaults_when_omitted() {
-    let v = json!({ "path": "p", "station": "s", "run": "r", "kind": "output" });
-    let d: Drift = serde_json::from_value(v).expect("de");
-    assert_eq!(d.age, "");
-    assert!(d.unit.is_none());
-}
-
-#[test]
-fn drift_schema_references_kind_definition() {
-    let s = schema_value!(Drift);
-    assert!(s["definitions"]
-        .as_object()
-        .unwrap()
-        .contains_key("DriftKind"));
-}
-
-#[test]
-fn drift_yaml_roundtrips() {
-    let d = Drift {
-        path: "p".into(),
-        station: "s".into(),
-        run: "r".into(),
-        kind: DriftKind::DiscoveryMandate,
-        age: "1d".into(),
-        unit: None,
-    };
-    let back = yaml_round(&d);
-    assert_eq!(back.kind, DriftKind::DiscoveryMandate);
-    assert_eq!(back.age, "1d");
-}
-
-// ===========================================================================
 // Cross-cutting: determinism, idempotency, nesting
 // ===========================================================================
 
@@ -2545,7 +2337,6 @@ fn every_enum_schema_is_valid_draft07() {
     assert_eq!(schema_value!(PassBeat)["$schema"], draft);
     assert_eq!(schema_value!(FeedbackSeverity)["$schema"], draft);
     assert_eq!(schema_value!(FeedbackStatus)["$schema"], draft);
-    assert_eq!(schema_value!(DriftKind)["$schema"], draft);
 }
 
 #[test]
@@ -2562,7 +2353,6 @@ fn every_struct_schema_declares_object_type() {
     assert_eq!(schema_value!(Checkpoint)["type"], "object");
     assert_eq!(schema_value!(Station)["type"], "object");
     assert_eq!(schema_value!(Feedback)["type"], "object");
-    assert_eq!(schema_value!(Drift)["type"], "object");
 }
 
 #[test]
@@ -2579,7 +2369,6 @@ fn every_struct_schema_has_title() {
     assert_eq!(schema_value!(Checkpoint)["title"], "Checkpoint");
     assert_eq!(schema_value!(Station)["title"], "Station");
     assert_eq!(schema_value!(Feedback)["title"], "Feedback");
-    assert_eq!(schema_value!(Drift)["title"], "Drift");
 }
 
 #[test]
@@ -2594,7 +2383,6 @@ fn every_enum_schema_has_title() {
     assert_eq!(schema_value!(PassBeat)["title"], "PassBeat");
     assert_eq!(schema_value!(FeedbackSeverity)["title"], "FeedbackSeverity");
     assert_eq!(schema_value!(FeedbackStatus)["title"], "FeedbackStatus");
-    assert_eq!(schema_value!(DriftKind)["title"], "DriftKind");
 }
 
 #[test]
@@ -2608,7 +2396,6 @@ fn every_enum_schema_carries_a_description() {
     assert!(schema_value!(PassBeat)["description"].is_string());
     assert!(schema_value!(FeedbackSeverity)["description"].is_string());
     assert!(schema_value!(FeedbackStatus)["description"].is_string());
-    assert!(schema_value!(DriftKind)["description"].is_string());
 }
 
 #[test]
@@ -2622,7 +2409,6 @@ fn every_enum_schema_variant_carries_a_description() {
         schema_value!(PassBeat),
         schema_value!(FeedbackSeverity),
         schema_value!(FeedbackStatus),
-        schema_value!(DriftKind),
     ] {
         for variant in ty["oneOf"].as_array().expect("oneOf") {
             assert!(
@@ -2656,23 +2442,6 @@ fn checkpoint_kind_await_and_outcome_awaiting_are_distinct_tokens() {
         json_token(&CheckpointKind::Await),
         json_token(&CheckpointOutcome::Awaiting)
     );
-}
-
-#[test]
-fn output_token_unique_to_drift_kind() {
-    assert_eq!(json_token(&DriftKind::Output), "output");
-    // Not confusable with any phase token.
-    for (_, t) in ALL_PHASES {
-        if t != "output" {
-            assert_ne!(t, "output");
-        }
-    }
-}
-
-#[test]
-fn discovery_tokens_are_snake_cased_compound_words() {
-    assert!(json_token(&DriftKind::DiscoveryOutput).contains('_'));
-    assert!(json_token(&DriftKind::DiscoveryMandate).contains('_'));
 }
 
 // ===========================================================================
@@ -2769,15 +2538,6 @@ fn feedback_unicode_id_and_body_roundtrip() {
     let back = json_round(&fb);
     assert_eq!(back.id, "fb-✓");
     assert_eq!(back.body, "找到一个 bug 🐛");
-}
-
-#[test]
-fn drift_path_with_special_chars_roundtrips() {
-    let d = Drift {
-        path: "units/sub dir/a b.md".into(),
-        ..sample_drift()
-    };
-    assert_eq!(json_round(&d).path, "units/sub dir/a b.md");
 }
 
 #[test]
@@ -2959,7 +2719,6 @@ fn enum_schemas_have_no_properties_block() {
     // Unit enums are string oneOf; they must not carry an object properties map.
     assert!(schema_value!(Status).get("properties").is_none());
     assert!(schema_value!(StationPhase).get("properties").is_none());
-    assert!(schema_value!(DriftKind).get("properties").is_none());
 }
 
 #[test]
@@ -3070,14 +2829,6 @@ fn feedback_status_has_exactly_eight_variants_in_schema() {
     );
 }
 
-#[test]
-fn drift_kind_has_exactly_five_variants_in_schema() {
-    assert_eq!(
-        schema_value!(DriftKind)["oneOf"].as_array().unwrap().len(),
-        5
-    );
-}
-
 // ===========================================================================
 // Pretty-print stability and whitespace tolerance
 // ===========================================================================
@@ -3125,13 +2876,6 @@ fn feedback_tolerates_unknown_yaml_field() {
 }
 
 #[test]
-fn drift_tolerates_unknown_yaml_field() {
-    let d: Drift =
-        serde_yaml::from_str("path: p\nstation: s\nrun: r\nkind: spec\nold: 1\n").expect("de");
-    assert_eq!(d.kind, DriftKind::Spec);
-}
-
-#[test]
 fn checkpoint_tolerates_unknown_field() {
     let cp: Checkpoint =
         serde_json::from_str(r#"{"kind":"auto","legacy":"x"}"#).expect("de");
@@ -3160,7 +2904,6 @@ fn every_struct_schema_carries_a_description() {
     assert!(schema_value!(Checkpoint)["description"].is_string());
     assert!(schema_value!(Station)["description"].is_string());
     assert!(schema_value!(Feedback)["description"].is_string());
-    assert!(schema_value!(Drift)["description"].is_string());
 }
 
 #[test]
@@ -3214,20 +2957,6 @@ fn feedback_status_token_set_matches_const_table() {
         .iter()
         .map(|(_, t)| t.to_string())
         .collect();
-    assert_eq!(schema_tokens, table);
-}
-
-#[test]
-fn drift_kind_token_set_matches_const_table() {
-    use std::collections::BTreeSet;
-    let schema_tokens: BTreeSet<String> = schema_value!(DriftKind)["oneOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v["enum"][0].as_str().unwrap().to_string())
-        .collect();
-    let table: BTreeSet<String> =
-        ALL_DRIFT_KINDS.iter().map(|(_, t)| t.to_string()).collect();
     assert_eq!(schema_tokens, table);
 }
 

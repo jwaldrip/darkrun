@@ -12,7 +12,7 @@
 #![allow(clippy::field_reassign_with_default)]
 
 use darkrun_core::domain::{
-    Checkpoint, CheckpointKind, CheckpointOutcome, Drift, DriftKind, Explorer, Feedback,
+    Checkpoint, CheckpointKind, CheckpointOutcome, Explorer, Feedback,
     FeedbackSeverity, FeedbackStatus, Pass, PassBeat, Reviewer, RunFrontmatter, RunGit, Status,
     Station, StationPhase, UnitFrontmatter, Worker,
 };
@@ -1785,110 +1785,7 @@ fn roundtrip_feedback_idempotent() {
 }
 
 // ===========================================================================
-// roundtrip: Drift through the envelope
 // ===========================================================================
-
-#[test]
-fn roundtrip_drift_full() {
-    let d = Drift {
-        path: "units/a.md".into(),
-        station: "frame".into(),
-        run: "run-a".into(),
-        kind: DriftKind::Spec,
-        age: "5m ago".into(),
-        unit: Some("a".into()),
-    };
-    let doc = frontmatter::serialize(&d, "# Drift\n").expect("ser");
-    let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-    assert_eq!(back.path, "units/a.md");
-    assert_eq!(back.station, "frame");
-    assert_eq!(back.run, "run-a");
-    assert_eq!(back.kind, DriftKind::Spec);
-    assert_eq!(back.age, "5m ago");
-    assert_eq!(back.unit.as_deref(), Some("a"));
-}
-
-#[test]
-fn roundtrip_drift_each_kind() {
-    for kind in [
-        DriftKind::Spec,
-        DriftKind::Output,
-        DriftKind::DiscoveryOutput,
-        DriftKind::DiscoveryMandate,
-    ] {
-        let d = Drift {
-            path: "p".into(),
-            station: "s".into(),
-            run: "r".into(),
-            kind,
-            age: String::new(),
-            unit: None,
-        };
-        let doc = frontmatter::serialize(&d, "").expect("ser");
-        let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-        assert_eq!(back.kind, kind, "kind {kind:?}");
-    }
-}
-
-#[test]
-fn roundtrip_drift_no_unit_skipped() {
-    let d = Drift {
-        path: "p".into(),
-        station: "s".into(),
-        run: "r".into(),
-        kind: DriftKind::Output,
-        age: String::new(),
-        unit: None,
-    };
-    let doc = frontmatter::serialize(&d, "").expect("ser");
-    assert!(!doc.contains("unit:"));
-    let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-    assert!(back.unit.is_none());
-}
-
-#[test]
-fn roundtrip_drift_default_age() {
-    let d = Drift {
-        path: "p".into(),
-        station: "s".into(),
-        run: "r".into(),
-        kind: DriftKind::Spec,
-        age: String::new(),
-        unit: None,
-    };
-    let doc = frontmatter::serialize(&d, "").expect("ser");
-    let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-    assert_eq!(back.age, "");
-}
-
-#[test]
-fn parse_drift_missing_kind_errors() {
-    let raw = "---\npath: p\nstation: s\nrun: r\n---\nb\n";
-    let err = frontmatter::parse::<Drift>(raw).unwrap_err();
-    assert!(matches!(err, CoreError::Yaml(_)), "got {err:?}");
-}
-
-#[test]
-fn parse_drift_unknown_kind_errors() {
-    let raw = "---\npath: p\nstation: s\nrun: r\nkind: explosion\n---\nb\n";
-    let err = frontmatter::parse::<Drift>(raw).unwrap_err();
-    assert!(matches!(err, CoreError::Yaml(_)), "got {err:?}");
-}
-
-#[test]
-fn roundtrip_drift_path_with_slashes_preserved() {
-    let d = Drift {
-        path: "a/b/c/deep.md".into(),
-        station: "s".into(),
-        run: "r".into(),
-        kind: DriftKind::Output,
-        age: String::new(),
-        unit: None,
-    };
-    let doc = frontmatter::serialize(&d, "").expect("ser");
-    let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-    assert_eq!(back.path, "a/b/c/deep.md");
-}
 
 // ===========================================================================
 // additional split edge cases
@@ -2088,20 +1985,6 @@ fn serialize_pass_emits_snake_case_beat() {
 }
 
 #[test]
-fn serialize_drift_emits_snake_case_kind() {
-    let d = Drift {
-        path: "p".into(),
-        station: "s".into(),
-        run: "r".into(),
-        kind: DriftKind::DiscoveryMandate,
-        age: String::new(),
-        unit: None,
-    };
-    let doc = frontmatter::serialize(&d, "").expect("ser");
-    assert!(doc.contains("kind: discovery_mandate"));
-}
-
-#[test]
 fn serialize_feedback_status_snake_case() {
     let f = Feedback {
         id: "i".into(),
@@ -2141,22 +2024,6 @@ fn serialize_then_parse_pass_idempotent() {
     };
     let doc1 = frontmatter::serialize(&p, "").expect("ser");
     let (back, b) = frontmatter::parse::<Pass>(&doc1).expect("parse");
-    let doc2 = frontmatter::serialize(&back, &b).expect("ser2");
-    assert_eq!(doc1, doc2);
-}
-
-#[test]
-fn serialize_then_parse_drift_idempotent() {
-    let d = Drift {
-        path: "units/x.md".into(),
-        station: "frame".into(),
-        run: "r".into(),
-        kind: DriftKind::DiscoveryOutput,
-        age: "1h".into(),
-        unit: Some("x".into()),
-    };
-    let doc1 = frontmatter::serialize(&d, "# D\n").expect("ser");
-    let (back, b) = frontmatter::parse::<Drift>(&doc1).expect("parse");
     let doc2 = frontmatter::serialize(&back, &b).expect("ser2");
     assert_eq!(doc1, doc2);
 }
@@ -2486,40 +2353,6 @@ fn roundtrip_reviewer_shapes() {
 // ===========================================================================
 // matrix: drift path / unit shapes
 // ===========================================================================
-
-#[test]
-fn roundtrip_drift_unit_shapes() {
-    for u in ["a", "unit-42", "a/b", "café"] {
-        let d = Drift {
-            path: "p".into(),
-            station: "s".into(),
-            run: "r".into(),
-            kind: DriftKind::Spec,
-            age: String::new(),
-            unit: Some(u.into()),
-        };
-        let doc = frontmatter::serialize(&d, "").expect("ser");
-        let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-        assert_eq!(back.unit.as_deref(), Some(u), "unit {u:?}");
-    }
-}
-
-#[test]
-fn roundtrip_drift_age_shapes() {
-    for age in ["5m ago", "1h", "just now", "", "2 days"] {
-        let d = Drift {
-            path: "p".into(),
-            station: "s".into(),
-            run: "r".into(),
-            kind: DriftKind::Output,
-            age: age.into(),
-            unit: None,
-        };
-        let doc = frontmatter::serialize(&d, "").expect("ser");
-        let (back, _) = frontmatter::parse::<Drift>(&doc).expect("parse");
-        assert_eq!(back.age, age, "age {age:?}");
-    }
-}
 
 // ===========================================================================
 // matrix: feedback id/run/station shapes

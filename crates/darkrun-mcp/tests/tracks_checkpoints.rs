@@ -1056,11 +1056,6 @@ fn json_of<T: serde::Serialize>(v: &T) -> serde_json::Value {
 }
 
 #[test]
-fn track_serializes_snake_case_drift() {
-    assert_eq!(json_of(&Track::Drift), serde_json::json!("drift"));
-}
-
-#[test]
 fn track_serializes_snake_case_feedback() {
     assert_eq!(json_of(&Track::Feedback), serde_json::json!("feedback"));
 }

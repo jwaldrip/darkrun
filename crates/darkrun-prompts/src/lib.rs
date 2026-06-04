@@ -110,7 +110,6 @@ pub fn render<C: Serialize>(rel: &str, repo_root: impl AsRef<Path>, context: &C)
 /// | `user_gate`       | `phases/user_gate`  |
 /// | `checkpoint`      | `phases/checkpoint` |
 /// | `fix_feedback`    | `tracks/fix_feedback`|
-/// | `resolve_drift`   | `tracks/resolve_drift`|
 /// | `sealed`          | `run/sealed`        |
 /// | `noop`            | `run/noop`          |
 /// | `run_completion`  | `run/run_completion`|
@@ -128,7 +127,6 @@ pub fn template_key_for_action(action_tag: &str) -> Option<&'static str> {
         "checkpoint" => "phases/checkpoint",
         "fix_feedback" => "tracks/fix_feedback",
         "feedback_question" => "tracks/feedback_question",
-        "resolve_drift" => "tracks/resolve_drift",
         "merge_conflict" => "tracks/merge_conflict",
         "units_invalid" => "validation/units_invalid",
         "escalate" => "validation/escalate",
@@ -156,7 +154,6 @@ pub const ACTION_TAGS: &[&str] = &[
     "checkpoint",
     "fix_feedback",
     "feedback_question",
-    "resolve_drift",
     "merge_conflict",
     "units_invalid",
     "escalate",
@@ -403,7 +400,6 @@ mod tests {
             "phases/reflect",
             "phases/checkpoint",
             "tracks/fix_feedback",
-            "tracks/resolve_drift",
             "run/run_completion",
             "run/sealed",
             "_shared/announcement",

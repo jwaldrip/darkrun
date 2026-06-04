@@ -93,7 +93,6 @@ fn action_station(a: &RunAction) -> Option<&str> {
         | RunAction::Checkpoint { station, .. }
         | RunAction::FixFeedback { station, .. }
         | RunAction::FeedbackQuestion { station, .. }
-        | RunAction::ResolveDrift { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
         | RunAction::SafeRepair { station, .. }
