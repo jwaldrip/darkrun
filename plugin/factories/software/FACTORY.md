@@ -7,6 +7,7 @@ stations: [frame, specify, shape, build, prove, harden]
 fix_workers: [builder, reconciler, validator]
 reviewers: [integration-auditor, regression-auditor, security-auditor]
 reflections: [architecture, process, quality, velocity]
+surfaces: [library, api, web_ui, tui, cli, desktop, mobile, data]
 ---
 
 # Software Factory

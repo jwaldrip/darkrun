@@ -43,6 +43,10 @@ pub struct FactoryDef {
     pub name: String,
     /// Ordered stations, cost-of-late-discovery first.
     pub stations: Vec<StationDef>,
+    /// The delivery surfaces this factory can produce, declared as data in
+    /// `FACTORY.md`. The Shape station classifies the run into one of these; the
+    /// classification routes how Prove/Audit verify. Empty → no surface stage.
+    pub surfaces: Vec<String>,
 }
 
 impl FactoryDef {
@@ -66,6 +70,21 @@ impl FactoryDef {
         let idx = self.stations.iter().position(|s| s.name == name)?;
         self.stations.get(idx + 1)
     }
+
+    /// Whether `surface` is one of the factory's declared delivery surfaces.
+    /// Tokens are compared through the canonical [`Surface`](darkrun_core::domain::Surface)
+    /// parse so `web-ui`/`web_ui` spellings agree. A factory that declares no
+    /// surfaces offers no classification, so every token is rejected.
+    pub fn offers_surface(&self, surface: &str) -> bool {
+        let want = match darkrun_core::domain::Surface::parse(surface) {
+            Some(s) => s,
+            None => return false,
+        };
+        self.surfaces
+            .iter()
+            .filter_map(|d| darkrun_core::domain::Surface::parse(d))
+            .any(|d| d == want)
+    }
 }
 
 impl FactoryDef {
@@ -84,6 +103,7 @@ impl FactoryDef {
         FactoryDef {
             name: f.name().to_string(),
             stations,
+            surfaces: f.frontmatter.surfaces.clone(),
         }
     }
 }
@@ -164,5 +184,25 @@ mod tests {
     fn resolve_unknown_factory_is_none() {
         assert!(resolve_factory("nope").is_none());
         assert!(resolve_factory("software").is_some());
+    }
+
+    #[test]
+    fn software_declares_the_full_surface_set() {
+        let f = resolve_factory("software").unwrap();
+        assert_eq!(f.surfaces.len(), 8);
+        assert!(f.offers_surface("web_ui"));
+        assert!(f.offers_surface("web-ui"), "tolerant spelling agrees");
+        assert!(f.offers_surface("library"));
+        assert!(!f.offers_surface("hologram"));
+    }
+
+    #[test]
+    fn libdev_narrows_surfaces_to_library_and_api() {
+        let f = resolve_factory("libdev").unwrap();
+        assert!(f.offers_surface("library"));
+        assert!(f.offers_surface("api"));
+        // A library has no UI — it cannot classify as a visual surface.
+        assert!(!f.offers_surface("web_ui"));
+        assert!(!f.offers_surface("desktop"));
     }
 }

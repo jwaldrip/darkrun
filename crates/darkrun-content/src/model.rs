@@ -46,6 +46,13 @@ pub struct FactoryFrontmatter {
     /// over the finished Run that produces learnings, not a gate.
     #[serde(default)]
     pub reflections: Vec<String>,
+    /// The delivery surfaces this factory can produce, declared as data (e.g.
+    /// `web_ui`, `library`, `cli`). The Shape station classifies the run into
+    /// **one** of these, which routes how Prove/Audit verify it. A factory that
+    /// declares none offers no surface classification. Per-factory data, not a
+    /// fixed enum — `software` offers the full set, `libdev` only `library`/`api`.
+    #[serde(default)]
+    pub surfaces: Vec<String>,
 }
 
 /// Frontmatter of a `STATION.md` document.

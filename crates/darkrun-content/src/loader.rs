@@ -234,6 +234,9 @@ fn resolve_manifest(
         if m.reflections.is_empty() {
             m.reflections = fm.reflections;
         }
+        if m.surfaces.is_empty() {
+            m.surfaces = fm.surfaces;
+        }
     }
     Ok((merged.expect("chain is never empty"), child_body))
 }
@@ -402,6 +405,9 @@ mod tests {
         assert!(!f.reflections.is_empty(), "reflections inherited from software");
         // The default model falls through the chain too.
         assert_eq!(f.frontmatter.default_model, software.frontmatter.default_model);
+        // Surfaces are declared per-factory: libdev narrows to library/api.
+        assert_eq!(f.frontmatter.surfaces, vec!["library", "api"]);
+        assert_eq!(software.frontmatter.surfaces.len(), 8, "software offers the full set");
     }
 
     #[test]

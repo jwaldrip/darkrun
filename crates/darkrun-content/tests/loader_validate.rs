@@ -80,6 +80,7 @@ fn valid_factory() -> Factory {
             fix_workers: vec![],
             reviewers: vec![],
             reflections: vec![],
+            surfaces: vec![],
         },
         body: "# demo".into(),
         stations: vec![valid_station()],

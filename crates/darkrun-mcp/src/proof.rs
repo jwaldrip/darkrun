@@ -141,6 +141,23 @@ pub fn set_surface(store: &StateStore, slug: &str, raw_surface: &str) -> Result<
     let mut run = store
         .read_run(slug)
         .map_err(|_| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
+
+    // The classification must be one the run's factory actually offers — a
+    // library factory cannot classify a run as `web_ui`. Surfaces are per-factory
+    // declared data; this is where that declaration is enforced. (Resolution is
+    // best-effort: a factory that declares no surfaces — or won't resolve — does
+    // not constrain the classification, preserving the prior open behavior.)
+    if let Some(def) = crate::position::resolve_factory_for(store, &run.frontmatter.factory) {
+        if !def.surfaces.is_empty() && !def.offers_surface(raw_surface) {
+            return Err(McpError::InvalidInput(format!(
+                "the {} factory does not offer the `{}` surface (offers: {})",
+                def.name,
+                surface.as_str(),
+                def.surfaces.join(", ")
+            )));
+        }
+    }
+
     run.set_surface(surface);
     store.write_run(&run)?;
     Ok(SurfaceResult::from_surface(slug, Some(surface)))

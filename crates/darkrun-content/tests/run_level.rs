@@ -90,6 +90,7 @@ fn valid_run_level_factory() -> Factory {
             fix_workers: vec![],
             reviewers: vec!["audit".into()],
             reflections: vec!["learn".into()],
+            surfaces: vec![],
         },
         body: "# demo".into(),
         stations: vec![valid_station()],

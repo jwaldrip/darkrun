@@ -315,6 +315,7 @@ fn first_station_on_empty_factory_is_none() {
     let empty = FactoryDef {
         name: "empty".to_string(),
         stations: vec![],
+        surfaces: vec![],
     };
     assert!(empty.first_station().is_none());
 }
@@ -1052,6 +1053,7 @@ fn empty_factory_has_no_station_names() {
     let empty = FactoryDef {
         name: "x".to_string(),
         stations: vec![],
+        surfaces: vec![],
     };
     assert!(empty.station_names().is_empty());
     assert!(empty.station("anything").is_none());
@@ -1063,6 +1065,7 @@ fn single_station_factory_has_no_next() {
     let one = FactoryDef {
         name: "one".to_string(),
         stations: vec![st("frame")],
+        surfaces: vec![],
     };
     assert_eq!(one.first_station().unwrap().name, "frame");
     assert!(one.next_station("frame").is_none());

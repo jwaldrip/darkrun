@@ -137,6 +137,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
     let tiers = right_size_tiers(&factory);
     let full = pipeline_slugs(&factory);
     let fix_workers = factory.frontmatter.fix_workers.clone();
+    let surfaces = factory.frontmatter.surfaces.clone();
 
     // Clicking a node in the StationFlow navigates to that station's detail page.
     let nav = use_navigator();
@@ -198,6 +199,27 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
                  drops straight to build → prove; bigger work keeps the full line."
             }
             RightSizeStrip { full, tiers }
+        }
+
+        // Surfaces: the delivery shapes this factory can classify a run into,
+        // which route how Prove/Audit verify. Declared per-factory data.
+        if !surfaces.is_empty() {
+            Panel { label: "delivery surfaces".to_string(),
+                p {
+                    style: format!(
+                        "font-family:{};font-size:13px;color:{};margin:0 0 10px;",
+                        tokens::FONT_SANS, theme::TEXT_MUTED,
+                    ),
+                    "At Shape the factory classifies the run into one of these surfaces. \
+                     The surface routes how Prove and Audit verify it — a visual surface \
+                     through a headless browser, a library through benchmarks."
+                }
+                div { style: "display:flex;gap:8px;flex-wrap:wrap;",
+                    for s in surfaces.iter() {
+                        Badge { tone: Tone::Info, "{humanize(s)}" }
+                    }
+                }
+            }
         }
 
         // fix-workers: the drift/feedback repair track.

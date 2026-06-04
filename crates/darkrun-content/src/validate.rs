@@ -30,7 +30,26 @@ pub fn validate(factory: &Factory) -> Result<()> {
     }
 
     validate_run_level(&invalid, factory)?;
+    validate_surfaces(&invalid, factory)?;
 
+    Ok(())
+}
+
+/// Validate the factory's declared delivery surfaces. Surfaces are per-factory
+/// data, but each one must name a delivery surface the engine knows how to route
+/// for verification — an unknown token (a typo, an unsupported surface) is a hard
+/// error so a run can never classify into a surface Prove/Audit cannot measure.
+/// No surface may be declared twice.
+fn validate_surfaces(
+    invalid: &impl Fn(String) -> ContentError,
+    factory: &Factory,
+) -> Result<()> {
+    reject_duplicate_slugs(invalid, "surface", &factory.frontmatter.surfaces)?;
+    for token in &factory.frontmatter.surfaces {
+        if darkrun_core::domain::Surface::parse(token).is_none() {
+            return Err(invalid(format!("declares unknown surface `{token}`")));
+        }
+    }
     Ok(())
 }
 
@@ -219,6 +238,7 @@ mod tests {
                 fix_workers: vec![],
                 reviewers: vec![],
                 reflections: vec![],
+                surfaces: vec![],
             },
             body: "# demo".into(),
             stations: vec![station],
@@ -416,6 +436,27 @@ mod tests {
             role("audit", RoleKind::Reviewer),
         ];
         assert!(message(&f).contains("run reviewer `audit` more than once"));
+    }
+
+    #[test]
+    fn rejects_unknown_surface() {
+        let mut f = valid_factory();
+        f.frontmatter.surfaces = vec!["library".into(), "hologram".into()];
+        assert!(message(&f).contains("unknown surface `hologram`"));
+    }
+
+    #[test]
+    fn rejects_duplicate_surface() {
+        let mut f = valid_factory();
+        f.frontmatter.surfaces = vec!["library".into(), "library".into()];
+        assert!(message(&f).contains("surface `library` more than once"));
+    }
+
+    #[test]
+    fn accepts_known_surfaces() {
+        let mut f = valid_factory();
+        f.frontmatter.surfaces = vec!["web_ui".into(), "cli".into(), "data".into()];
+        validate(&f).expect("known surfaces validate");
     }
 
     #[test]

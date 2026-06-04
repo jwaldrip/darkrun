@@ -2,6 +2,7 @@
 name: libdev
 description: The library factory — ships a reusable library through the same six risk-eliminating stations, minus the UI work software needs.
 inherits: software
+surfaces: [library, api]
 ---
 
 # Library Factory
