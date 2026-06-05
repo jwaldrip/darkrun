@@ -143,6 +143,14 @@ pub struct RoleFrontmatter {
     /// beats are skipped on the way back. Absent → treated as a `build` worker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// Optional surface scope for a reviewer — the delivery surfaces this
+    /// reviewer applies to (e.g. `[web_ui, desktop, mobile]` for an a11y or
+    /// visual-regression reviewer). When set, the reviewer fires only on a run
+    /// classified into one of these surfaces; empty → it fires on every run.
+    /// Lets a factory declare a surface-specific reviewer without omitting it
+    /// per-station by hand (E6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applies_to: Vec<String>,
 }
 
 /// A fully-loaded role: its frontmatter, its raw markdown instructions, and the

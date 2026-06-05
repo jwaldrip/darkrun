@@ -853,6 +853,40 @@ pub fn run_review_stamp(store: &StateStore, slug: &str, role: &str) -> Result<()
     Ok(())
 }
 
+/// Whether a reviewer with surface scope `applies_to` fires on a run classified
+/// into `surface` (E6). An empty scope fires always; a scoped reviewer fires
+/// only when the run's surface is in it (tolerant spelling via `Surface::parse`).
+/// An unclassified run (`surface == None`) does not satisfy any non-empty scope.
+fn reviewer_applies(applies_to: &[String], surface: Option<darkrun_core::domain::Surface>) -> bool {
+    if applies_to.is_empty() {
+        return true;
+    }
+    let Some(want) = surface else { return false };
+    applies_to
+        .iter()
+        .filter_map(|s| darkrun_core::domain::Surface::parse(s))
+        .any(|s| s == want)
+}
+
+/// The station's reviewers that fire for a run classified into `surface` — a
+/// reviewer with a surface scope (`applies_to`) that doesn't match is dropped
+/// (E6). A station with no scoped reviewers returns its full roster.
+fn effective_station_reviewers(
+    def: &StationDef,
+    surface: Option<darkrun_core::domain::Surface>,
+) -> Vec<String> {
+    def.reviewers
+        .iter()
+        .filter(|r| {
+            reviewer_applies(
+                def.role_applies_to.get(*r).map(Vec::as_slice).unwrap_or(&[]),
+                surface,
+            )
+        })
+        .cloned()
+        .collect()
+}
+
 /// The run-level reviewers that actually fire for this run — run-level **mode
 /// shaping** (C5). A right-sized run (`auto_gates` — the quick/bugfix/refactor
 /// fast path) has a collapsed plan with no cross-station seams to audit, so the
@@ -861,12 +895,27 @@ pub fn run_review_stamp(store: &StateStore, slug: &str, role: &str) -> Result<()
 /// per-station gate shaping (`derived_station_phase` trims the station user gate
 /// under autopilot). The final seal gate is honored regardless of mode, so the
 /// operator's last say is never shaped away.
-fn effective_run_reviewers(factory: &FactoryDef, state: &RunState) -> Vec<String> {
+fn effective_run_reviewers(
+    factory: &FactoryDef,
+    state: &RunState,
+    surface: Option<darkrun_core::domain::Surface>,
+) -> Vec<String> {
     if state.auto_gates {
-        Vec::new()
-    } else {
-        factory.run_reviewers.clone()
+        return Vec::new();
     }
+    // E6: drop a run reviewer whose surface scope doesn't match the run's
+    // classified surface (an a11y/visual reviewer skips a non-visual run).
+    factory
+        .run_reviewers
+        .iter()
+        .filter(|r| {
+            reviewer_applies(
+                factory.run_reviewer_applies_to.get(*r).map(Vec::as_slice).unwrap_or(&[]),
+                surface,
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 /// Whether a run is in the dedicated **collaborative** mode — the one that wants
@@ -1044,10 +1093,11 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             // run reviewers audit the integrated result (cross-station seams,
             // regressions, the attacker's view) before the run can seal. Hold in
             // RunReview until each declared run reviewer is stamped.
-            let unsigned: Vec<String> = effective_run_reviewers(&factory, &state)
-                .into_iter()
-                .filter(|r| !matches!(state.run_reviews.get(r), Some(Some(_))))
-                .collect();
+            let unsigned: Vec<String> =
+                effective_run_reviewers(&factory, &state, run.frontmatter.surface)
+                    .into_iter()
+                    .filter(|r| !matches!(state.run_reviews.get(r), Some(Some(_))))
+                    .collect();
             if !unsigned.is_empty() {
                 return Ok(Position {
                     track: Track::Run,
@@ -1223,7 +1273,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
         StationPhase::Review => RunAction::Review {
             run: slug.to_string(),
             station: station.clone(),
-            reviewers: def.reviewers.clone(),
+            reviewers: effective_station_reviewers(def, run.frontmatter.surface),
         },
         StationPhase::UserGate => RunAction::UserGate {
             run: slug.to_string(),
@@ -1272,7 +1322,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
                             RunAction::Audit {
                                 run: slug.to_string(),
                                 station: station.clone(),
-                                reviewers: def.reviewers.clone(),
+                                reviewers: effective_station_reviewers(def, run.frontmatter.surface),
                             }
                         }
                     } else {
@@ -1295,7 +1345,7 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
         StationPhase::Audit => RunAction::Audit {
             run: slug.to_string(),
             station: station.clone(),
-            reviewers: def.reviewers.clone(),
+            reviewers: effective_station_reviewers(def, run.frontmatter.surface),
         },
         StationPhase::Reflect => RunAction::Reflect {
             run: slug.to_string(),
@@ -2854,14 +2904,55 @@ mod tests {
         let factory = crate::factory::resolve_factory("software").unwrap();
         assert!(!factory.run_reviewers.is_empty(), "software declares run reviewers");
 
+        // A full-size visual run keeps every reviewer (the surface-scoped a11y
+        // auditor included).
         let full = RunState { auto_gates: false, ..Default::default() };
-        assert_eq!(effective_run_reviewers(&factory, &full), factory.run_reviewers);
+        let visual = effective_run_reviewers(
+            &factory,
+            &full,
+            Some(darkrun_core::domain::Surface::WebUi),
+        );
+        assert_eq!(visual, factory.run_reviewers);
 
+        // A right-sized run skips the whole-run review regardless of surface.
         let right_sized = RunState { auto_gates: true, ..Default::default() };
         assert!(
-            effective_run_reviewers(&factory, &right_sized).is_empty(),
+            effective_run_reviewers(&factory, &right_sized, Some(darkrun_core::domain::Surface::WebUi))
+                .is_empty(),
             "a right-sized run skips the run-level review"
         );
+    }
+
+    #[test]
+    fn applies_to_scopes_a_reviewer_by_surface() {
+        use darkrun_core::domain::Surface;
+        // E6: an empty scope always fires; a scoped reviewer fires only on a
+        // matching surface, and never on an unclassified run.
+        assert!(reviewer_applies(&[], None));
+        assert!(reviewer_applies(&[], Some(Surface::Library)));
+        let visual = vec!["web_ui".to_string(), "desktop".to_string()];
+        assert!(reviewer_applies(&visual, Some(Surface::WebUi)));
+        assert!(!reviewer_applies(&visual, Some(Surface::Library)));
+        assert!(!reviewer_applies(&visual, None), "unclassified run can't match a scope");
+        // Tolerant spelling agrees (web-ui == web_ui).
+        assert!(reviewer_applies(&["web-ui".to_string()], Some(Surface::WebUi)));
+    }
+
+    #[test]
+    fn surface_scoped_run_reviewer_only_fires_on_matching_surface() {
+        use darkrun_core::domain::Surface;
+        // The software factory's accessibility-auditor is scoped [web_ui, desktop,
+        // mobile]. It joins the run review on a visual run, not on a library run.
+        let factory = crate::factory::resolve_factory("software").unwrap();
+        let full = RunState { auto_gates: false, ..Default::default() };
+
+        let visual = effective_run_reviewers(&factory, &full, Some(Surface::WebUi));
+        assert!(visual.iter().any(|r| r == "accessibility-auditor"), "{visual:?}");
+
+        let lib = effective_run_reviewers(&factory, &full, Some(Surface::Library));
+        assert!(!lib.iter().any(|r| r == "accessibility-auditor"), "{lib:?}");
+        // The always-on auditors fire on both.
+        assert!(lib.iter().any(|r| r == "integration-auditor"));
     }
 
     #[test]

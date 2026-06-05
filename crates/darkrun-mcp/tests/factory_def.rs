@@ -318,6 +318,7 @@ fn first_station_on_empty_factory_is_none() {
         surfaces: vec![],
         default_model: String::new(),
         run_reviewers: vec![],
+        run_reviewer_applies_to: Default::default(),
     };
     assert!(empty.first_station().is_none());
 }
@@ -1058,6 +1059,7 @@ fn empty_factory_has_no_station_names() {
         surfaces: vec![],
         default_model: String::new(),
         run_reviewers: vec![],
+        run_reviewer_applies_to: Default::default(),
     };
     assert!(empty.station_names().is_empty());
     assert!(empty.station("anything").is_none());
@@ -1072,6 +1074,7 @@ fn single_station_factory_has_no_next() {
         surfaces: vec![],
         default_model: String::new(),
         run_reviewers: vec![],
+        run_reviewer_applies_to: Default::default(),
     };
     assert_eq!(one.first_station().unwrap().name, "frame");
     assert!(one.next_station("frame").is_none());

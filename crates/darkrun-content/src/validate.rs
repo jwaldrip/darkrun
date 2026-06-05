@@ -248,6 +248,7 @@ mod tests {
                 model: None,
                 interpretation: None,
                 role: None,
+                applies_to: vec![],
             },
             body: format!("# {name}\n\ninstructions"),
             kind,

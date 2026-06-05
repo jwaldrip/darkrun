@@ -24,7 +24,12 @@ use darkrun_core::domain::CheckpointKind;
 // The shipped run-level contract.
 // ---------------------------------------------------------------------------
 
-const RUN_REVIEWERS: &[&str] = &["integration-auditor", "regression-auditor", "security-auditor"];
+const RUN_REVIEWERS: &[&str] = &[
+    "integration-auditor",
+    "regression-auditor",
+    "security-auditor",
+    "accessibility-auditor",
+];
 const REFLECTIONS: &[&str] = &["architecture", "process", "quality", "velocity"];
 
 fn factory() -> Factory {
@@ -47,6 +52,7 @@ fn role(name: &str, kind: RoleKind) -> Role {
             model: None,
                 interpretation: None,
                 role: None,
+                applies_to: vec![],
         },
         body: format!("# {name}\n\nEnough prose to instruct an agent verbatim end to end."),
         kind,
@@ -115,13 +121,24 @@ fn message(factory: &Factory) -> String {
 // ===========================================================================
 
 #[test]
-fn software_declares_three_run_reviewers() {
+fn software_declares_its_run_reviewers() {
     assert_eq!(factory().frontmatter.reviewers, RUN_REVIEWERS);
 }
 
 #[test]
 fn software_loads_all_run_reviewers() {
     assert_eq!(slugs(&factory().run_reviewers), RUN_REVIEWERS);
+}
+
+#[test]
+fn accessibility_auditor_is_surface_scoped() {
+    // E6: a run reviewer can carry an applies_to surface scope.
+    let f = factory();
+    let a11y = f.run_reviewer("accessibility-auditor").expect("loaded");
+    assert_eq!(a11y.frontmatter.applies_to, vec!["web_ui", "desktop", "mobile"]);
+    // An unscoped reviewer has an empty applies_to.
+    let integ = f.run_reviewer("integration-auditor").expect("loaded");
+    assert!(integ.frontmatter.applies_to.is_empty());
 }
 
 #[test]

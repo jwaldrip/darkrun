@@ -31,6 +31,7 @@ fn role(name: &str, kind: RoleKind) -> Role {
             model: None,
                 interpretation: None,
                 role: None,
+                applies_to: vec![],
         },
         body: format!("# {name}\n\nThis role carries enough prose to instruct an agent verbatim."),
         kind,

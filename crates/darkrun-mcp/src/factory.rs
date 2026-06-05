@@ -55,6 +55,10 @@ pub struct StationDef {
     /// additionally enforces that the *run's units* actually consume each of
     /// these at decomposition, so the distillation isn't dropped at runtime.
     pub inputs: Vec<String>,
+    /// Per-reviewer surface scope (`applies_to`), keyed by reviewer name, for
+    /// reviewers that declared one. A reviewer with a scope fires only when the
+    /// run's classified surface is in it; absent → fires always (E6).
+    pub role_applies_to: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// A resolved factory: an ordered list of stations.
@@ -74,6 +78,10 @@ pub struct FactoryDef {
     /// Whole-Run reviewer slugs — the cross-station auditors that judge the
     /// integrated run AFTER the final station locks, before it seals. Each gates.
     pub run_reviewers: Vec<String>,
+    /// Per-run-reviewer surface scope (`applies_to`), keyed by reviewer name. A
+    /// run reviewer with a scope joins the whole-run review only when the run's
+    /// classified surface is in it; absent → it always fires (E6).
+    pub run_reviewer_applies_to: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl FactoryDef {
@@ -127,12 +135,19 @@ impl FactoryDef {
             .filter_map(|pos| f.station(pos.dir()))
             .map(StationDef::from_content)
             .collect();
+        let mut run_reviewer_applies_to = std::collections::BTreeMap::new();
+        for r in &f.run_reviewers {
+            if !r.frontmatter.applies_to.is_empty() {
+                run_reviewer_applies_to.insert(r.name().to_string(), r.frontmatter.applies_to.clone());
+            }
+        }
         FactoryDef {
             name: f.name().to_string(),
             stations,
             surfaces: f.frontmatter.surfaces.clone(),
             default_model: f.frontmatter.default_model.clone(),
             run_reviewers: f.frontmatter.reviewers.clone(),
+            run_reviewer_applies_to,
         }
     }
 }
@@ -144,6 +159,7 @@ impl StationDef {
         // reviewers), keyed by role name, so dispatch can resolve per-role.
         let mut role_models = std::collections::BTreeMap::new();
         let mut role_interpretations = std::collections::BTreeMap::new();
+        let mut role_applies_to = std::collections::BTreeMap::new();
         let mut worker_roles = std::collections::BTreeMap::new();
         for role in s.explorers.iter().chain(&s.workers).chain(&s.reviewers) {
             if let Some(model) = &role.frontmatter.model {
@@ -155,6 +171,10 @@ impl StationDef {
                 if !interp.trim().is_empty() {
                     role_interpretations.insert(role.name().to_string(), interp.clone());
                 }
+            }
+            if !role.frontmatter.applies_to.is_empty() {
+                role_applies_to
+                    .insert(role.name().to_string(), role.frontmatter.applies_to.clone());
             }
         }
         for w in &s.workers {
@@ -178,6 +198,7 @@ impl StationDef {
             role_interpretations,
             worker_roles,
             inputs: s.frontmatter.inputs.clone(),
+            role_applies_to,
         }
     }
 }
