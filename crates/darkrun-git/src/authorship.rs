@@ -285,4 +285,20 @@ mod tests {
         run_git(&root, &["config", "user.email", "stranger@x.io"]);
         assert!(!run_authored_by_me(&root, "main", "darkrun/run-d").unwrap());
     }
+
+    #[test]
+    fn branch_author_returns_the_committer_name() {
+        let (_d, root) = init_repo();
+        commit_on_branch(&root, "darkrun/run-e", "worker@x.io", "e.txt");
+        assert_eq!(
+            branch_author(&root, "main", "darkrun/run-e").unwrap().as_deref(),
+            Some("Worker")
+        );
+        // A branch with no commits beyond base names no author.
+        run_git(&root, &["checkout", "-q", "main"]);
+        run_git(&root, &["branch", "darkrun/empty"]);
+        assert_eq!(branch_author(&root, "main", "darkrun/empty").unwrap(), None);
+        // A missing head resolves to no author.
+        assert_eq!(branch_author(&root, "main", "darkrun/ghost").unwrap(), None);
+    }
 }
