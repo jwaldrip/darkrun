@@ -82,6 +82,30 @@ pub struct RunState {
     /// audit of the integrated result before the run seals.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub run_reviews: BTreeMap<String, Option<crate::domain::Stamp>>,
+    /// The engine version this run was created with — stamped immutably at run
+    /// start, never overwritten. On reading a run whose state predates the stamp
+    /// (legacy), the loader fills it with [`LEGACY_VERSION`] so the field always
+    /// answers "what shape was this run born in", which on-read migrators key on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_with_version: Option<String>,
+}
+
+/// The version stamped onto a run whose on-disk state predates the
+/// `created_with_version` field — it was created by an engine old enough not to
+/// record one. Distinct from `None` (never read/migrated) and from any real
+/// semver (a versioned run).
+pub const LEGACY_VERSION: &str = "legacy";
+
+/// Migrate a freshly-deserialized [`RunState`] forward on read. Idempotent and
+/// pure (no I/O): each migrator keys on the run's `created_with_version` so a
+/// future on-disk shape change can be applied only to the runs that predate it.
+///
+/// Today the only migration is the version stamp itself: a run with no recorded
+/// version is tagged [`LEGACY_VERSION`].
+fn migrate_state(state: &mut RunState) {
+    if state.created_with_version.is_none() {
+        state.created_with_version = Some(LEGACY_VERSION.to_string());
+    }
 }
 
 /// The derived position of one station in a run's ordered plan — the strip
@@ -398,13 +422,21 @@ impl StateStore {
     // ─── Derived state (state.json) ──────────────────────────────────────
 
     /// Read the derived `state.json` snapshot, or `None` when absent.
+    ///
+    /// Runs the on-read migration: state written before the
+    /// [`created_with_version`](RunState::created_with_version) stamp existed is
+    /// tagged [`LEGACY_VERSION`] so downstream shape-migrators have a stable
+    /// "born-in" version to key on. The migration never persists on its own —
+    /// the next `write_state` records it — so a read is still side-effect free.
     pub fn read_state(&self, run: &str) -> Result<Option<RunState>> {
         let path = self.run_dir(run).join("state.json");
         if !path.exists() {
             return Ok(None);
         }
         let raw = io(&path, fs::read_to_string(&path))?;
-        Ok(Some(serde_json::from_str(&raw)?))
+        let mut state: RunState = serde_json::from_str(&raw)?;
+        migrate_state(&mut state);
+        Ok(Some(state))
     }
 
     /// Write the derived `state.json` snapshot.
@@ -512,6 +544,39 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect()
+    }
+
+    #[test]
+    fn reading_legacy_state_stamps_the_legacy_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        // Write a state.json that predates the version stamp (no field).
+        let legacy = RunState {
+            factory: "software".into(),
+            active_station: "frame".into(),
+            ..Default::default()
+        };
+        store.write_state("r", &legacy).unwrap();
+        // Strip the field from disk to model genuine legacy state.
+        let path = store.run_dir("r").join("state.json");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("created_with_version"), "default omits it");
+
+        let back = store.read_state("r").unwrap().unwrap();
+        assert_eq!(back.created_with_version.as_deref(), Some(LEGACY_VERSION));
+    }
+
+    #[test]
+    fn a_versioned_run_keeps_its_stamp_on_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        let state = RunState {
+            created_with_version: Some("9.9.9".into()),
+            ..Default::default()
+        };
+        store.write_state("r", &state).unwrap();
+        let back = store.read_state("r").unwrap().unwrap();
+        assert_eq!(back.created_with_version.as_deref(), Some("9.9.9"));
     }
 
     #[test]

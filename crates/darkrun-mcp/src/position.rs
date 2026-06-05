@@ -2382,6 +2382,9 @@ pub fn run_start(
         discrete: matches!(discrete_mode, DiscreteMode::Full | DiscreteMode::Hybrid),
         discrete_hybrid: matches!(discrete_mode, DiscreteMode::Hybrid),
         base_branch: Some(base),
+        // Stamp the engine version this run is born in — immutable; on-read
+        // shape-migrators key on it (G1).
+        created_with_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         ..Default::default()
     };
     ensure_station(&mut state, &factory, &first_name)?;

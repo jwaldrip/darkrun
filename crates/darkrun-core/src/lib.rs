@@ -38,7 +38,7 @@ pub use dag::Dag;
 pub use derive::{derive_station_phase, station_status, station_units_complete};
 pub use error::{CoreError, Result};
 pub use locks::{LockGuard, LockManager};
-pub use state::{run_is_complete, RunState, StateStore, StationStatus};
+pub use state::{run_is_complete, RunState, StateStore, StationStatus, LEGACY_VERSION};
 pub use witness::{hash_bytes, hash_file};
 
 #[cfg(test)]
