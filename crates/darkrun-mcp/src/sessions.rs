@@ -987,10 +987,17 @@ mod tests {
     #[test]
     fn result_readers_reject_wrong_kind_and_missing() {
         let reg = registry();
-        create_question(&reg, "r", None, "p", None, vec![q_opt("a", "A")], false, vec![]).unwrap();
-        // q-01 is a question, asking for it as a picker fails.
-        assert!(picker_result(&reg, "r", "q-01").is_err());
-        // missing id fails.
+        let q = create_question(&reg, "r", None, "p", None, vec![q_opt("a", "A")], false, vec![]).unwrap();
+        let d = create_direction(&reg, "r", None, "p", None, vec![arch("x")]).unwrap();
+        let pk = create_picker(&reg, "r", PickerKind::Confirm, "t", "p", vec![p_opt("y")]).unwrap();
+
+        // Each reader rejects a session of the WRONG kind…
+        assert!(picker_result(&reg, "r", &q.session_id).is_err());
+        assert!(question_result(&reg, "r", &d.session_id).is_err());
+        assert!(direction_result(&reg, "r", &pk.session_id).is_err());
+        // …and a MISSING id.
         assert!(question_result(&reg, "r", "q-99").is_err());
+        assert!(direction_result(&reg, "r", "d-99").is_err());
+        assert!(picker_result(&reg, "r", "pk-99").is_err());
     }
 }
