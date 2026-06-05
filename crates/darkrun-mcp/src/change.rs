@@ -341,4 +341,45 @@ mod tests {
             "darkrun/my-run/harden"
         );
     }
+
+    #[test]
+    fn action_name_maps_every_variant() {
+        use crate::position::RunAction as A;
+        use darkrun_core::domain::SealKind;
+        let r = || "r".to_string();
+        let s = || "frame".to_string();
+        let cases: Vec<(A, &str)> = vec![
+            (A::Spec { run: r(), station: s(), kills: "x".into() }, "spec"),
+            (A::Review { run: r(), station: s(), reviewers: vec![] }, "review"),
+            (A::Manufacture { run: r(), station: s(), worker: "w".into(), units: vec![] }, "manufacture"),
+            (A::Audit { run: r(), station: s(), reviewers: vec![] }, "audit"),
+            (A::Reflect { run: r(), station: s() }, "reflect"),
+            (A::UserGate { run: r(), station: s() }, "user_gate"),
+            (A::Checkpoint { run: r(), station: s(), kind: CheckpointKind::Ask }, "checkpoint"),
+            (A::FixFeedback { run: r(), station: s(), feedback_id: "fb-1".into() }, "fix_feedback"),
+            (A::FeedbackQuestion { run: r(), station: s(), feedback_id: "fb-1".into() }, "feedback_question"),
+            (A::UnitsInvalid { run: r(), station: s(), problem: "p".into(), units: vec![] }, "units_invalid"),
+            (A::Escalate { run: r(), station: s(), reason: "x".into() }, "escalate"),
+            (A::SafeRepair { run: r(), station: s(), reason: "x".into() }, "safe_repair"),
+            (A::ReviseUnitSpecs { run: r(), station: s(), units: vec![] }, "revise_unit_specs"),
+            (A::ExternalReviewRequested { run: r(), station: s(), target: "t".into() }, "external_review_requested"),
+            (A::RunReview { run: r(), reviewers: vec![] }, "run_review"),
+            (A::PendingSeal { run: r(), kind: SealKind::External }, "pending_seal"),
+            (A::Sealed { run: r() }, "sealed"),
+            (A::MergeConflict { run: r(), station: s(), branch: "b".into(), conflict_paths: vec![] }, "merge_conflict"),
+            (A::Noop { run: r(), message: "m".into() }, "noop"),
+        ];
+        for (action, name) in cases {
+            assert_eq!(action_name(&action), name);
+        }
+    }
+
+    #[test]
+    fn change_request_intent_errors_off_an_external_gate() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").unwrap();
+        // A fresh run sits at frame's pre-execution gate, not an external review
+        // gate → opening a change request is refused (InvalidInput).
+        assert!(change_request_intent(&store, "r", None).is_err());
+    }
 }
