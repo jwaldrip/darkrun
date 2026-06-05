@@ -147,6 +147,13 @@ impl ConnConfig {
         format!("/api/runs/{slug}")
     }
 
+    /// The unit-reset POST path (`/api/unit/:run/:unit/reset`) — the review UI's
+    /// "reset this unit" action. Flags a wedged Unit so the engine returns it to
+    /// pending (body editable, re-runs from Pass 1) on its next tick.
+    pub fn unit_reset_path(&self, run: &str, unit: &str) -> String {
+        format!("/api/unit/{run}/{unit}/reset")
+    }
+
     /// Clone this config pointed at a different session id — used when the home
     /// browser opens a specific run's live Review.
     pub fn with_session(&self, session_id: impl Into<String>) -> Self {
@@ -288,6 +295,14 @@ pub async fn submit_output_review(
     req: &OutputReviewRequest,
 ) -> Result<(), WireError> {
     post_json(&cfg.authority(), &cfg.visual_review_annotate_path(), req).await
+}
+
+/// POST a unit-reset request (`/api/unit/:run/:unit/reset`) — the review UI's
+/// rescue for a wedged Unit. The body is empty; the engine flags the Unit and
+/// resets it to pending on its next tick (unlocking its body, clearing the Pass
+/// budget) while preserving the spec.
+pub async fn submit_unit_reset(cfg: &ConnConfig, run: &str, unit: &str) -> Result<(), WireError> {
+    post_json(&cfg.authority(), &cfg.unit_reset_path(run, unit), &serde_json::json!({})).await
 }
 
 /// GET the project's run list (`/api/runs`) and decode it into a

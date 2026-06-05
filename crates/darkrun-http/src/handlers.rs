@@ -127,6 +127,46 @@ pub async fn advance(State(state): State<AppState>, Path(id): Path<String>) -> R
     (StatusCode::OK, Json(json!({ "ok": true, "advanced": true }))).into_response()
 }
 
+/// `POST /api/unit/:run/:unit/reset` — request a reset of a wedged unit from the
+/// desktop review UI. Sets the unit's `reset_requested` flag on disk; the engine
+/// performs the actual reset on its next tick (clearing the unit's execution
+/// state back to `Pending` so its locked body unlocks and it re-runs from Pass 1).
+/// This is the non-MCP, revise-style path to the `darkrun_unit_reset` capability.
+/// 404 if the unit is unknown.
+pub async fn request_unit_reset(
+    State(state): State<AppState>,
+    Path((run, unit)): Path<(String, String)>,
+) -> Response {
+    let store = &state.store;
+    let Ok(mut u) = store.read_unit(&run, &unit) else {
+        return not_found("unit", &unit);
+    };
+    if u.frontmatter.reset_requested {
+        // Idempotent: a reset is already pending for this unit.
+        return (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "run": run, "unit": unit, "reset_requested": true, "note": "already requested" })),
+        )
+            .into_response();
+    }
+    u.frontmatter.reset_requested = true;
+    if store.write_unit(&run, &u).is_err() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": "failed to write unit" })),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true, "run": run, "unit": unit, "reset_requested": true,
+            "note": "reset requested — the engine resets this unit to pending on its next tick"
+        })),
+    )
+        .into_response()
+}
+
 /// `POST /question/:id/answer` — record the operator's answer to a VISUAL
 /// QUESTION session.
 ///

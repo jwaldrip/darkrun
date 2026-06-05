@@ -1462,3 +1462,43 @@ async fn parametric_present_then_absent_after_no_remove() {
     let resp = send(app, get("/api/session/p-999")).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn unit_reset_route_sets_the_flag_then_404s_unknown() {
+    use darkrun_core::domain::{Status, Unit, UnitFrontmatter};
+    let state = test_state();
+    let store = state.store.clone();
+    // Seed a wedged unit on disk.
+    let unit = Unit {
+        slug: "u1".into(),
+        frontmatter: UnitFrontmatter {
+            status: Status::InProgress,
+            station: Some("build".into()),
+            ..Default::default()
+        },
+        title: "u1".into(),
+        body: "# u1\nspec\n".into(),
+    };
+    store.write_unit("run", &unit).unwrap();
+    assert!(!store.read_unit("run", "u1").unwrap().frontmatter.reset_requested);
+
+    let app = build_router(state);
+    // POST the reset request → 200 and the flag is set for the engine to consume.
+    let resp = send(app.clone(), post_json("/api/unit/run/u1/reset", &json!({}))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["ok"], json!(true));
+    assert_eq!(body["reset_requested"], json!(true));
+    assert!(
+        store.read_unit("run", "u1").unwrap().frontmatter.reset_requested,
+        "the flag is persisted on disk"
+    );
+
+    // Idempotent re-request still 200.
+    let resp = send(app.clone(), post_json("/api/unit/run/u1/reset", &json!({}))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Unknown unit → 404.
+    let resp = send(app, post_json("/api/unit/run/nope/reset", &json!({}))).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

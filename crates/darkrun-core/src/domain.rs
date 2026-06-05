@@ -542,6 +542,13 @@ pub struct UnitFrontmatter {
     /// and holds the station until the flag clears.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub revise: bool,
+    /// When `true`, a reset has been requested for this unit (e.g. from the
+    /// desktop review UI) but not yet applied. The next tick performs the reset —
+    /// clearing the unit's execution state back to `Pending` so its body unlocks —
+    /// and clears this flag. The engine-consumed, declarative twin of the
+    /// `darkrun_unit_reset` tool; lets a non-MCP surface request a reset.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset_requested: bool,
     /// Run-relative paths to artifacts the unit consumed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<String>,

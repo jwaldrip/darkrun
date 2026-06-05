@@ -196,6 +196,7 @@ pub fn reset(store: &StateStore, run: &str, slug: &str, confirm: bool) -> Result
     if confirm {
         unit.frontmatter.status = Status::Pending;
         unit.frontmatter.revise = false;
+        unit.frontmatter.reset_requested = false;
         unit.frontmatter.started_at = None;
         unit.frontmatter.completed_at = None;
         unit.frontmatter.iterations.clear();

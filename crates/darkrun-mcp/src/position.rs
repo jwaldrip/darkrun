@@ -1811,6 +1811,21 @@ pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Resu
     Ok(Some(rendered))
 }
 
+/// Apply any pending UI-requested unit resets (the `reset_requested` flag). A
+/// non-MCP surface (the desktop review UI) flags a wedged unit by setting the
+/// flag on its frontmatter; this consumes the flag by performing the full
+/// [`crate::units::reset`] — clearing the unit's execution state to `Pending` so
+/// its body unlocks — exactly as the `darkrun_unit_reset` tool would. Best-effort
+/// per unit; a read/write failure simply leaves the flag for the next tick.
+fn apply_requested_unit_resets(store: &StateStore, slug: &str) {
+    let Ok(units) = store.read_units(slug) else {
+        return;
+    };
+    for u in units.iter().filter(|u| u.frontmatter.reset_requested) {
+        let _ = crate::units::reset(store, slug, &u.slug, true);
+    }
+}
+
 /// DISCRETE-mode gate resolution: a station at its `external` gate opens, then
 /// polls, a draft PR/MR through the hosting client. The station's gate resolves
 /// when the PR is detected MERGED. Run on each tick BEFORE deriving so a merge
@@ -2011,6 +2026,10 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     // Sweep first: re-hash every locked artifact so a silent mutation surfaces
     // as a drift entry that Track C (inside derive_position) then preempts.
     crate::drift::sweep(store, slug)?;
+    // Apply any UI-requested unit resets (the `reset_requested` flag, set by a
+    // non-MCP surface like the desktop) before deriving, so a flagged unit is
+    // back to Pending — its body unlocked — by the time the cursor walks.
+    apply_requested_unit_resets(store, slug);
     // Discrete gate: open / poll the station's PR before deriving, so a merge
     // detected this tick advances the cursor immediately.
     resolve_discrete_gate(store, slug, hosting)?;
@@ -3865,6 +3884,39 @@ mod tests {
         fn review_comments(&self, _pr_ref: &str) -> Vec<crate::hosting::ReviewComment> {
             self.notes.clone()
         }
+    }
+
+    /// A unit flagged `reset_requested` (from the desktop UI) is reset to pending
+    /// by the next tick's pre-derive sweep — body unlocked, pass budget cleared,
+    /// flag cleared — exactly as the `darkrun_unit_reset` tool would.
+    #[test]
+    fn reset_requested_flag_is_consumed_before_derive() {
+        let (_d, store) = store();
+        run_start(&store, "d", "software", None, "quick").expect("start");
+        // A wedged InProgress unit the operator flagged for reset in the UI.
+        let mut u = crate::units::create(&store, "d", "u1", "build", None, vec![]).unwrap();
+        u.frontmatter.status = Status::InProgress;
+        u.frontmatter.reset_requested = true;
+        u.frontmatter.iterations = vec![
+            darkrun_core::domain::UnitIteration {
+                worker: "w".into(),
+                started_at: None,
+                completed_at: None,
+                result: Some(darkrun_core::domain::IterationResult::Advance),
+                note: None,
+            };
+            3
+        ];
+        store.write_unit("d", &u).unwrap();
+        assert_eq!(store.read_unit("d", "u1").unwrap().pass(), 3);
+
+        // The pre-derive sweep consumes the flag.
+        apply_requested_unit_resets(&store, "d");
+
+        let after = store.read_unit("d", "u1").unwrap();
+        assert_eq!(after.frontmatter.status, Status::Pending, "back to editable");
+        assert!(!after.frontmatter.reset_requested, "flag cleared");
+        assert_eq!(after.pass(), 0, "pass budget reset");
     }
 
     /// `discrete` mode snapshots the discrete flag (not hybrid) and keeps the

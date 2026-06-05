@@ -72,6 +72,14 @@ fn decide_path_with_complex_id() {
     );
 }
 
+#[test]
+fn unit_reset_path_is_run_and_unit_scoped() {
+    assert_eq!(
+        cfg("127.0.0.1", 7878, "sess").unit_reset_path("my-run", "u1"),
+        "/api/unit/my-run/u1/reset"
+    );
+}
+
 // ---- authority ----
 
 #[test]

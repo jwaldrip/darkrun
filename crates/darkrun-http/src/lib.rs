@@ -118,6 +118,10 @@ pub fn build_router(app: AppState) -> Router {
         )
         .route("/api/advance/{id}", post(handlers::advance))
         .route(
+            "/api/unit/{run}/{unit}/reset",
+            post(handlers::request_unit_reset),
+        )
+        .route(
             "/api/feedback/{run}/{station}",
             get(handlers::list_feedback).post(handlers::create_feedback),
         )

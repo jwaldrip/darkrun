@@ -154,7 +154,10 @@ body), is dry-run-by-default, and flags dependents before confirming. The
 `MAX_PASSES` escalation message now *names* this recovery — directly fixing the
 predecessor's failure mode where the escalation promised a reset no tool
 delivered (and a permission classifier blocked the one it named). `units.rs`
-`reset` + the `darkrun_unit_reset` tool, 2 tests.
+`reset` + the `darkrun_unit_reset` tool. It's also reachable **without MCP** — a
+revise-style `reset_requested` flag the engine consumes on its next tick, set by
+`POST /api/unit/:run/:unit/reset` and wired into the desktop review surface
+(`submit_unit_reset`) — and is documented in the `darkrun-debug` skill.
 
 **Bottom line on "all predecessor bugs verified?": yes, now 1:1.** BUG-3 remains
 the only genuine shared *engine* defect in the entire corpus (fixed); every other
