@@ -12,13 +12,14 @@ mechanism, with a comment column); this doc is the prose companion.
 
 ## ◆ Current status — 2026-06-05
 
-**44 mechanisms. 38 built · 6 intentionally not built (3 deliberate-design · 3
+**44 mechanisms. 39 built · 5 intentionally not built (2 deliberate-design · 3
 redundant). Nothing is deferred and nothing is left on the "should build" list** —
 every actionable gap is closed, including the formerly-deferred batch (B5, C5,
-D5, F2, F5, G1, G2, G4) and the items reopened from the spreadsheet review (E6,
-the run-main-vs-default tracking, and the B7 in-flight verification). What remains
-is only deliberate design difference (B6, C2, C6) or genuine redundancy (E4, G3,
-G5).
+D5, F2, F5, G1, G2, G4), the items reopened from the spreadsheet review (E6,
+the run-main-vs-default tracking, and the B7 in-flight verification), and **C6**
+(the remote PR/MR review → feedback bridge, reframed from "delivery verification"
+and built once the user flagged its real value). What remains is only deliberate
+design difference (B6, C2) or genuine redundancy (E4, G3, G5).
 
 > **This session's deferred-batch close (2026-06-05).** B5 verifier nonce ·
 > C5 run-level mode shaping · D5 proof→PR upload · F2 human_write (a guarded
@@ -40,13 +41,19 @@ G5).
 > removed across every crate (no dormant types). B2 (restamp-on-detect) moved
 > from "keep" to **done**.
 
-Start of the work: 3 present · 15 partial · 26 missing → now: 38 built, the rest
+Start of the work: 3 present · 15 partial · 26 missing → now: 39 built, the rest
 deliberate-design or redundant.
 
-### Built (38)
+### Built (39)
 
 The earlier 28, plus this session's deferred-batch + review-driven close:
 
+- **C6** remote review → feedback bridge — the discrete poll fetches the draft PR/MR's
+  review notes (`Hosting::review_comments` via gh/glab) and files each new one as
+  external-origin feedback: `CHANGES_REQUESTED`→Blocker, comment→Medium, deduped by a
+  deterministic `fb-ext-<note-id>`. The open feedback preempts the held external gate
+  (Track B over run), gets worked + closed, and the station head is re-pushed so the
+  fix reaches the PR. The PR becomes a two-way bridge, not just a merge-state poll.
 - **B5** verifier nonce — `Station.verifier_nonce` minted at Manufacture dispatch;
   `darkrun_quality_gate_record` refuses a result without the matching token.
 - **B7** dispatch-lease guarantee **verified** — `wave_ready` (Pending-only) drops a
@@ -104,13 +111,11 @@ The earlier 28, plus this session's deferred-batch + review-driven close:
   **F4 per-role review stamp** (`darkrun_review_stamp` records one role without a
   cursor walk, so reviewers/explorers fan out in parallel and the parent ticks once).
 
-### Deliberate design — not a gap (3: keep)
+### Deliberate design — not a gap (2: keep)
 
 - **B6** the hook suite + `drift-witness.log` over an FSM checksum sidecar.
 - **C2** the fixed six FSSBPH stations (the whole orientation refactor rests on the
   invariant spine; right-sizing collapses at run start).
-- **C6** delivery verification — the discrete gate already polls PR merge; a
-  non-discrete run has no PR to re-audit.
 
 ### Redundant in darkrun's model (3: skip)
 
@@ -137,7 +142,7 @@ exclusion verified) · B8 **done** (pre-existing) · B9 **done** (per-unit + per
 isolation).
 
 **Cluster C** — C1 **done** · C2 **keep** (deliberate) · C3 **done** · C4 **done** ·
-C5 **done** (run-level mode shaping) · C6 **keep** (mostly redundant).
+C5 **done** (run-level mode shaping) · C6 **done** (remote review → feedback bridge).
 
 **Cluster D** — D1 **done** · D2 **done** · D3 **done** · D4 **done** · D5 **done**
 (proof→PR upload).
