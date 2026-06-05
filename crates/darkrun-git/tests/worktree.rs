@@ -1661,3 +1661,59 @@ fn current_branch_in_worktree_after_commit_there() {
     assert_eq!(g.current_branch().unwrap().as_deref(), Some("main"));
     cleanup(&root, &info.path);
 }
+
+// ===========================================================================
+// MERGE / NETWORK / REBASE — the wrapper's GitBackend delegation, both backends
+// ===========================================================================
+
+/// Drive the merge trio, the push/fetch network ops, and rebase through the
+/// `Git` wrapper for BOTH backends — covering the wrapper's delegating methods
+/// and (for libgit2) its lazy-shell delegation for these ops.
+#[test]
+fn merge_network_and_rebase_through_the_wrapper() {
+    for (label, open) in backends() {
+        let bare = TempDir::new().unwrap();
+        git(bare.path(), &["init", "-q", "--bare"]);
+        let (_dir, root) = init_repo();
+        git(&root, &["remote", "add", "origin", &bare.path().to_string_lossy()]);
+        let g = open(&root).unwrap_or_else(|e| panic!("[{label}] open: {e}"));
+
+        // Network ops through the wrapper.
+        g.push(&root, "main").unwrap_or_else(|e| panic!("[{label}] push: {e}"));
+        g.fetch(&root, "main").unwrap_or_else(|e| panic!("[{label}] fetch: {e}"));
+
+        // A divergent, non-conflicting branch.
+        git(&root, &["checkout", "-q", "-b", "side"]);
+        std::fs::write(root.join("side.txt"), "s\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-qm", "side"]);
+        git(&root, &["checkout", "-q", "main"]);
+        std::fs::write(root.join("main.txt"), "m\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-qm", "main"]);
+
+        assert!(!g.refs_have_identical_trees("main", "side").unwrap(), "[{label}] trees differ");
+        // Up-to-date merge → no-op; a real merge stages.
+        let noop = g.merge_no_commit(&root, "main").unwrap();
+        assert!(noop.ok && !noop.performed, "[{label}] up-to-date is a no-op");
+        let merged = g.merge_no_commit(&root, "side").unwrap();
+        assert!(merged.ok && merged.performed, "[{label}] real merge performs");
+        assert!(g.merge_in_progress(&root).unwrap(), "[{label}] merge staged");
+        g.checkout_paths(&root, "HEAD", &["main.txt".into()]).unwrap();
+        g.add_paths(&root, &["main.txt".into()]).unwrap();
+        g.commit(&root, "merge side").unwrap();
+        assert!(
+            g.ls_tree(&root, "HEAD", "side.txt").unwrap().iter().any(|p| p == "side.txt"),
+            "[{label}] merge brought in side.txt"
+        );
+        assert!(g.unresolved_paths(&root).unwrap().is_empty(), "[{label}] no conflicts");
+
+        // Rebase a feature branch onto main, then abort (no-op when none in flight).
+        git(&root, &["checkout", "-q", "-b", "feat"]);
+        std::fs::write(root.join("f.txt"), "f\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-qm", "f"]);
+        g.rebase_onto(&root, "main").unwrap_or_else(|e| panic!("[{label}] rebase: {e}"));
+        g.rebase_abort(&root).unwrap();
+    }
+}
