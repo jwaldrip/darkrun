@@ -853,6 +853,22 @@ pub fn run_review_stamp(store: &StateStore, slug: &str, role: &str) -> Result<()
     Ok(())
 }
 
+/// The run-level reviewers that actually fire for this run — run-level **mode
+/// shaping** (C5). A right-sized run (`auto_gates` — the quick/bugfix/refactor
+/// fast path) has a collapsed plan with no cross-station seams to audit, so the
+/// whole-run review is skipped; a full-size run (continuous/discrete/autopilot)
+/// keeps every declared run reviewer. This is the run-level twin of the
+/// per-station gate shaping (`derived_station_phase` trims the station user gate
+/// under autopilot). The final seal gate is honored regardless of mode, so the
+/// operator's last say is never shaped away.
+fn effective_run_reviewers(factory: &FactoryDef, state: &RunState) -> Vec<String> {
+    if state.auto_gates {
+        Vec::new()
+    } else {
+        factory.run_reviewers.clone()
+    }
+}
+
 /// Whether a run is in the dedicated **collaborative** mode — the one that wants
 /// the operator in the loop *during elaboration*, enforced by a hard Spec hold.
 /// Only this explicit mode gates; `continuous`/`discrete`/`autopilot`/`quick`
@@ -1028,11 +1044,9 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
             // run reviewers audit the integrated result (cross-station seams,
             // regressions, the attacker's view) before the run can seal. Hold in
             // RunReview until each declared run reviewer is stamped.
-            let unsigned: Vec<String> = factory
-                .run_reviewers
-                .iter()
-                .filter(|r| !matches!(state.run_reviews.get(*r), Some(Some(_))))
-                .cloned()
+            let unsigned: Vec<String> = effective_run_reviewers(&factory, &state)
+                .into_iter()
+                .filter(|r| !matches!(state.run_reviews.get(r), Some(Some(_))))
                 .collect();
             if !unsigned.is_empty() {
                 return Ok(Position {
@@ -2831,6 +2845,23 @@ mod tests {
         // The run starts at the plan's first station, not the factory's.
         assert_eq!(state.active_station, "build");
         assert_eq!(state.stations["build"].phase, StationPhase::Spec);
+    }
+
+    #[test]
+    fn run_level_review_is_shaped_by_mode() {
+        // C5: a full-size run keeps every declared run reviewer; a right-sized
+        // (auto_gates) run skips the cross-station run review entirely.
+        let factory = crate::factory::resolve_factory("software").unwrap();
+        assert!(!factory.run_reviewers.is_empty(), "software declares run reviewers");
+
+        let full = RunState { auto_gates: false, ..Default::default() };
+        assert_eq!(effective_run_reviewers(&factory, &full), factory.run_reviewers);
+
+        let right_sized = RunState { auto_gates: true, ..Default::default() };
+        assert!(
+            effective_run_reviewers(&factory, &right_sized).is_empty(),
+            "a right-sized run skips the run-level review"
+        );
     }
 
     #[test]
