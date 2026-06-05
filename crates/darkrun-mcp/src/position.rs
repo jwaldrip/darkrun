@@ -2765,6 +2765,44 @@ mod tests {
     }
 
     #[test]
+    fn integrity_problem_flags_a_unit_on_an_undefined_station() {
+        use darkrun_core::domain::{Unit, UnitFrontmatter};
+        let factory = crate::factory::resolve_factory("software").unwrap();
+        let on = |station: &str| Unit {
+            slug: "u".into(),
+            frontmatter: UnitFrontmatter { station: Some(station.into()), ..Default::default() },
+            title: "u".into(),
+            body: String::new(),
+        };
+        // A unit on a real station is fine; one on a station the factory doesn't
+        // define is an integrity problem (routes a guarded SafeRepair).
+        assert!(integrity_problem(&factory, &[on("frame")]).is_none());
+        let bad = integrity_problem(&factory, &[on("ghost-station")]).expect("flagged");
+        assert!(bad.contains("ghost-station"));
+        // An empty station name is ignored (not a defined-station violation).
+        assert!(integrity_problem(&factory, &[on("")]).is_none());
+    }
+
+    #[test]
+    fn derived_station_phase_none_without_units_some_with_either_autopilot() {
+        use darkrun_core::domain::{Status, Unit, UnitFrontmatter};
+        let factory = crate::factory::resolve_factory("software").unwrap();
+        let def = factory.station("frame").unwrap();
+        // No units → no derivable phase.
+        assert!(derived_station_phase(&[], def, false).is_none());
+        let u = Unit {
+            slug: "u".into(),
+            frontmatter: UnitFrontmatter { status: Status::Completed, station: Some("frame".into()), ..Default::default() },
+            title: "u".into(),
+            body: String::new(),
+        };
+        let refs: Vec<&Unit> = vec![&u];
+        // Both gate modes derive a phase (autopilot drops the `user` approval role).
+        assert!(derived_station_phase(&refs, def, false).is_some());
+        assert!(derived_station_phase(&refs, def, true).is_some());
+    }
+
+    #[test]
     fn walk_feedback_prefers_blocker_then_questions_preempt() {
         let (_d, store) = store();
         let write = |id: &str, doc: &str| store.write_feedback_raw("r", id, doc).unwrap();
