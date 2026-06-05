@@ -473,6 +473,39 @@ mod tests {
         assert_eq!(after.unsatisfied_gates(), vec!["tests"]);
     }
 
+    /// Predecessor BUG-1: the CI-deferral attempt counter was keyed per-UNIT, so
+    /// a gate inherited the unit's accumulated count and deferred on its FIRST
+    /// failure. darkrun keys attempts PER-GATE-NAME — each gate's counter starts
+    /// at its own first appearance, independent of how many times sibling gates
+    /// were recorded.
+    #[test]
+    fn ci_deferral_counter_is_per_gate_not_per_unit() {
+        let (_d, store) = store1();
+        create(&store, "r", "u1", "build", None, vec![]).unwrap();
+
+        // Gate A is env-blocked twice → it defers to CI on its 2nd attempt.
+        record_gate_result(&store, "r", "u1", "type_check", GateStatus::EnvBlocked, None, None)
+            .unwrap();
+        let a = record_gate_result(&store, "r", "u1", "type_check", GateStatus::EnvBlocked, None, None)
+            .unwrap();
+        let ga = a.frontmatter.gate_results.iter().find(|r| r.name == "type_check").unwrap();
+        assert_eq!(ga.attempts, 2);
+        assert_eq!(ga.status, GateStatus::DeferredToCi);
+
+        // Now gate B is env-blocked for the FIRST time. Even though the unit
+        // already has 2 prior gate recordings, B's counter starts at 1 — it must
+        // NOT inherit A's count and defer prematurely.
+        let b = record_gate_result(&store, "r", "u1", "lint", GateStatus::EnvBlocked, None, None)
+            .unwrap();
+        let gb = b.frontmatter.gate_results.iter().find(|r| r.name == "lint").unwrap();
+        assert_eq!(gb.attempts, 1, "a gate's first failure counts as attempt 1");
+        assert_eq!(
+            gb.status,
+            GateStatus::EnvBlocked,
+            "a gate must NOT defer on its first failure just because siblings have a high count"
+        );
+    }
+
     #[test]
     fn verifier_nonce_is_required_when_the_station_carries_one() {
         use darkrun_core::domain::Station;

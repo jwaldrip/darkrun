@@ -408,10 +408,23 @@ fn unit_complete(unit: &Unit) -> bool {
     matches!(unit.status(), Status::Completed)
 }
 
+/// Whether a declared output is genuinely present — it must exist, be a regular
+/// file, and be **non-empty**. A `touch`ed or misfired-redirect 0-byte file (or
+/// a directory) does NOT satisfy a promised artifact: an empty file's content
+/// hash reads as "stable" to drift, so a unit that ships nothing would otherwise
+/// pass both the output-existence gate and the immune system. (Predecessor BUG-3:
+/// `existsSync`-only let empty artifacts through.)
+fn output_present(path: &std::path::Path) -> bool {
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && m.len() > 0)
+        .unwrap_or(false)
+}
+
 /// Slugs of completed units that declared an output which is **not on disk** —
-/// the unit promised an artifact it never produced. The output-existence gate
-/// holds the station here until the file appears. Paths resolve against the repo
-/// root (the parent of the `.darkrun/` state root).
+/// the unit promised an artifact it never produced (or produced an empty one).
+/// The output-existence gate holds the station here until the file exists and is
+/// non-empty. Paths resolve against the repo root (the parent of the `.darkrun/`
+/// state root).
 fn missing_outputs(store: &StateStore, units: &[Unit]) -> Vec<String> {
     let root = cascade_repo_root(store);
     units
@@ -421,7 +434,7 @@ fn missing_outputs(store: &StateStore, units: &[Unit]) -> Vec<String> {
             u.frontmatter
                 .outputs
                 .iter()
-                .any(|o| !root.join(o).exists())
+                .any(|o| !output_present(&root.join(o)))
         })
         .map(|u| u.slug.clone())
         .collect()
@@ -2892,8 +2905,25 @@ mod tests {
         promised.slug = "u-missing".into();
         promised.frontmatter.outputs = vec!["never.txt".into()];
 
-        let missing = missing_outputs(&store, &[produced, promised]);
-        assert_eq!(missing, vec!["u-missing".to_string()]);
+        // Predecessor BUG-3: a `touch`ed 0-byte file must NOT satisfy a promised
+        // output — an empty artifact ships nothing and reads "stable" to drift.
+        let mut empty = produced.clone();
+        empty.slug = "u-empty".into();
+        empty.frontmatter.outputs = vec!["touched.txt".into()];
+        std::fs::write(repo.join("touched.txt"), b"").unwrap();
+
+        // A directory at the output path doesn't satisfy it either.
+        let mut as_dir = produced.clone();
+        as_dir.slug = "u-dir".into();
+        as_dir.frontmatter.outputs = vec!["outdir".into()];
+        std::fs::create_dir(repo.join("outdir")).unwrap();
+
+        let missing = missing_outputs(&store, &[produced, promised, empty, as_dir]);
+        assert_eq!(
+            missing,
+            vec!["u-missing".to_string(), "u-empty".to_string(), "u-dir".to_string()],
+            "absent, empty, and directory outputs are all 'missing'"
+        );
     }
 
     #[test]

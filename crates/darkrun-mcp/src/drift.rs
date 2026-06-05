@@ -515,6 +515,48 @@ mod tests {
         );
     }
 
+    /// Predecessor drift INFINITE LOOP regression (haiku 5.0.2/5.0.3): a
+    /// witnessed artifact changed by a sanctioned fix, re-baselined and the drift
+    /// FB closed, yet `run_next` re-fired the same `drift_detected` forever —
+    /// because (A) it diffed via `git log` on a worktree-prefixed path that found
+    /// no commits, and (B) closing with `target_invalidates` never cleared the
+    /// `approvals.<role>` witness. darkrun must be structurally immune: drift is
+    /// CONTENT-HASH based (no git, no commits field) and restamps on detect, so
+    /// closing the feedback breaks the loop. This proves it doesn't re-fire.
+    #[test]
+    fn a_resolved_premise_drift_does_not_re_fire_the_predecessor_loop() {
+        let (_d, store, root) = store();
+        std::fs::write(root.join("tokens.md"), b"v1").unwrap();
+        store.write_unit("r", &unit("u", "design", &["tokens.md"], &["design.md"])).unwrap();
+        record_station_witnesses(&store, "r", "design").unwrap();
+
+        // A sanctioned fix extends the premise (the predecessor's FB-033).
+        std::fs::write(root.join("tokens.md"), b"v2-expanded-token-catalog").unwrap();
+        sweep(&store, "r").unwrap();
+        assert_eq!(open_drift_bodies(&store, "r").len(), 1, "drift fires once");
+
+        // Re-sweeping does NOT pile on — restamp-on-detect already captured the
+        // new content, so the same change can't re-fire (the predecessor's loop).
+        sweep(&store, "r").unwrap();
+        sweep(&store, "r").unwrap();
+        assert_eq!(open_drift_bodies(&store, "r").len(), 1, "no re-fire across ticks");
+
+        // The agent closes the drift feedback (cosmetic or after re-orienting).
+        let fb = crate::feedback::list(&store, "r")
+            .unwrap()
+            .into_iter()
+            .find(|f| matches!(f.origin, FeedbackOrigin::Drift))
+            .unwrap();
+        crate::feedback::close_with_reply(&store, "r", &fb.id, "token expansion accepted").unwrap();
+
+        // After closure, the loop is broken: no further sweep re-opens it.
+        sweep(&store, "r").unwrap();
+        assert!(
+            open_drift_bodies(&store, "r").is_empty(),
+            "a closed premise drift never re-fires — the predecessor's infinite loop cannot occur"
+        );
+    }
+
     #[test]
     fn cascade_cap_bounds_open_drift_feedback() {
         let (_d, store, root) = store();
