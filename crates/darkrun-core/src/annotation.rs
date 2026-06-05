@@ -873,4 +873,47 @@ mod tests {
             CheckpointButton::ApproveIsPrimary
         );
     }
+
+    #[test]
+    fn geometry_helpers_cover_region_scene_and_mark_rect() {
+        use darkrun_api::annotation::{Anchor, ImageShape, NormPoint, NormRect, PixelMark};
+
+        // scene_changed: a zero dim is always a change; equal aspect ratio is not;
+        // a ratio shift past tolerance is.
+        assert!(scene_changed(0, 10, 10, 10, 0.05));
+        assert!(!scene_changed(100, 50, 200, 100, 0.05)); // 2:1 scaled — same ratio
+        assert!(scene_changed(100, 50, 100, 100, 0.05)); // 2:1 -> 1:1
+
+        // region_out_of_bounds.
+        let inb = NormRect { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
+        assert!(!region_out_of_bounds(&inb));
+        assert!(region_out_of_bounds(&NormRect { x: -0.5, y: 0.0, w: 0.2, h: 0.2 }));
+        assert!(region_out_of_bounds(&NormRect { x: 0.0, y: 0.0, w: 0.0, h: 0.2 }));
+
+        // mark_rect: explicit rect wins, else the arrow's bounding box, else None.
+        let mk = |rect, from, to| PixelMark {
+            shape: ImageShape::Rect,
+            point: None,
+            rect,
+            arrow_from: from,
+            arrow_to: to,
+            path: vec![],
+            render_w: 0,
+            render_h: 0,
+        };
+        assert_eq!(mark_rect(&mk(Some(inb), None, None)), Some(inb));
+        let bbox = mark_rect(&mk(None, Some(NormPoint { x: 0.2, y: 0.3 }), Some(NormPoint { x: 0.5, y: 0.1 }))).unwrap();
+        assert!((bbox.x - 0.2).abs() < 1e-9 && (bbox.w - 0.3).abs() < 1e-9);
+        assert_eq!(mark_rect(&mk(None, None, None)), None);
+
+        // pixel_region: Pdf returns its rect, Image returns the mark's region,
+        // a text anchor has none.
+        let mut pdf = text_anno("a", AskSeverity::Must, AnnotationStatus::Open);
+        pdf.anchor = Some(Anchor::Pdf { page: 1, rect: inb });
+        assert_eq!(pixel_region(&pdf), Some(inb));
+        let mut img = text_anno("b", AskSeverity::Must, AnnotationStatus::Open);
+        img.anchor = Some(Anchor::Image { mark: mk(Some(inb), None, None) });
+        assert_eq!(pixel_region(&img), Some(inb));
+        assert_eq!(pixel_region(&text_anno("c", AskSeverity::Must, AnnotationStatus::Open)), None);
+    }
 }
