@@ -104,6 +104,57 @@ than a structural impossibility (env-blocked gates, unfixable feedback, the revi
 budget), the backstop escalates to a human instead of looping — the opposite of
 the predecessor's silent wedge.
 
+---
+
+## Per-report completeness pass — is EVERY report verified, 1:1?
+
+The full-corpus re-audit above deduped the corpus into ~25 distinct *mechanisms*
+and verified darkrun against each. That left one fair question open: does every
+individual report actually reduce to a covered mechanism, or did dedup hide a
+report whose defect we never checked? So every one of the **42 canonical reports
+was read 1:1** (4 batches), each distinct bug mapped to a known theme or flagged
+**NEW**. Reports bundle multiple bugs, so ~60–70 findings came out.
+
+**Verdict: every ENGINE-mechanism finding reduces to a verified theme — no new
+shared engine defect.** The genuinely-new candidates the 1:1 pass surfaced were
+each chased into darkrun source and confirmed covered:
+
+| 1:1-surfaced engine candidate | darkrun | Where (verified this pass) |
+|---|---|---|
+| Phantom merge-conflict on an empty/orphaned worktree dir (predecessor keyed merge debt on directory existence) | **immune** — `is_merge_in_progress` keys on git markers (`MERGE_HEAD`/`REBASE_HEAD`/`CHERRY_PICK_HEAD`/`REVERT_HEAD`), never dir existence | git/merge.rs:236 |
+| Same feedback id dispatched twice in one tick → concurrent write race | **immune** — `walk_feedback` returns a single `Option<RunAction>` per tick (pure cursor); there is no dispatch array to duplicate | position.rs:1039 |
+| In-flight unit re-dispatched (no lease/claim state) | **immune** — `wave_ready` is Pending-only; a unit drops the moment it goes InProgress (B7, already verified) | units.rs |
+| Quality gates run AFTER the user-approval gate | **immune by phase order** — UserGate is pre-execution; gates record at Audit, before the consuming Checkpoint (Spec→Review→UserGate→Manufacture→Audit→Reflect→Checkpoint) | position.rs |
+| Bolt-capped unit: escalation *promises* a reset no tool delivers (and a permission classifier blocked it) | **covered** — at `MAX_PASSES=8` the unit `Escalate`s honestly to a human; `darkrun_run_reset` + `unit_update`/`unit_iterate` are real recovery tools, and there is no separate permission classifier gating darkrun's own MCP tools | position.rs:1262 · reset.rs:29 |
+| Env-defect correctly escalated but the FSM has no mode for it → retries source-style | **covered** — `EnvBlocked` is distinct, `→ DeferredToCi` after 2, and the deadlock guard escalates; darkrun has the handling mode, not just detection | units.rs:189 |
+| Stale relay block / wrong next-step cached | **immune** — `derive_position` is pure per tick (no cached relay); the next action is recomputed from disk every time | position.rs |
+
+**The rest of the "NEW" flags were NOT engine defects** — they are predecessor
+*content / config / environment / adjacent-system* findings that darkrun's engine
+structurally cannot share: naive `! grep` gates tripping on their own comments,
+workspace-wide (vs per-unit) gate scope, an external Credo check crashing on
+`line_no:0`, prompt path ambiguity, a permission/auth classifier blocking a
+recovery tool, fix-hat model-selection, test fail-open masking, and
+stubs-without-live-integration. A handful translate into a **darkrun
+factory-content authoring checklist** (author gates to ignore comments; keep gate
+scope per-unit — darkrun's per-unit worktree isolation already neutralizes the
+"sibling poisons the gate" class; declare a fix-worker for every artifact type so
+T15's terminal route is the exception, not the norm) — but none is an *engine*
+parity gap.
+
+**One honest ergonomics gap (not a defect):** darkrun has no *single-unit*
+pass-counter reset — recovery from a wedged unit is `darkrun_run_reset` (station
+scope) + `unit_update`, heavier than resetting one unit's budget. Nothing loops
+(the cap escalates cleanly); it's a convenience, not a shared bug. Logged for a
+possible `darkrun_unit_reset` follow-up.
+
+**Bottom line on "all predecessor bugs verified?": yes, now 1:1.** BUG-3 remains
+the only genuine shared *engine* defect in the entire corpus (fixed); every other
+engine mechanism is immune/backstopped/mitigated (verified in source), and the
+non-engine findings are out of the engine's blast radius.
+
 *Companion to `engine-parity-gaps.{csv,md}`. First pass (4 summaries): 2026-06-05.
-Full-corpus re-audit (~42 session bundles): 2026-06-05. Per-mechanism findings in
-`/tmp/audit-group{1,2,3,4}.md`.*
+Full-corpus re-audit (~42 session bundles): 2026-06-05. Per-report 1:1 completeness
+pass (all 42, ~60–70 findings): 2026-06-05. Per-mechanism findings in
+`/tmp/audit-group{1,2,3,4}.md`; per-report tables in `/tmp/complete-a{a,c}.md` +
+batch ab/ad analyses in session.*
