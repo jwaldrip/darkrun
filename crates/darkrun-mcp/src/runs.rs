@@ -111,6 +111,36 @@ pub fn set_archived(store: &StateStore, slug: &str, archived: bool) -> Result<()
     Ok(())
 }
 
+/// Set (or clear) a cross-system handle on the run's `external_refs` (G2). The
+/// well-known keys are `ticket`, `pr_url` (or `pr`), and `design`; any other
+/// key lands in the `other` map. An empty value clears the handle. Returns the
+/// updated [`ExternalRefs`].
+pub fn set_external_ref(
+    store: &StateStore,
+    slug: &str,
+    key: &str,
+    value: &str,
+) -> Result<darkrun_core::domain::ExternalRefs> {
+    let mut run = store
+        .read_run(slug)
+        .map_err(|_| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
+    run.frontmatter.external_refs.set(key, value);
+    let refs = run.frontmatter.external_refs.clone();
+    store.write_run(&run)?;
+    Ok(refs)
+}
+
+/// Read a run's cross-system handles.
+pub fn external_refs(
+    store: &StateStore,
+    slug: &str,
+) -> Result<darkrun_core::domain::ExternalRefs> {
+    let run = store
+        .read_run(slug)
+        .map_err(|_| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
+    Ok(run.frontmatter.external_refs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +195,33 @@ mod tests {
         set_archived(&store, "a", true).unwrap();
         set_archived(&store, "a", false).unwrap();
         assert_eq!(list(&store, d.path(), false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn external_refs_set_read_and_clear() {
+        let (_d, store) = store();
+        run_start(&store, "a", "software", None, "continuous").unwrap();
+        // Empty by default.
+        assert!(external_refs(&store, "a").unwrap().is_empty());
+
+        // Well-known keys land in their typed slots; `pr` aliases `pr_url`.
+        set_external_ref(&store, "a", "ticket", "JIRA-42").unwrap();
+        set_external_ref(&store, "a", "pr", "https://github.com/x/y/pull/7").unwrap();
+        set_external_ref(&store, "a", "design", "https://figma.com/abc").unwrap();
+        // An unknown key lands in `other`.
+        let refs = set_external_ref(&store, "a", "dashboard", "https://grafana/x").unwrap();
+        assert_eq!(refs.ticket.as_deref(), Some("JIRA-42"));
+        assert_eq!(refs.pr_url.as_deref(), Some("https://github.com/x/y/pull/7"));
+        assert_eq!(refs.design.as_deref(), Some("https://figma.com/abc"));
+        assert_eq!(refs.other.get("dashboard").map(String::as_str), Some("https://grafana/x"));
+
+        // Survives a read (persisted to the run frontmatter).
+        let reread = external_refs(&store, "a").unwrap();
+        assert_eq!(reread.ticket.as_deref(), Some("JIRA-42"));
+
+        // An empty value clears a handle.
+        set_external_ref(&store, "a", "ticket", "").unwrap();
+        assert!(external_refs(&store, "a").unwrap().ticket.is_none());
     }
 
     #[test]

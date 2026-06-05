@@ -903,6 +903,22 @@ pub struct RunSurfaceInput {
     pub surface: Option<String>,
 }
 
+/// Input for `darkrun_external_ref` — set or read a run's cross-system handles.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ExternalRefInput {
+    /// The run slug.
+    pub slug: String,
+    /// The handle name: `ticket`, `pr_url` (or `pr`), `design`, or any custom
+    /// label (stored under `other`). Omit `key` to read all handles.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// The handle value to set. An empty string clears the handle. Ignored when
+    /// `key` is omitted (read).
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
 /// Input for `darkrun_proof_attach` — attach surface-routed objective evidence
 /// (the Prove station's NUMBERS) to a run.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -1971,6 +1987,26 @@ impl DarkrunServer {
         };
         match result {
             Ok(res) => ok_json(&res),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Set or read a run's cross-system handles (ticket, PR url, design link).
+    #[tool(
+        name = "darkrun_external_ref",
+        description = "Set or read a run's cross-system handles (durable pointers to a ticket, PR/MR url, design link, or any custom-named external resource). Provide `key`+`value` to set (empty value clears); omit `key` to read all."
+    )]
+    pub fn darkrun_external_ref(
+        &self,
+        Parameters(input): Parameters<ExternalRefInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        let result = match input.key.as_deref() {
+            Some(key) => runs::set_external_ref(&store, &input.slug, key, input.value.as_deref().unwrap_or("")),
+            None => runs::external_refs(&store, &input.slug),
+        };
+        match result {
+            Ok(refs) => ok_json(&refs),
             Err(e) => Ok(err_text(e)),
         }
     }

@@ -899,6 +899,11 @@ fn run_frontmatter_full_roundtrip_json() {
             auto_squash: false,
         }),
         seal: None,
+        external_refs: ExternalRefs {
+            ticket: Some("JIRA-1".into()),
+            pr_url: Some("https://x/pr/1".into()),
+            ..Default::default()
+        },
     };
     let back = json_round(&fm);
     assert_eq!(back.surface, Some(Surface::WebUi));
@@ -911,6 +916,7 @@ fn run_frontmatter_full_roundtrip_json() {
     assert_eq!(back.started_at.as_deref(), Some("2026-05-30T00:00:00Z"));
     assert!(back.completed_at.is_none());
     assert!(back.git.unwrap().auto_merge);
+    assert_eq!(back.external_refs.ticket.as_deref(), Some("JIRA-1"));
 }
 
 #[test]
@@ -927,6 +933,7 @@ fn run_frontmatter_full_roundtrip_yaml() {
         completed_at: Some("t2".into()),
         git: Some(RunGit::default()),
         seal: None,
+        external_refs: Default::default(),
     };
     let back = yaml_round(&fm);
     assert_eq!(back.status, Status::Completed);
@@ -2614,6 +2621,7 @@ fn run_with_full_git_policy_yaml_roundtrips() {
                 auto_squash: true,
             }),
             seal: None,
+            external_refs: Default::default(),
         },
         title: "Ship".into(),
         body: "# Ship\n".into(),

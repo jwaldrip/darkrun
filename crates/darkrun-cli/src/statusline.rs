@@ -469,14 +469,21 @@ mod tests {
         );
     }
 
+    // `DARKRUN_WEB_BASE` is process-global, so the three tests that mutate it
+    // must not run concurrently — a parallel test setting/clearing it would race
+    // this one's assertion. Serialize them through one lock.
+    static WEB_BASE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn web_base_defaults_when_unset() {
+        let _g = WEB_BASE_ENV.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DARKRUN_WEB_BASE");
         assert_eq!(web_base(), "https://darkrun.ai");
     }
 
     #[test]
     fn web_base_trims_trailing_slash_and_whitespace() {
+        let _g = WEB_BASE_ENV.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("DARKRUN_WEB_BASE", "  https://x.test/  ");
         assert_eq!(web_base(), "https://x.test");
         std::env::remove_var("DARKRUN_WEB_BASE");
@@ -484,6 +491,7 @@ mod tests {
 
     #[test]
     fn web_base_blank_falls_back_to_default() {
+        let _g = WEB_BASE_ENV.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("DARKRUN_WEB_BASE", "   ");
         assert_eq!(web_base(), "https://darkrun.ai");
         std::env::remove_var("DARKRUN_WEB_BASE");

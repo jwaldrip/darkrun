@@ -320,6 +320,61 @@ pub struct RunFrontmatter {
     /// of sealing the moment the last station locks. `None` → seal immediately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seal: Option<SealKind>,
+    /// Durable pointers between this run and external systems — a ticket key, a
+    /// PR/MR url, a design link, and any other named handles. Lets the run and
+    /// the systems around it (issue tracker, hosting, design tool) reference one
+    /// another (G2). Empty by default.
+    #[serde(default, skip_serializing_if = "ExternalRefs::is_empty")]
+    pub external_refs: ExternalRefs,
+}
+
+/// Cross-system handles attached to a run — durable pointers the engine keeps
+/// but does not interpret, so a darkrun run is discoverable from (and links back
+/// to) the ticket, change request, and design that surround it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ExternalRefs {
+    /// The issue/ticket key this run delivers (e.g. `JIRA-123`, `#456`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<String>,
+    /// The change-request url (PR/MR) this run's work lands through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
+    /// A design/spec link (Figma, doc) the run was shaped against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<String>,
+    /// Any other named handles, keyed by a caller-chosen label.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub other: std::collections::BTreeMap<String, String>,
+}
+
+impl ExternalRefs {
+    /// Whether no handle of any kind is set (the serialize-skip predicate).
+    pub fn is_empty(&self) -> bool {
+        self.ticket.is_none()
+            && self.pr_url.is_none()
+            && self.design.is_none()
+            && self.other.is_empty()
+    }
+
+    /// Set a handle by its well-known name (`ticket`/`pr_url`/`design`), falling
+    /// back to the `other` map for any other key. An empty `value` clears it.
+    pub fn set(&mut self, key: &str, value: &str) {
+        let value = value.trim();
+        let slot = match key {
+            "ticket" => &mut self.ticket,
+            "pr_url" | "pr" => &mut self.pr_url,
+            "design" => &mut self.design,
+            other => {
+                if value.is_empty() {
+                    self.other.remove(other);
+                } else {
+                    self.other.insert(other.to_string(), value.to_string());
+                }
+                return;
+            }
+        };
+        *slot = if value.is_empty() { None } else { Some(value.to_string()) };
+    }
 }
 
 /// A parsed Run document: frontmatter + markdown body.

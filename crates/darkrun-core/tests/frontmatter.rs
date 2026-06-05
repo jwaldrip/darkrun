@@ -726,6 +726,7 @@ fn roundtrip_run_full_frontmatter() {
             auto_squash: false,
         }),
         seal: None,
+        external_refs: Default::default(),
     };
     let doc = frontmatter::serialize(&fm, "# Body\n").expect("ser");
     let (back, _) = parse_run(&doc);
