@@ -87,24 +87,24 @@
   <div class="word"><b>dark</b>run · engine parity audit · <span class="vstamp">✓ verified · dispositioned · every confident gap closed</span></div>
   <h1>What we ported, what we missed, and what we built</h1>
   <p class="lead">Every mechanism read in the predecessor engine and verified against darkrun source. Each row carries the
-  <b>current</b> darkrun status and a <b>per-row disposition</b>. 44 mechanisms — as of <b>2026-06-04</b>:
-  <span style="color:var(--have)">27 built</span>, the rest intentionally not built
-  (<span style="color:var(--partial)">4 deliberate · 5 redundant</span>, <span style="color:var(--missing)">8 deferred</span>).</p>
+  <b>current</b> darkrun status and a <b>per-row disposition</b>. 44 mechanisms — as of <b>2026-06-05</b>:
+  <span style="color:var(--have)">38 built</span>, the rest intentionally not built
+  (<span style="color:var(--partial)">3 deliberate · 3 redundant</span>). <b>Nothing deferred.</b></p>
 </header>
 
 <div class="tldr">
-  <b>State of play.</b> Every confident gap is closed — there is nothing left on the "should build" list. Cluster A
-  (records carry the story) is fully closed; the immune system (B), cursor richness (C), gate &amp; proof depth (D), and
-  content expressiveness (E) all have their gaps built and committed, including the two big ones — <b>per-unit AND
-  per-fix worktree isolation (B9)</b> and <b>quality-gate execution (D1)</b>. What remains is either a <b>deliberate
-  design difference</b> (the fixed six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum), a
-  genuine <b>redundancy</b>, or a <b>deferred</b> item waiting on an integration that isn't here yet.
+  <b>State of play.</b> Every actionable gap is closed — including the formerly-deferred batch (B5 verifier nonce,
+  C5 run-level mode shaping, D5 proof→PR upload, F2 human_write, F5 presence grace, G1 schema version, G2 external_refs,
+  G4 draft-PR lifecycle + run-main-vs-default status) and the items reopened from the spreadsheet review (<b>E6</b>
+  surface-scoped reviewers, and a <b>B7</b> verification that the wave never re-picks an in-flight unit). What remains
+  is only a <b>deliberate design difference</b> (the fixed six stations, hooks over an FSM checksum, the discrete
+  PR-merge poll) or a genuine <b>redundancy</b> (run_quality_gates, clarifications, in-memory sessions).
 </div>
 
 <div class="scorerow">
-  <div class="score h"><div class="n">28</div><div class="l">built</div></div>
-  <div class="score p"><div class="n">8</div><div class="l">deliberate / redundant</div></div>
-  <div class="score m"><div class="n">8</div><div class="l">deferred</div></div>
+  <div class="score h"><div class="n">38</div><div class="l">built</div></div>
+  <div class="score p"><div class="n">6</div><div class="l">deliberate / redundant</div></div>
+  <div class="score m"><div class="n">0</div><div class="l">deferred</div></div>
 </div>
 
 <div class="legend">
@@ -116,7 +116,6 @@
 <div class="reclegend">
   <span><span class="k k-done">done</span> built + committed</span>
   <span><span class="k k-keep">keep</span> deliberate design — don't build</span>
-  <span><span class="k k-defer">defer</span> worth building, later</span>
   <span><span class="k k-skip">skip</span> redundant in darkrun's model</span>
 </div>
 
@@ -183,16 +182,16 @@
           <td class="rec"><span class="k k-done">done</span>Shipped.</td></tr>
       <tr><td class="gap">Verifier nonce</td>
           <td class="pred">one-time token required by seal</td>
-          <td class="dr"><span class="pill missing">missing</span><span class="drnote">no verifier/seal split to bind a nonce to yet</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Honestly, probably not. The predecessor itself left most seals instruction-gated. Only build if D1's gate proves <em>gameable</em> in practice — don't pre-harden against a cheat we haven't seen.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">Station.verifier_nonce</span> minted at Manufacture dispatch; <span class="code">darkrun_quality_gate_record</span> refuses a result without it<span class="ev">position.rs · units.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — the recorded gate result the auto-advance trusts is bound to a real dispatch; an agent can't certify a gate it wasn't dispatched to run.</td></tr>
       <tr><td class="gap">FSM checksum sidecar</td>
           <td class="pred"><span class="code">.fsm_checksum</span> tamper detect</td>
           <td class="dr"><span class="pill have">by design</span><span class="drnote">covered by the guard + <span class="code">drift-witness.log</span> hooks</span></td>
           <td class="rec"><span class="k k-keep">keep</span>Don't build. The hook suite already covers hookless tamper a different way.</td></tr>
       <tr><td class="gap">Dispatch leases + recovery</td>
-          <td class="pred"><span class="code">dispatched_at</span> + TTL recovery</td>
-          <td class="dr"><span class="pill partial">backstopped</span><span class="drnote">Pending units auto-re-dispatch; deadlock halt catches the wedge</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Honestly, don't. The deadlock halt + Pending-re-dispatch already recover an abandoned unit; a TTL lease is mechanism for a problem darkrun's model already solves. Revisit only if a real crash leaves a wedge the halt misses.</td></tr>
+          <td class="pred">don't re-pick an in-flight unit; recover a dead lease</td>
+          <td class="dr"><span class="pill have">verified</span><span class="drnote"><span class="code">wave_ready</span> is Pending-only → a unit drops out of dispatch the moment it goes InProgress; an in-flight dep never releases its dependent<span class="ev">position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span><b>Verified per your note.</b> The in-flight exclusion is already there; deadlock halt + MAX_PASSES backstop a stuck unit. (Marking InProgress AT dispatch shifted the tick cadence, so kept the report-driven transition.)</td></tr>
       <tr><td class="gap">Deadlock / churn halt</td>
           <td class="pred">signature/churn → halt</td>
           <td class="dr"><span class="pill have">present</span><span class="drnote"><span class="code">deadlock.rs</span> (threshold 4, churn 10) + MAX_PASSES</span></td>
@@ -226,11 +225,11 @@
       <tr><td class="gap">Intent vs station scope</td>
           <td class="pred">run-level reviews + gate union</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote">a whole-run <span class="code">RunReview</span> holds after the last station until the run reviewers stamp via <span class="code">darkrun_run_review_stamp</span>, before seal<span class="ev">position.rs</span></span></td>
-          <td class="rec"><span class="k k-done">done</span>Shipped — the cross-station audit gates before seal. (C5 run-level mode shaping bundled with it stays <span class="k k-defer">defer</span>.)</td></tr>
+          <td class="rec"><span class="k k-done">done</span>Shipped — the cross-station audit gates before seal.</td></tr>
       <tr><td class="gap">Mode-shaped role lists</td>
           <td class="pred">two levels; final gate sacred</td>
-          <td class="dr"><span class="pill partial">station level</span><span class="drnote">autopilot trims station <span class="code">user</span>; no run-level shaping</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Bundle with the run-level gate (above).</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">effective_run_reviewers</span>: a right-sized run skips the whole-run review; full runs keep it; the seal gate is honored regardless of mode<span class="ev">position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped — the run-level twin of the station gate shaping. The final gate stays sacred.</td></tr>
       <tr><td class="gap">Delivery verification</td>
           <td class="pred">re-audit PR merge before seal</td>
           <td class="dr"><span class="pill partial">discrete only</span><span class="drnote">discrete gate polls PR merge; PendingSeal otherwise holds</span></td>
@@ -263,8 +262,8 @@
           <td class="rec"><span class="k k-done">done</span>Shipped — no silent loss of the run's distillation; an intentionally-dropped artifact is acknowledged via <span class="code">inputs_waived</span>. Paired with the runtime check (E5).</td></tr>
       <tr><td class="gap">Proof upload to PR/MR</td>
           <td class="pred">durable asset on the change request</td>
-          <td class="dr"><span class="pill partial">local only</span><span class="drnote"><span class="code">proof_attach</span> stores + surface-checks; no PR upload</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Hosting integration — orthogonal to engine correctness. Do when the PR/MR path matures.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">the discrete gate posts the station's proof as a PR/MR comment on open (<span class="code">Hosting::comment</span> via gh/glab)<span class="ev">hosting.rs · proof.rs · position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped via the gh/glab CLI (the engine-side behavior). Your note: a hosted-oauth layer would let the engine open PRs/MRs + auth directly — that infra is the next layer up.</td></tr>
     </tbody>
   </table>
 </section>
@@ -272,7 +271,7 @@
 <!-- E -->
 <section>
   <div class="clab"><span class="tag">E</span><h2>Content-model expressiveness</h2><span class="stars">★</span></div>
-  <p class="csub">The expressiveness batch — built; two fields turned out redundant.</p>
+  <p class="csub">The expressiveness batch — all built; run_quality_gates turned out redundant.</p>
   <table>
     <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
@@ -296,10 +295,10 @@
           <td class="pred"><span class="code">[{stage, output}]</span> + include</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote">before Manufacture, every station input the plan produces must be consumed by a unit, else the station holds (<span class="code">station_inputs_dropped</span>) — the runtime complement to D4's template check<span class="ev">position.rs · units_invalid.md</span></span></td>
           <td class="rec"><span class="k k-done">done</span>Reframed + shipped — the <span class="code">{stage,output}</span> typing was redundant (D4 derives the wiring), but you were right the RUNTIME unit-level check was missing and lands earlier than a reviewer would.</td></tr>
-      <tr><td class="gap"><span class="code">applies_to</span> globs</td>
-          <td class="pred">scope reviewer by artifact</td>
-          <td class="dr"><span class="pill missing">n/a</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Redundant in darkrun's model — reviewers are per-station rosters, so you scope by simply not listing a reviewer where it doesn't apply.</td></tr>
+      <tr><td class="gap"><span class="code">applies_to</span> (surface scope)</td>
+          <td class="pred">scope reviewer by surface</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote">a reviewer fires only on a matching classified surface (<span class="code">role_applies_to</span> / <span class="code">run_reviewer_applies_to</span>); software ships an <span class="code">accessibility-auditor</span> scoped to web_ui/desktop/mobile<span class="ev">model.rs · factory.rs · position.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Reopened from "skip" per your "down to debate it" — and built. The non-redundant value is surface-scoping (esp. run-level reviewers), not per-station omission.</td></tr>
       <tr><td class="gap">Compound gates</td>
           <td class="pred"><span class="code">[external, ask]</span> user picks</td>
           <td class="dr"><span class="pill have">closed</span><span class="drnote">a station declares <span class="code">checkpoint_options</span>; the operator picks via <span class="code">darkrun_checkpoint_choose</span>; the effective kind honors the pick<span class="ev">model.rs · position.rs · checkpoint.md</span></span></td>
@@ -319,9 +318,9 @@
           <td class="dr"><span class="pill have">present</span><span class="drnote">full 8-hook suite; guard exits(2) + redirects<span class="ev">hooks.json · hook.rs</span></span></td>
           <td class="rec"><span class="k k-done">done</span>Already present.</td></tr>
       <tr><td class="gap">human_write</td>
-          <td class="pred">guarded conversational write</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>No conversational-write flow exists in darkrun today; the guard hook already blocks raw writes. Build only if/when a "save this to knowledge/ for me" UX appears.</td></tr>
+          <td class="pred">guarded write that auto-triggers drift</td>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">darkrun_human_write</span> writes a project file with guards (no absolute/.. /symlink escape, no <span class="code">.darkrun</span>); a write to a witnessed premise is caught by the next drift sweep automatically<span class="ev">human_write.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Built to your spec — "just create files which automatically trigger drift." The drift handling is emergent (the input-premise sweep), not wired in the tool.</td></tr>
       <tr><td class="gap">record / stamp agent-write</td>
           <td class="pred">attribute edits to a log</td>
           <td class="dr"><span class="pill have">present</span><span class="drnote">PostToolUse hook → <span class="code">drift-witness.log</span></span></td>
@@ -332,8 +331,8 @@
           <td class="rec"><span class="k k-done">done</span>Shipped — N reviewers fan out, each self-stamps, the parent ticks once. (Explorers already fan out + fold into the spec.)</td></tr>
       <tr><td class="gap">Session presence grace</td>
           <td class="pred">attached/never-attached grace</td>
-          <td class="dr"><span class="pill partial">presence only</span><span class="drnote">live count + heartbeat; no grace/reattach</span></td>
-          <td class="rec"><span class="k k-skip">skip</span>Pure polish for a remote-review path that isn't here. Local desktop review works without grace windows. Defer until remote review is real.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">Presence</span>: Live → Lost (grace) → Closed; relaunch uses <span class="code">presence().is_present()</span> so a blip doesn't respawn the app<span class="ev">http/state.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped per your "still relevant to know if the app has been closed" — distinguishes a blip from a real close.</td></tr>
     </tbody>
   </table>
 </section>
@@ -344,22 +343,22 @@
   <table>
     <thead><tr><th class="gap">Field</th><th class="pred">Predecessor</th><th class="dr">darkrun — now</th><th class="rec">recommendation</th></tr></thead>
     <tbody>
-      <tr><td class="gap">plugin_version + migration</td>
+      <tr><td class="gap">schema_version + migration</td>
           <td class="pred">version stamp + migrators</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Cheap + worth stamping early (before more on-disk shapes ship); migrators later.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">schema_version</span> (versioned separately from the plugin) + <span class="code">created_with_version</span> provenance; <span class="code">migrate_state</span> on read with the ascending-migrator hook<span class="ev">core/state.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped per your note — schema versioned separately from the plugin.</td></tr>
       <tr><td class="gap">external_refs</td>
           <td class="pred">ticket/PR/design handles</td>
-          <td class="dr"><span class="pill missing">missing</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Additive field — add when integrations land.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">RunFrontmatter.external_refs</span> (ticket/pr_url/design + <span class="code">other</span> map); <span class="code">darkrun_external_ref</span> sets/reads<span class="ev">domain.rs · runs.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped per your "valuable, add."</td></tr>
       <tr><td class="gap">clarifications</td>
           <td class="pred">stage-keyed Q&amp;A</td>
           <td class="dr"><span class="pill missing">missing</span></td>
           <td class="rec"><span class="k k-skip">skip</span>darkrun's elaborate phase already captures clarifications in the run doc / annotations. A separate stage-keyed Q&amp;A store is redundant.</td></tr>
-      <tr><td class="gap">Draft-PR lifecycle</td>
+      <tr><td class="gap">Draft-PR lifecycle + run-main vs default</td>
           <td class="pred">status draft→ready→merged</td>
-          <td class="dr"><span class="pill partial">ref only</span><span class="drnote"><span class="code">Station.pr_ref</span>, no status</span></td>
-          <td class="rec"><span class="k k-defer">defer</span>Extend <span class="code">pr_ref</span> with a status field when the discrete path matures.</td></tr>
+          <td class="dr"><span class="pill have">closed</span><span class="drnote"><span class="code">Station.pr_status</span> (draft→ready→merged) + timestamps, driven by <span class="code">Hosting::is_draft</span> + the merge poll; PLUS <span class="code">run_main_status</span> (ahead/merged/diverged…) on <span class="code">run_show</span><span class="ev">domain.rs · position.rs · lifecycle.rs</span></span></td>
+          <td class="rec"><span class="k k-done">done</span>Shipped both: the PR lifecycle AND your follow-on — the run-main-vs-default-branch status.</td></tr>
       <tr><td class="gap">Persisted session metadata</td>
           <td class="pred">survives restart</td>
           <td class="dr"><span class="pill missing">in-memory</span></td>
@@ -370,26 +369,23 @@
 
 <div class="matter">
   <h3>where it landed, honestly</h3>
-  <p><b>Every confident gap is closed.</b> 27 of 44 mechanisms are built and committed — including the ones I had
-  initially wanted to skip and was corrected on: <b>C1</b> collaboration backpressure, <b>B9</b> per-unit + per-fix
-  worktree isolation, <b>F4</b> parallel review stamp, <b>D4/E5</b> cross-station input coverage (template <em>and</em>
-  runtime). The last one, E5, started as "structured inputs" and was reframed: the <span class="code">{stage,output}</span>
-  typing was genuinely redundant with D4, but the <em>runtime</em> per-unit coverage check it implied was missing — and
-  lands earlier than a reviewer would.</p>
-  <p><b>Intentionally not built.</b> The <span class="k k-keep">keep</span> rows are deliberate design differences, not
-  work — the fixed six stations, revert-self-heal over auto-restamp, hooks over an FSM checksum, the discrete PR-merge
-  poll. The <span class="k k-skip">skip</span> rows are redundant in darkrun's model (dispatch leases backstopped by the
-  deadlock halt; <span class="code">run_quality_gates</span> subsumed by D1; <span class="code">applies_to</span> by
-  per-station rosters; clarifications by the run doc; in-memory sessions by design).</p>
-  <p><b>Deferred</b> (the <span class="k k-defer">defer</span> rows) — real, but waiting on a trigger or integration:
-  B5 verifier nonce, C5 run-level mode shaping, D5 proof-upload, F2 human_write, F5 presence grace, G1 plugin_version,
-  G2 external_refs, G4 draft-PR status. None block engine correctness. Full per-line detail in the companion
+  <p><b>Everything actionable is built — nothing deferred.</b> 38 of 44 mechanisms are built and committed. This pass
+  closed the whole deferred batch (B5 verifier nonce, C5 run-level mode shaping, D5 proof→PR upload, F2 human_write,
+  F5 presence grace, G1 schema version, G2 external_refs, G4 PR lifecycle + run-main-vs-default status) and acted on
+  the spreadsheet review: <b>E6</b> applies_to was reopened from "skip" and built as surface-scoped reviewers, and
+  <b>B7</b> was verified (the wave never re-picks an in-flight unit). G1 was reshaped per the note to version the
+  schema separately from the plugin; F2 to "just create files that auto-trigger drift."</p>
+  <p><b>Intentionally not built (6).</b> The <span class="k k-keep">keep</span> rows are deliberate design differences,
+  not work — the fixed six stations, hooks over an FSM checksum, the discrete PR-merge poll. The
+  <span class="k k-skip">skip</span> rows are genuine redundancy in darkrun's model: <span class="code">run_quality_gates</span>
+  (subsumed by D1's Audit gate), clarifications (captured in elaboration / the run doc), and in-memory sessions (the
+  on-disk run state is the durable truth). Full per-line detail in the companion
   <span class="code">engine-parity-gaps.md</span> and the row-level <span class="code">engine-parity-gaps.csv</span>.</p>
 </div>
 
 <footer>
-  darkrun engine parity audit · 44 mechanisms · verified against darkrun source · 2026-06-04 · 27 built · every
-  confident gap closed · the rest deliberate / redundant / deferred · companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
+  darkrun engine parity audit · 44 mechanisms · verified against darkrun source · 2026-06-05 · 38 built · nothing
+  deferred · the rest deliberate / redundant · companion: <span style="color:var(--accent-dim)">mockups/engine-parity-gaps.md</span>
 </footer>
 
 </div>

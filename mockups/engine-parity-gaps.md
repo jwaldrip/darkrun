@@ -10,13 +10,25 @@ mechanism, with a comment column); this doc is the prose companion.
 
 ---
 
-## ◆ Current status — 2026-06-04
+## ◆ Current status — 2026-06-05
 
-**44 mechanisms. 28 built · 16 intentionally not built (3 deliberate-design · 5
-redundant · 8 deferred). Every confident gap is closed** — nothing is left on the
-"should build" list. What remains is either a deliberate design difference, a
-genuine redundancy, or a deferred item waiting on an integration that isn't here
-yet.
+**44 mechanisms. 38 built · 6 intentionally not built (3 deliberate-design · 3
+redundant). Nothing is deferred and nothing is left on the "should build" list** —
+every actionable gap is closed, including the formerly-deferred batch (B5, C5,
+D5, F2, F5, G1, G2, G4) and the items reopened from the spreadsheet review (E6,
+the run-main-vs-default tracking, and the B7 in-flight verification). What remains
+is only deliberate design difference (B6, C2, C6) or genuine redundancy (E4, G3,
+G5).
+
+> **This session's deferred-batch close (2026-06-05).** B5 verifier nonce ·
+> C5 run-level mode shaping · D5 proof→PR upload · F2 human_write (a guarded
+> file write that auto-triggers drift) · F5 presence grace (lost-vs-closed) ·
+> G1 schema version (versioned separately from the plugin, per review) ·
+> G2 external_refs · G4 draft-PR lifecycle + run-main-vs-default status · plus
+> **E6** applies_to (surface-scoped reviewers, reopened from "skip" per review)
+> and a **B7** verification that the wave never re-picks an in-flight unit. A
+> priority-aware tool-budget cut was added along the way so a growing tool
+> surface can't shed essential loop drivers.
 
 > **Drift rebuilt (B1/B2).** Drift was reworked this session to the verified
 > predecessor model after a deeper read: it now witnesses **inputs only** (not
@@ -28,10 +40,33 @@ yet.
 > removed across every crate (no dormant types). B2 (restamp-on-detect) moved
 > from "keep" to **done**.
 
-Start of the work: 3 present · 15 partial · 26 missing → now: 27 built, the rest
-dispositioned with a reason.
+Start of the work: 3 present · 15 partial · 26 missing → now: 38 built, the rest
+deliberate-design or redundant.
 
-### Built (28)
+### Built (38)
+
+The earlier 28, plus this session's deferred-batch + review-driven close:
+
+- **B5** verifier nonce — `Station.verifier_nonce` minted at Manufacture dispatch;
+  `darkrun_quality_gate_record` refuses a result without the matching token.
+- **B7** dispatch-lease guarantee **verified** — `wave_ready` (Pending-only) drops a
+  unit the moment it goes InProgress; an in-flight dep never releases its dependent.
+- **C5** run-level mode shaping — a right-sized run skips the whole-run review; the
+  final seal gate is honored regardless of mode.
+- **D5** proof→PR upload — the discrete gate posts the station's proof as a PR/MR
+  comment on open (`Hosting::comment` via gh/glab).
+- **E6** `applies_to` surface scope — a reviewer fires only on a matching surface
+  (software ships an `accessibility-auditor` scoped to web_ui/desktop/mobile).
+- **F2** human_write — a guarded operator file write whose writes auto-trigger drift
+  when they touch a premise.
+- **F5** presence grace — Live → Lost (grace) → Closed, so a blip ≠ a close.
+- **G1** schema version — `schema_version` versioned separately from the plugin, with
+  the on-read migrator hook.
+- **G2** external_refs — ticket/PR/design handles on the run.
+- **G4** draft-PR lifecycle (draft→ready→merged + timestamps) **and** run-main-vs-
+  default status (`run_main_status`, surfaced on `run_show`).
+
+### Built — the earlier 28
 
 - **Cluster A — records carry the story (A1–A7, all done).** Iterations are an
   append-only array with a handoff `note` + `completed_at`; `pass`/active-worker are
@@ -77,30 +112,17 @@ dispositioned with a reason.
 - **C6** delivery verification — the discrete gate already polls PR merge; a
   non-discrete run has no PR to re-audit.
 
-### Redundant in darkrun's model (5: skip)
+### Redundant in darkrun's model (3: skip)
 
-- **B7** dispatch leases — the deadlock halt + automatic `Pending` re-dispatch already
-  recover an abandoned unit (backstopped).
 - **E4** `run_quality_gates` — subsumed by D1's Audit gate, which already forces every
   declared gate to be recorded.
-- **E6** `applies_to` globs — reviewers are per-station rosters, so you scope by simply
-  not listing a reviewer where it doesn't apply.
-- **G3** clarifications — already captured in the run doc / annotations.
+- **G3** clarifications — already captured in the run doc / annotations (review
+  confirmed: "fine with whatever mechanism as long as it's captured in elaboration").
 - **G5** persisted session metadata — sessions are in-memory by design; the on-disk run
-  state is the durable truth.
+  state is the durable truth (review confirmed skip).
 
-### Deferred — real, but waiting on a trigger / integration (8)
-
-- **B5** verifier nonce — do alongside a future seal/verifier split; low value until a
-  gate is shown gameable.
-- **C5** run-level mode shaping — bundle with the C4 run-level gate.
-- **D5** proof upload to PR/MR — hosting integration, orthogonal to engine correctness.
-- **F2** human_write — build when a "save this for me" UX appears.
-- **F5** session presence grace — polish for a remote-review path that isn't here.
-- **G1** plugin_version + migration — worth stamping the version early; migrators later.
-- **G2** external_refs — additive field; add when integrations land.
-- **G4** draft-PR lifecycle — extend `pr_ref` with a status field when the discrete
-  path matures.
+*(Nothing is deferred — the formerly-deferred B5/C5/D5/F2/F5/G1/G2/G4 are now built,
+and the formerly-skipped B7 and E6 were verified/built per the spreadsheet review.)*
 
 ---
 
@@ -110,23 +132,26 @@ dispositioned with a reason.
 
 **Cluster B** — B1 **done** (rebuilt: inputs-only + baton + restamp→feedback) ·
 B2 **done** (restamp-on-detect) · B3 **done** · B4 **done** ·
-B5 **defer** · B6 **keep** (deliberate) · B7 **skip** (backstopped) · B8 **done**
-(pre-existing) · B9 **done** (per-unit + per-fix isolation).
+B5 **done** (verifier nonce) · B6 **keep** (deliberate) · B7 **done** (in-flight
+exclusion verified) · B8 **done** (pre-existing) · B9 **done** (per-unit + per-fix
+isolation).
 
 **Cluster C** — C1 **done** · C2 **keep** (deliberate) · C3 **done** · C4 **done** ·
-C5 **defer** · C6 **keep** (mostly redundant).
+C5 **done** (run-level mode shaping) · C6 **keep** (mostly redundant).
 
-**Cluster D** — D1 **done** · D2 **done** · D3 **done** · D4 **done** · D5 **defer**.
+**Cluster D** — D1 **done** · D2 **done** · D3 **done** · D4 **done** · D5 **done**
+(proof→PR upload).
 
 **Cluster E** — E1 **done** · E2 **done** · E3 **done** · E4 **skip** (subsumed by
-D1) · E5 **done** (runtime input coverage) · E6 **skip** (per-station rosters) ·
+D1) · E5 **done** (runtime input coverage) · E6 **done** (surface-scoped reviewers) ·
 E7 **done** (compound gates).
 
-**Cluster F** — F1 **done** (pre-existing) · F2 **defer** · F3 **done**
-(pre-existing) · F4 **done** (parallel review stamp) · F5 **defer**.
+**Cluster F** — F1 **done** (pre-existing) · F2 **done** (human_write) · F3 **done**
+(pre-existing) · F4 **done** (parallel review stamp) · F5 **done** (presence grace).
 
-**Cluster G** — G1 **defer** · G2 **defer** · G3 **skip** (redundant) · G4 **defer** ·
-G5 **skip** (in-memory by design).
+**Cluster G** — G1 **done** (schema version) · G2 **done** (external_refs) · G3
+**skip** (redundant) · G4 **done** (PR lifecycle + run-main-vs-default) · G5 **skip**
+(in-memory by design).
 
 ---
 
