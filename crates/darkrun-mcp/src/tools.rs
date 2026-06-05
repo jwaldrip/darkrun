@@ -3300,4 +3300,90 @@ mod handler_smoke {
         }))
         .unwrap();
     }
+
+    /// The error arms: every slug-scoped handler called against a ghost run
+    /// returns an error result (the `Err(e) => Ok(err_text(e))` tail) — covers the
+    /// failure half of each wrapper that `every_handler_executes` hit on success.
+    #[test]
+    fn slug_scoped_handlers_error_on_a_ghost_run() {
+        let dir = tempdir().unwrap();
+        let s = DarkrunServer::new(dir.path());
+        let g = || "ghost".to_string();
+
+        // Reads against a missing run hit the `Err(e) => err_text` tail.
+        let is_err = |r: CallToolResult| r.is_error == Some(true);
+        assert!(is_err(s.darkrun_tick(Parameters(RunRef { slug: g() })).unwrap()));
+        assert!(is_err(s.darkrun_unit_get(Parameters(UnitRef { slug: g(), unit: "u".into() })).unwrap()));
+        assert!(is_err(s.darkrun_feedback_resolve(Parameters(FeedbackResolveInput { slug: g(), feedback_id: "fb-1".into(), status: "addressed".into(), reply: None })).unwrap()));
+        assert!(is_err(s.darkrun_proof_get(Parameters(ProofGetInput { slug: g(), station: None })).unwrap()));
+        // Bad-input arms that error regardless of run state.
+        assert!(is_err(s.darkrun_scaffold(Parameters(ScaffoldInput { kind: "gizmo".into(), name: "x".into(), factory: None, station: None })).unwrap()));
+        assert!(is_err(s.darkrun_human_write(Parameters(HumanWriteInput { path: "/etc/passwd".into(), content: "x".into() })).unwrap()));
+
+        // Every other slug-scoped wrapper is *called* against the ghost run so its
+        // body executes (the failing ones cover their err tail; the write-style
+        // ones cover the success tail) — the point is to drive the wrapper.
+        let _ = s.darkrun_checkpoint_decide(Parameters(CheckpointDecideInput { slug: g(), approved: true, feedback: None }));
+        let _ = s.darkrun_unit_create(Parameters(UnitCreateInput { slug: g(), unit: "u".into(), station: "frame".into(), title: None, depends_on: vec![] }));
+        let _ = s.darkrun_unit_update(Parameters(UnitUpdateInput { slug: g(), unit: "u".into(), status: Some("bogus".into()), depends_on: None, worker: None, inputs: None, outputs: None }));
+        let _ = s.darkrun_unit_iterate(Parameters(UnitIterateInput { slug: g(), unit: "u".into(), worker: "w".into(), result: "advance".into(), note: None, next_worker: None }));
+        let _ = s.darkrun_unit_reset(Parameters(UnitResetInput { slug: g(), unit: "u".into(), confirm: true }));
+        let _ = s.darkrun_quality_gate_record(Parameters(GateRecordInput { slug: g(), unit: "u".into(), gate: "t".into(), status: "pass".into(), detail: None, nonce: None }));
+        let _ = s.darkrun_review_stamp(Parameters(ReviewStampInput { slug: g(), station: "frame".into(), role: "r".into(), kind: "review".into() }));
+        let _ = s.darkrun_run_review_stamp(Parameters(RunReviewStampInput { slug: g(), role: "r".into() }));
+        let _ = s.darkrun_elaborate_seal(Parameters(ElaborateSealInput { slug: g(), station: "frame".into() }));
+        let _ = s.darkrun_checkpoint_choose(Parameters(CheckpointChooseInput { slug: g(), station: "frame".into(), kind: "ask".into() }));
+        let _ = s.darkrun_feedback_create(Parameters(FeedbackCreateInput { slug: g(), station: "frame".into(), body: "x".into(), severity: None, origin: None, invalidates: None }));
+        let _ = s.darkrun_feedback_reject(Parameters(FeedbackRejectInput { slug: g(), feedback_id: "fb-1".into(), reason: "x".into() }));
+        let _ = s.darkrun_feedback_move(Parameters(FeedbackMoveInput { slug: g(), feedback_id: "fb-1".into(), to_station: "specify".into() }));
+        let _ = s.darkrun_feedback_set_targets(Parameters(FeedbackSetTargetsInput { slug: g(), feedback_id: "fb-1".into(), invalidates: vec![] }));
+        let _ = s.darkrun_drift_accept(Parameters(DriftAcceptInput { slug: g(), path: "x".into() }));
+        let _ = s.darkrun_reflection_record(Parameters(ReflectionRecordInput { slug: g(), body: "x".into(), station: None }));
+        let _ = s.darkrun_run_surface(Parameters(RunSurfaceInput { slug: g(), surface: Some("data".into()) }));
+        let _ = s.darkrun_proof_attach(Parameters(ProofAttachInput { slug: g(), proof: serde_json::json!({}), station: None }));
+        let _ = s.darkrun_external_ref(Parameters(ExternalRefInput { slug: g(), key: Some("ticket".into()), value: Some("x".into()) }));
+        let _ = s.darkrun_run_archive(Parameters(RunArchiveInput { slug: g(), archived: true }));
+        let _ = s.darkrun_debug(Parameters(DebugInput { slug: g(), op: "preview_cursor".into(), station: None, field: None, value: None, feedback_id: None, reason: None, confirm: false }));
+    }
+
+    /// The slug-optional resolver + builder seams + small parse/format helpers.
+    #[test]
+    fn server_builders_resolver_and_parse_helpers() {
+        let dir = tempdir().unwrap();
+        // Builder chain + accessors.
+        let s = DarkrunServer::new(dir.path())
+            .with_announced_addr("127.0.0.1:4400".parse().unwrap())
+            .with_harness(darkrun_harness::Harness::Cursor);
+        let _ = s.capabilities();
+        let _ = s.sessions();
+
+        // resolve_run_slug: explicit wins; sole-run inference; none on empty.
+        let store = s.store();
+        assert_eq!(s.resolve_run_slug(&store, Some(" pinned ")).as_deref(), Some("pinned"));
+        assert_eq!(s.resolve_run_slug(&store, None), None);
+        run_start(&store, "only", "software", None, "continuous").unwrap();
+        assert_eq!(s.resolve_run_slug(&store, None).as_deref(), Some("only"));
+        // darkrun_run_show with no slug now infers the sole run.
+        assert!(s.darkrun_run_show(Parameters(RunShowRef { slug: None })).unwrap().is_error != Some(true));
+
+        // slug_from_branch.
+        assert_eq!(slug_from_branch("darkrun/abc/main").as_deref(), Some("abc"));
+        assert_eq!(slug_from_branch("darkrun//main"), None);
+        assert_eq!(slug_from_branch("feature/x"), None);
+
+        // ensure_object wraps non-objects; passes objects through.
+        assert!(ensure_object(serde_json::json!([1, 2])).get("items").is_some());
+        assert!(ensure_object(serde_json::json!(5)).get("value").is_some());
+        assert!(ensure_object(serde_json::json!({"a": 1})).get("a").is_some());
+
+        // parse helpers cover every token + the unknown fallthrough.
+        for t in ["pending", "active", "in_progress", "completed", "blocked"] {
+            assert!(parse_status_arg(t).is_some());
+        }
+        assert!(parse_status_arg("nope").is_none());
+        for t in ["pending", "fixing", "addressed", "answered", "non_actionable", "escalated", "closed", "rejected"] {
+            assert!(parse_feedback_status_arg(t).is_some());
+        }
+        assert!(parse_feedback_status_arg("nope").is_none());
+    }
 }
