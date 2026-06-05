@@ -697,4 +697,47 @@ mod tests {
         assert_eq!(all[0].id, "fb-01");
         assert_eq!(all[1].id, "fb-02");
     }
+
+    #[test]
+    fn every_origin_round_trips_through_disk() {
+        use darkrun_core::domain::FeedbackOrigin::*;
+        let (_d, store) = store();
+        for o in [
+            AdversarialReview, RunReview, Reflection, Discovery, Drift, Operator,
+            Annotation, External, Unspecified,
+        ] {
+            let fb = create_with_origin(&store, "r", "frame", "body", None, o, vec![]).unwrap();
+            assert_eq!(get(&store, "r", &fb.id).unwrap().origin, o);
+        }
+        // Unknown origin tokens fall back to Unspecified.
+        assert_eq!(parse_origin("not-a-real-origin"), Unspecified);
+        assert_eq!(parse_origin("review"), AdversarialReview);
+    }
+
+    #[test]
+    fn move_reject_and_set_targets() {
+        let (_d, store) = store();
+        let fb = create(&store, "r", "frame", "finding", None).unwrap();
+        // set_targets records the invalidated roles.
+        let t = set_targets(&store, "r", &fb.id, vec!["spec".into()]).unwrap();
+        assert_eq!(t.invalidates, vec!["spec".to_string()]);
+        // move_station relocates it.
+        let m = move_station(&store, "r", &fb.id, "specify").unwrap();
+        assert_eq!(m.station, "specify");
+        // reject with a reason appends to the body and is terminal.
+        let r = reject(&store, "r", &fb.id, "stale").unwrap();
+        assert_eq!(r.status, FeedbackStatus::Rejected);
+        assert!(r.body.contains("Rejected: stale"));
+        // A settled item is immutable.
+        assert!(move_station(&store, "r", &fb.id, "frame").is_err());
+        assert!(set_targets(&store, "r", &fb.id, vec![]).is_err());
+    }
+
+    #[test]
+    fn split_frontmatter_handles_a_body_only_doc() {
+        // No fence → the whole thing is the body, parsed as a pending item.
+        let fb = parse("r", "fb-9", "just a body, no frontmatter\n");
+        assert_eq!(fb.status, FeedbackStatus::Pending);
+        assert!(fb.body.contains("just a body"));
+    }
 }
