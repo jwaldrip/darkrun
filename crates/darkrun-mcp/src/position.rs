@@ -2790,6 +2790,41 @@ mod tests {
     }
 
     #[test]
+    fn wave_ready_excludes_in_flight_units() {
+        // B7: a unit that has been dispatched (InProgress) — handed to a worker
+        // and now reporting its pass loop — is NOT re-picked by the next wave,
+        // the dispatch-lease guarantee. wave_ready returns only Pending units
+        // whose deps are complete.
+        let mk = |slug: &str, status: Status, deps: &[&str]| Unit {
+            slug: slug.into(),
+            frontmatter: darkrun_core::domain::UnitFrontmatter {
+                status,
+                depends_on: deps.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            },
+            title: slug.into(),
+            body: String::new(),
+        };
+        let units = vec![
+            mk("dispatched", Status::InProgress, &[]), // in flight → excluded
+            mk("done", Status::Completed, &[]),         // finished → excluded
+            mk("ready", Status::Pending, &[]),          // fresh → dispatched
+            mk("blocked", Status::Pending, &["ready"]), // dep not done → excluded
+        ];
+        let wave: Vec<&str> = wave_ready(&units).iter().map(|u| u.slug.as_str()).collect();
+        assert_eq!(wave, vec!["ready"], "only the fresh, unblocked unit is wave-ready");
+
+        // Once `ready` is dispatched (InProgress) it drops out, and `blocked`
+        // stays held until `ready` actually COMPLETES — being in flight does not
+        // unblock a dependent.
+        let units = vec![
+            mk("ready", Status::InProgress, &[]),
+            mk("blocked", Status::Pending, &["ready"]),
+        ];
+        assert!(wave_ready(&units).is_empty(), "an in-flight dep doesn't release its dependent");
+    }
+
+    #[test]
     fn dropped_station_inputs_flags_distillation_no_unit_consumes() {
         let mk = |slug: &str, inputs: &[&str]| Unit {
             slug: slug.into(),
