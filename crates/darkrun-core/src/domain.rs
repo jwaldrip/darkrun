@@ -969,3 +969,54 @@ pub struct ProjectRecord {
     pub added_at: Option<String>,
 }
 
+
+#[cfg(test)]
+mod domain_accessor_tests {
+    use super::*;
+
+    #[test]
+    fn seal_kind_as_str() {
+        assert_eq!(SealKind::External.as_str(), "external");
+        assert_eq!(SealKind::Await.as_str(), "await");
+    }
+
+    #[test]
+    fn unit_iteration_is_complete_tracks_result() {
+        let mut it = UnitIteration::default();
+        assert!(!it.is_complete());
+        it.result = Some(IterationResult::Advance);
+        assert!(it.is_complete());
+    }
+
+    #[test]
+    fn unit_last_worker_reads_the_most_recent_beat() {
+        let mut u = Unit {
+            slug: "u".into(),
+            frontmatter: UnitFrontmatter::default(),
+            title: "u".into(),
+            body: String::new(),
+        };
+        assert_eq!(u.last_worker(), None);
+        u.frontmatter.iterations.push(UnitIteration { worker: "make".into(), ..Default::default() });
+        u.frontmatter.iterations.push(UnitIteration { worker: "challenge".into(), ..Default::default() });
+        assert_eq!(u.last_worker(), Some("challenge"));
+    }
+
+    #[test]
+    fn external_refs_set_well_known_and_other_and_clear() {
+        let mut e = ExternalRefs::default();
+        e.set("ticket", "JIRA-1");
+        e.set("pr", "https://example/pr/1");
+        e.set("design", "fig://x");
+        e.set("slack", "https://slack/x"); // custom -> other map
+        assert_eq!(e.ticket.as_deref(), Some("JIRA-1"));
+        assert_eq!(e.pr_url.as_deref(), Some("https://example/pr/1"));
+        assert_eq!(e.design.as_deref(), Some("fig://x"));
+        assert_eq!(e.other.get("slack").map(String::as_str), Some("https://slack/x"));
+        // Empty value clears both a well-known slot and an `other` entry.
+        e.set("ticket", "");
+        e.set("slack", "  ");
+        assert!(e.ticket.is_none());
+        assert!(!e.other.contains_key("slack"));
+    }
+}
