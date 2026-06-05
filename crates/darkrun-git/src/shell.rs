@@ -535,4 +535,104 @@ mod tests {
         assert!(!list[1].locked, "locked flag must reset");
         assert_eq!(list[1].branch.as_deref(), Some("clean"));
     }
+
+    // ── Backend integration: network + rebase + merge primitives ───────────
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .expect("git")
+            .success();
+        assert!(ok, "git {args:?} in {dir:?}");
+    }
+
+    fn commit_file(dir: &Path, name: &str, body: &str, msg: &str) {
+        std::fs::write(dir.join(name), body).unwrap();
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-q", "-m", msg]);
+    }
+
+    /// A repo on `main` with one commit + a configured identity.
+    fn init_work() -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        git(d.path(), &["init", "-q", "-b", "main"]);
+        git(d.path(), &["config", "user.email", "t@x.io"]);
+        git(d.path(), &["config", "user.name", "T"]);
+        commit_file(d.path(), "a.txt", "1\n", "c1");
+        d
+    }
+
+    #[test]
+    fn shell_backend_push_fetch_against_a_bare_remote() {
+        let bare = tempfile::tempdir().unwrap();
+        git(bare.path(), &["init", "-q", "--bare"]);
+        let work = init_work();
+        git(work.path(), &["remote", "add", "origin", bare.path().to_str().unwrap()]);
+        let be = ShellBackend::open(work.path()).unwrap();
+
+        // run_net success: push HEAD -> origin/main, then fetch it back.
+        be.push(work.path(), "main").unwrap();
+        be.fetch(work.path(), "main").unwrap();
+
+        // run_net error: a repo whose origin points nowhere fails fast (not hang).
+        let broken = init_work();
+        git(broken.path(), &["remote", "add", "origin", "/nope/missing.git"]);
+        let bb = ShellBackend::open(broken.path()).unwrap();
+        assert!(bb.push(broken.path(), "main").is_err());
+        assert!(bb.fetch(broken.path(), "main").is_err());
+    }
+
+    #[test]
+    fn shell_backend_rebase_and_abort() {
+        let work = init_work();
+        let be = ShellBackend::open(work.path()).unwrap();
+        // Diverge: a feature branch with its own commit, then rebase onto main.
+        git(work.path(), &["checkout", "-q", "-b", "feature"]);
+        commit_file(work.path(), "b.txt", "2\n", "c2");
+        be.rebase_onto(work.path(), "main").unwrap();
+        // No rebase in progress → abort is a best-effort no-op (Ok).
+        be.rebase_abort(work.path()).unwrap();
+    }
+
+    #[test]
+    fn shell_backend_merge_no_commit_paths() {
+        let be_dir = init_work();
+        let root = be_dir.path();
+        let be = ShellBackend::open(root).unwrap();
+
+        // A divergent, non-conflicting branch.
+        git(root, &["checkout", "-q", "-b", "side"]);
+        commit_file(root, "side.txt", "s\n", "side work");
+        git(root, &["checkout", "-q", "main"]);
+        commit_file(root, "main.txt", "m\n", "main work");
+
+        // Already-up-to-date merge: no-op, ok=true, performed=false.
+        let noop = be.merge_no_commit(root, "main").unwrap();
+        assert!(noop.ok && !noop.performed);
+
+        // A real merge stages (MERGE_HEAD set) → performed=true.
+        let merged = be.merge_no_commit(root, "side").unwrap();
+        assert!(merged.ok && merged.performed);
+        // The restore primitives run with non-empty path lists.
+        be.checkout_paths(root, "HEAD", &["main.txt".into()]).unwrap();
+        be.add_paths(root, &["main.txt".into()]).unwrap();
+        be.commit(root, "merge side").unwrap();
+        // ls_tree + unresolved_paths on the merged tree (real prefix, as the
+        // engine calls it) — the side branch's file is now in the tree.
+        let tree = be.ls_tree(root, "HEAD", "side.txt").unwrap();
+        assert!(tree.iter().any(|p| p == "side.txt"), "merge brought in side.txt: {tree:?}");
+        assert!(be.unresolved_paths(root).unwrap().is_empty());
+
+        // Hard pre-merge refusal: a dirty tree makes git refuse → ok=false.
+        std::fs::write(root.join("a.txt"), "dirty-uncommitted\n").unwrap();
+        git(root, &["checkout", "-q", "-b", "other", "main"]);
+        commit_file(root, "a.txt", "conflicting\n", "other");
+        git(root, &["checkout", "-q", "main"]);
+        std::fs::write(root.join("a.txt"), "dirty-again\n").unwrap();
+        let refused = be.merge_no_commit(root, "other").unwrap();
+        assert!(!refused.performed, "a dirty tree blocks the merge");
+    }
 }
