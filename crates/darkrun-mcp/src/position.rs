@@ -2790,14 +2790,24 @@ mod tests {
         let def = factory.station("frame").unwrap();
         // No units → no derivable phase.
         assert!(derived_station_phase(&[], def, false).is_none());
-        let u = Unit {
+        // A unit with NO signals (no iterations/reviews/approvals) also derives
+        // nothing — the station hasn't visibly started.
+        let bare = Unit {
             slug: "u".into(),
             frontmatter: UnitFrontmatter { status: Status::Completed, station: Some("frame".into()), ..Default::default() },
             title: "u".into(),
             body: String::new(),
         };
+        assert!(derived_station_phase(&[&bare], def, false).is_none());
+        // A unit that has run a Pass beat carries a signal → a phase derives, in
+        // both gate modes (autopilot drops the `user` approval role).
+        let mut u = bare.clone();
+        u.frontmatter.iterations.push(darkrun_core::domain::UnitIteration {
+            worker: "make".into(),
+            result: Some(darkrun_core::domain::IterationResult::Advance),
+            ..Default::default()
+        });
         let refs: Vec<&Unit> = vec![&u];
-        // Both gate modes derive a phase (autopilot drops the `user` approval role).
         assert!(derived_station_phase(&refs, def, false).is_some());
         assert!(derived_station_phase(&refs, def, true).is_some());
     }
