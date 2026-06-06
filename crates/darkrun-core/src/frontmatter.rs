@@ -63,14 +63,9 @@ fn split_at_closing_fence(rest: &str) -> Option<(String, String)> {
         }
         offset += line.len();
     }
-    // Handle a trailing `---` with no newline at EOF.
-    if rest.ends_with("---") {
-        let idx = rest.len() - 3;
-        if idx == 0 || rest.as_bytes()[idx - 1] == b'\n' {
-            let fm = rest[..idx].to_string();
-            return Some((fm, String::new()));
-        }
-    }
+    // No standalone closing `---` line. (`split_inclusive` always yields a
+    // trailing `---`-without-newline as its own segment, so the loop above
+    // already handles an EOF fence — no separate case is needed here.)
     None
 }
 

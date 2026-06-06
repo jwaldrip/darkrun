@@ -315,4 +315,55 @@ mod tests {
         assert!(!f.offers_surface("web_ui"));
         assert!(!f.offers_surface("desktop"));
     }
+
+    #[test]
+    fn from_content_collects_surfaces_and_applies_to_scopes() {
+        use darkrun_content::{
+            Factory, FactoryFrontmatter, Role, RoleFrontmatter, RoleKind, Station, StationFrontmatter,
+        };
+        use darkrun_core::domain::CheckpointKind;
+        let role = |name: &str, kind: RoleKind, applies: &[&str]| Role {
+            frontmatter: RoleFrontmatter {
+                name: name.into(), agent_type: None, model: None, interpretation: None,
+                role: None, applies_to: applies.iter().map(|s| s.to_string()).collect(),
+            },
+            body: format!("# {name}\nbody"),
+            kind,
+        };
+        let station = Station {
+            frontmatter: StationFrontmatter {
+                name: "build".into(), description: "d".into(), kills: "k".into(), label: None,
+                explorers: vec![], workers: vec!["w".into()], reviewers: vec!["a11y".into()],
+                checkpoint: CheckpointKind::Auto, checkpoint_options: vec![],
+                locked_artifact: "o.md".into(), inputs: vec![], inputs_waived: vec![],
+            },
+            body: "# build".into(),
+            explorers: vec![],
+            workers: vec![role("w", RoleKind::Worker, &[])],
+            reviewers: vec![role("a11y", RoleKind::Reviewer, &["web_ui"])],
+        };
+        let factory = Factory {
+            frontmatter: FactoryFrontmatter {
+                name: "t".into(), description: "d".into(), category: "e".into(),
+                default_model: "sonnet".into(), inherits: None, stations: vec!["build".into()],
+                fix_workers: vec![], reviewers: vec!["audit".into()], reflections: vec![],
+                surfaces: vec!["web_ui".into()],
+            },
+            body: "# t".into(),
+            stations: vec![station],
+            run_reviewers: vec![role("audit", RoleKind::Reviewer, &["desktop"])],
+            reflections: vec![],
+        };
+        let def = FactoryDef::from_content(&factory);
+        // Surfaces carry through (the forward-compat surface gate reads these).
+        assert_eq!(def.surfaces, vec!["web_ui".to_string()]);
+        assert!(def.offers_surface("web_ui"));
+        // A station reviewer's applies_to scope is collected (per-station).
+        assert_eq!(
+            def.stations[0].role_applies_to.get("a11y"),
+            Some(&vec!["web_ui".to_string()])
+        );
+        // A run reviewer's applies_to scope is collected too.
+        assert_eq!(def.run_reviewer_applies_to.get("audit"), Some(&vec!["desktop".to_string()]));
+    }
 }
