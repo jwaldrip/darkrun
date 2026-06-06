@@ -1964,3 +1964,16 @@ fn worker_contention_on_single_station() {
     assert_eq!(ran.lock().unwrap().len(), 5);
     assert_eq!(*max_overlap.lock().unwrap(), 1);
 }
+
+// SECTION 16: the locks-root cannot be created (mkdir failure)
+
+#[test]
+fn acquire_errors_when_the_locks_root_cannot_be_created() {
+    let dir = tempfile::tempdir().unwrap();
+    // Plant a regular file where `.darkrun/` would be a directory, so creating
+    // `.darkrun/locks` fails — exercising acquire's create-dir error arm.
+    std::fs::write(dir.path().join(".darkrun"), "i am a file, not a dir").unwrap();
+    let mgr = LockManager::new(dir.path());
+    let err = mgr.acquire("build", "tag").unwrap_err();
+    assert!(matches!(err, CoreError::Io { .. }));
+}

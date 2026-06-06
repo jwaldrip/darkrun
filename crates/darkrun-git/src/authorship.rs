@@ -301,4 +301,21 @@ mod tests {
         // A missing head resolves to no author.
         assert_eq!(branch_author(&root, "main", "darkrun/ghost").unwrap(), None);
     }
+
+    #[test]
+    fn branch_authored_by_is_false_for_an_empty_email() {
+        let (_d, root) = init_repo();
+        // An empty target email never matches a commit author.
+        assert!(!branch_authored_by(&root, "main", "main", "").unwrap());
+    }
+
+    #[test]
+    fn run_authored_by_me_is_false_without_a_resolvable_identity() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        run_git(&root, &["init", "-q", "-b", "main"]);
+        // No resolvable committing identity for this repo → not mine.
+        run_git(&root, &["config", "--local", "user.email", ""]);
+        assert!(!run_authored_by_me(&root, "main", "main").unwrap());
+    }
 }
