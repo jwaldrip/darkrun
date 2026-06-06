@@ -3533,6 +3533,52 @@ mod handler_smoke {
     }
 
     #[test]
+    fn debug_dispatcher_covers_every_op_and_missing_args() {
+        let dir = tempdir().unwrap();
+        let s = DarkrunServer::new(dir.path());
+        s.darkrun_run_start(Parameters(RunStartInput {
+            slug: "r".into(), factory: "software".into(), title: None, mode: "continuous".into(),
+        })).unwrap();
+        let dbg = |op: &str, station: Option<&str>, field: Option<&str>, value: Option<&str>, fid: Option<&str>| {
+            s.darkrun_debug(Parameters(DebugInput {
+                slug: "r".into(), op: op.into(),
+                station: station.map(Into::into), field: field.map(Into::into),
+                value: value.map(Into::into), feedback_id: fid.map(Into::into),
+                reason: Some("recovery".into()), confirm: true,
+            })).unwrap()
+        };
+        // preview_cursor reads the cursor (ok path).
+        assert_ne!(dbg("preview_cursor", None, None, None, None).is_error, Some(true));
+        // Each mutating op with its required arg MISSING → a clear error.
+        assert_eq!(dbg("force_station_complete", None, None, None, None).is_error, Some(true));
+        assert_eq!(dbg("set_run_field", None, None, None, None).is_error, Some(true));
+        assert_eq!(dbg("mutate_feedback", None, None, None, None).is_error, Some(true));
+        // reset_drift runs; an unknown op errors.
+        let _ = dbg("reset_drift", None, None, None, None);
+        assert_eq!(dbg("nonsense_op", None, None, None, None).is_error, Some(true));
+        // set_run_field with field+value mutates (or errors cleanly on a bad field).
+        let _ = dbg("set_run_field", None, Some("title"), Some("New"), None);
+    }
+
+    #[test]
+    fn backlog_dispatcher_covers_add_promote_and_list() {
+        let dir = tempdir().unwrap();
+        let s = DarkrunServer::new(dir.path());
+        let bl = |action: Option<&str>, desc: Option<&str>, id: Option<&str>| {
+            s.darkrun_backlog(Parameters(BacklogInput {
+                action: action.map(Into::into), description: desc.map(Into::into), id: id.map(Into::into),
+            })).unwrap()
+        };
+        // add with a description, then list shows it.
+        assert_ne!(bl(Some("add"), Some("wire the importer"), None).is_error, Some(true));
+        assert_ne!(bl(None, None, None).is_error, Some(true)); // default list
+        // add without a description, and promote without/with an unknown id → errors / no-op.
+        assert_eq!(bl(Some("add"), None, None).is_error, Some(true));
+        assert_eq!(bl(Some("promote"), None, None).is_error, Some(true));
+        let _ = bl(Some("promote"), None, Some("bl-999")); // unknown id → error json (ok status)
+    }
+
+    #[test]
     fn ok_json_surfaces_a_serialization_failure() {
         use std::collections::HashMap;
         // A map with non-string keys cannot serialize to a JSON object — the
