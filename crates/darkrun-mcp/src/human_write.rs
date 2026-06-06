@@ -124,6 +124,25 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_curdir_segments_and_writes() {
+        let d = root();
+        // A `./` segment is skipped by the normalizer (Component::CurDir arm).
+        let p = human_write(d.path(), "docs/./notes.md", "ok\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "ok\n");
+        assert!(p.ends_with("docs/notes.md"));
+    }
+
+    #[test]
+    fn surfaces_a_parent_creation_failure() {
+        let d = root();
+        // A regular file where a parent directory would need to be → create_dir_all
+        // fails, exercising the parent-creation error arm.
+        std::fs::write(d.path().join("blocker"), "i am a file").unwrap();
+        let err = human_write(d.path(), "blocker/child.md", "x").unwrap_err();
+        assert!(format!("{err}").contains("could not create parent directory"));
+    }
+
+    #[test]
     fn rejects_engine_state_writes() {
         let d = root();
         let err = human_write(d.path(), ".darkrun/r/state.json", "{}").unwrap_err();
