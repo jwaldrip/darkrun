@@ -511,6 +511,36 @@ async fn run_detail_stations_in_walk_order() {
 }
 
 #[tokio::test]
+async fn run_detail_orders_unstamped_stations_after_stamped_ones() {
+    // Mixed started_at exercises every arm of the walk-order comparator: a
+    // stamped station sorts before an unstamped one, and two unstamped ones fall
+    // back to name order.
+    let (app, store) = state_with_store();
+    seed_run(&store, "alpha", None, "software", "build", Status::Active, None, false);
+    seed_state(
+        &store,
+        "alpha",
+        "software",
+        "build",
+        vec![
+            station("specify", Status::Pending, StationPhase::Spec, None),
+            station("build", Status::Active, StationPhase::Manufacture, Some("2026-05-30T00:00:00Z")),
+            station("frame", Status::Pending, StationPhase::Spec, None),
+        ],
+    );
+    let resp = send(build_router(app), get("/api/runs/alpha")).await;
+    let json = body_json(resp).await;
+    let names: Vec<&str> = json["stations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    // build (stamped) first; then the two unstamped by name (frame, specify).
+    assert_eq!(names, ["build", "frame", "specify"]);
+}
+
+#[tokio::test]
 async fn run_detail_station_fields() {
     let (app, store) = state_with_store();
     seed_run(&store, "alpha", None, "software", "frame", Status::Active, None, false);
