@@ -1786,3 +1786,140 @@ mod new_run_row_tests {
         let _ = render(App);
     }
 }
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+    use darkrun_api::runs::{RunSummary, StationProgress};
+    use std::collections::BTreeMap;
+
+    fn run_with(status: &str, mine: bool, author: &str) -> RunSummary {
+        RunSummary {
+            slug: "store-checkout".into(),
+            title: "Checkout flow".into(),
+            factory: "software".into(),
+            active_station: "build".into(),
+            phase: Some("manufacture".into()),
+            status: status.into(),
+            progress: StationProgress { completed: 1, total: 6 },
+            started_at: Some("2026-06-05T00:00:00Z".into()),
+            authored_by_me: mine,
+            author: Some(author.into()),
+        }
+    }
+    fn proj(name: &str) -> Project {
+        Project { name: name.into(), path: format!("/tmp/{name}").into(), port: None, harness: None }
+    }
+
+    #[test]
+    fn run_matches_honors_mine_filter_query_and_fields() {
+        let r = run_with("active", true, "jason");
+        assert!(run_matches(&r, true, ""), "mine + authored + no query");
+        assert!(run_matches(&r, false, ""), "all + no query");
+        assert!(run_matches(&r, false, "checkout"), "matches the slug");
+        assert!(run_matches(&r, false, "jason"), "matches the author");
+        assert!(!run_matches(&r, false, "nope"), "no field matches");
+        let theirs = run_with("active", false, "someone");
+        assert!(!run_matches(&theirs, true, ""), "mine hides others' runs");
+    }
+
+    #[test]
+    fn visible_projects_keeps_matches_and_runless_projects() {
+        let projects = vec![proj("store"), proj("docs")];
+        let mut runs_map: BTreeMap<String, Vec<RunSummary>> = BTreeMap::new();
+        runs_map.insert("store".into(), vec![run_with("active", true, "me")]);
+        // No query, all: a project with a matching run + a run-less project both show.
+        let all = visible_projects(&projects, &runs_map, false, "");
+        assert_eq!(all.len(), 2);
+        // Mine-only with a run list that has an authored match keeps store.
+        let mine = visible_projects(&projects, &runs_map, true, "");
+        assert!(mine.iter().any(|p| p.name == "store"));
+        // A search that only matches a run-less project's name keeps just it.
+        let by_name = visible_projects(&projects, &runs_map, false, "docs");
+        assert_eq!(by_name.len(), 1);
+        assert_eq!(by_name[0].name, "docs");
+        // Mine-only with a non-authored run and no name match hides the project.
+        let mut others: BTreeMap<String, Vec<RunSummary>> = BTreeMap::new();
+        others.insert("store".into(), vec![run_with("active", false, "x")]);
+        let hidden = visible_projects(&[proj("store")], &others, true, "");
+        assert!(hidden.is_empty());
+    }
+
+    #[test]
+    fn run_dot_color_maps_status_classes() {
+        for s in ["active", "in_progress", "completed"] {
+            assert_eq!(run_dot_color(s), tokens::var::STATUS_OK);
+        }
+        for s in ["blocked", "changes_requested", "pending", "review"] {
+            assert_eq!(run_dot_color(s), tokens::var::STATUS_WARN);
+        }
+        assert_eq!(run_dot_color("idle"), tokens::var::TEXT_FAINT);
+        assert!(run_sel_bg().ends_with("1f"));
+    }
+
+    #[test]
+    fn engine_display_name_and_load_projects_merge() {
+        let e = crate::wire::DiscoveredEngine {
+            project_path: std::path::PathBuf::from("/tmp/store"),
+            port: 58616,
+            slug: "store".into(),
+            pid: 4242,
+            harness: "claude-code".into(),
+            started_at: "2026-06-05T00:00:00Z".into(),
+        };
+        assert_eq!(engine_display_name(&e), "store");
+        // Merges live engines over the registry (registry may be empty here);
+        // the engine-only slug is inserted via Project::from_engine.
+        let projects = load_projects(&[e]);
+        assert!(projects.iter().any(|p| p.name == "store" || p.path == std::path::Path::new("/tmp/store")));
+    }
+
+    #[test]
+    fn validate_add_input_covers_every_arm() {
+        assert!(validate_add_input(AddMode::Git, "").is_err());
+        assert!(validate_add_input(AddMode::Local, "").is_err());
+        assert!(validate_add_input(AddMode::Git, "not-a-url").is_err());
+        assert!(validate_add_input(AddMode::Git, "https://x/y.git").is_ok());
+        assert!(validate_add_input(AddMode::Git, "git@h:y.git").is_ok());
+        assert!(validate_add_input(AddMode::Local, "relative/path").is_err());
+        assert!(validate_add_input(AddMode::Local, "/abs/path").is_ok());
+    }
+
+    #[test]
+    fn add_project_returns_the_error_arms() {
+        // Validation propagates (empty + bad url).
+        assert!(add_project(AddMode::Git, "").is_err());
+        assert!(add_project(AddMode::Git, "bad").is_err());
+        // An absolute, existing, non-git dir hits the "No .git found" arm.
+        let tmp = std::env::temp_dir();
+        let err = add_project(AddMode::Local, tmp.to_str().unwrap()).unwrap_err();
+        assert!(err.contains(".git") || err.contains("git repo"));
+    }
+
+    #[test]
+    fn harness_helpers_cover_order_binaries_and_quoting() {
+        assert_eq!(harness_order().len(), 7);
+        assert_eq!(harness_binary(Harness::ClaudeCode), Some("claude"));
+        assert_eq!(harness_binary(Harness::Codex), Some("codex"));
+        assert_eq!(harness_binary(Harness::GeminiCli), Some("gemini"));
+        assert_eq!(harness_binary(Harness::Opencode), Some("opencode"));
+        assert_eq!(harness_binary(Harness::Cursor), None);
+        assert_eq!(harness_binary(Harness::Windsurf), None);
+        assert_eq!(harness_binary(Harness::Kiro), None);
+        assert_eq!(sh_quote("/a b"), "'/a b'");
+        assert!(sh_quote("it's").contains("'\\''"));
+    }
+
+    #[test]
+    fn launch_command_builds_cli_and_gui_variants() {
+        // CLI harness, plain.
+        let cmd = launch_command(Harness::ClaudeCode, "/tmp/p", false, None);
+        assert!(cmd.starts_with("cd '/tmp/p' && claude"));
+        // CLI harness, autonomous + a worktree run.
+        let auto = launch_command(Harness::ClaudeCode, "/tmp/p", true, Some("checkout"));
+        assert!(auto.contains("claude"));
+        // GUI harness — the open-the-editor instruction.
+        let gui = launch_command(Harness::Cursor, "/tmp/p", false, None);
+        assert!(gui.starts_with("open "));
+    }
+}
