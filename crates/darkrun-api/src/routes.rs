@@ -258,3 +258,29 @@ pub fn find(method: HttpMethod, path_template: &str) -> Option<&'static RouteSpe
         .iter()
         .find(|r| r.method == method && r.path_template == path_template)
 }
+
+#[cfg(test)]
+mod path_tests {
+    use super::paths;
+
+    #[test]
+    fn every_path_builder_renders_its_template() {
+        assert_eq!(paths::session("s"), "/api/session/s");
+        assert_eq!(paths::session_heartbeat("s"), "/api/session/s/heartbeat");
+        assert_eq!(paths::review_decide("s"), "/review/s/decide");
+        assert_eq!(paths::review_current(), "/api/review/current");
+        assert_eq!(paths::runs(), "/api/runs");
+        assert_eq!(paths::run_detail("r"), "/api/runs/r");
+        assert_eq!(paths::question_answer("s"), "/question/s/answer");
+        assert_eq!(paths::direction_select("s"), "/direction/s/select");
+        assert_eq!(paths::picker_select("s"), "/picker/s/select");
+        assert_eq!(paths::visual_review_annotate("s"), "/visual-review/s/annotate");
+        assert_eq!(paths::proof("r"), "/api/proof/r");
+        assert_eq!(paths::advance("s"), "/api/advance/s");
+        assert_eq!(paths::feedback_list("r", "frame"), "/api/feedback/r/frame");
+        assert_eq!(paths::feedback_item("r", "frame", "fb-1"), "/api/feedback/r/frame/fb-1");
+        assert_eq!(paths::feedback_replies("r", "frame", "fb-1"), "/api/feedback/r/frame/fb-1/replies");
+        assert_eq!(paths::health(), "/health");
+        assert_eq!(paths::ws_session("s"), "/ws/session/s");
+    }
+}

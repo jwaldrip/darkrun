@@ -255,3 +255,17 @@ impl Factory {
         self.reflections.iter().find(|r| r.name() == name)
     }
 }
+
+#[cfg(test)]
+mod role_kind_tests {
+    use super::*;
+
+    #[test]
+    fn role_kind_parses_every_section_name() {
+        assert_eq!(RoleKind::from_dir("explorers"), Some(RoleKind::Explorer));
+        assert_eq!(RoleKind::from_dir("workers"), Some(RoleKind::Worker));
+        assert_eq!(RoleKind::from_dir("reviewers"), Some(RoleKind::Reviewer));
+        assert_eq!(RoleKind::from_dir("reflections"), Some(RoleKind::Reflection));
+        assert_eq!(RoleKind::from_dir("nonsense"), None);
+    }
+}

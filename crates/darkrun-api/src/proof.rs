@@ -346,4 +346,15 @@ mod tests {
         let back: ProofAttachRequest = serde_json::from_value(json).unwrap();
         assert_eq!(back.proof.surface, Surface::Api);
     }
+
+    #[test]
+    fn surface_as_str_covers_every_variant() {
+        for (s, t) in [
+            (Surface::Library, "library"), (Surface::Api, "api"), (Surface::WebUi, "web_ui"),
+            (Surface::Tui, "tui"), (Surface::Cli, "cli"), (Surface::Desktop, "desktop"),
+            (Surface::Mobile, "mobile"), (Surface::Data, "data"),
+        ] {
+            assert_eq!(s.as_str(), t);
+        }
+    }
 }

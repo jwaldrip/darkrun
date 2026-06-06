@@ -140,3 +140,21 @@ impl Credential {
         format!("Bearer {}", self.access_token)
     }
 }
+
+#[cfg(test)]
+mod provider_tests {
+    use super::*;
+
+    #[test]
+    fn provider_keys_hosts_and_display() {
+        for (p, key, host, disp) in [
+            (Provider::GitHub, "github", "github.com", "GitHub"),
+            (Provider::GitLab, "gitlab", "gitlab.com", "GitLab"),
+        ] {
+            assert_eq!(p.key(), key);
+            assert_eq!(p.default_host(), host);
+            assert_eq!(p.display_name(), disp);
+            assert_eq!(format!("{p}"), key);
+        }
+    }
+}

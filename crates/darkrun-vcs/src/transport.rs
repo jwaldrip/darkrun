@@ -194,3 +194,18 @@ impl HttpTransport for MockTransport {
         }
     }
 }
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+
+    #[test]
+    fn request_builders_set_method_headers_and_body() {
+        assert_eq!(Method::Get.as_str(), "GET");
+        let req = HttpRequest::post("https://x/y")
+            .header("authorization", "Bearer t")
+            .raw_body(vec![1, 2, 3]);
+        assert_eq!(req.body.as_deref(), Some(&[1u8, 2, 3][..]));
+        let _ = HttpRequest::get("https://x/z");
+    }
+}

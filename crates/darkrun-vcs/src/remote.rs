@@ -116,3 +116,19 @@ fn finish(host: &str, path: &str, original: &str) -> Result<RepoCoords> {
 
     Ok(RepoCoords::new(host, owner, repo))
 }
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+
+    #[test]
+    fn parses_a_valid_remote_and_rejects_a_pathless_one() {
+        let ok = parse_remote_url("git@github.com:owner/repo.git").unwrap();
+        assert_eq!(ok.host, "github.com");
+        assert_eq!(ok.owner, "owner");
+        assert_eq!(ok.repo, "repo");
+        // A URL with no repo path → parse error.
+        assert!(parse_remote_url("https://github.com").is_err());
+        assert!(parse_remote_url("not-a-url").is_err());
+    }
+}

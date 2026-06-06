@@ -699,3 +699,37 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod model_and_adapt_tests {
+    use super::*;
+
+    #[test]
+    fn map_model_covers_every_provider_and_tier() {
+        use Harness::*;
+        let cases = [
+            (ClaudeCode, "haiku", "haiku"), (ClaudeCode, "sonnet", "sonnet"),
+            (ClaudeCode, "opus", "opus"), (ClaudeCode, "other", "sonnet"),
+            (GeminiCli, "haiku", "flash"), (GeminiCli, "sonnet", "pro"),
+            (GeminiCli, "opus", "pro"), (GeminiCli, "other", "pro"),
+            (Codex, "haiku", "low"), (Codex, "sonnet", "medium"),
+            (Codex, "opus", "high"), (Codex, "other", "medium"),
+            (Cursor, "haiku", "fast"), (Cursor, "sonnet", "balanced"),
+            (Cursor, "opus", "powerful"), (Cursor, "other", "balanced"),
+        ];
+        for (h, tier, want) in cases {
+            assert_eq!(h.capabilities().map_model(tier), want, "{h:?} {tier}");
+        }
+    }
+
+    #[test]
+    fn adapt_instructions_runs_for_every_harness() {
+        let text = "Dispatch the reviewers. Use subagents to fan the wave out in parallel.";
+        for h in [
+            Harness::ClaudeCode, Harness::Cursor, Harness::Windsurf, Harness::GeminiCli,
+            Harness::Opencode, Harness::Kiro, Harness::Codex,
+        ] {
+            let _ = adapt_instructions(text, &h.capabilities());
+        }
+    }
+}

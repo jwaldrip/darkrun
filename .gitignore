@@ -6,3 +6,4 @@ node_modules
 
 # Local agent worktrees (never commit)
 .claude/worktrees/
+*.profraw

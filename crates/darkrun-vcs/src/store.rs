@@ -156,3 +156,17 @@ fn enforce_mode(path: &Path) -> Result<()> {
 fn enforce_mode(_path: &Path) -> Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+    use crate::provider::Provider;
+
+    #[test]
+    fn missing_credential_file_loads_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::at(dir.path().join("does-not-exist.json"));
+        assert!(store.get(Provider::GitHub).unwrap().is_none());
+        assert!(store.path().ends_with("does-not-exist.json"));
+    }
+}
