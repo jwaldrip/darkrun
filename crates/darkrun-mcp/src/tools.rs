@@ -3411,4 +3411,24 @@ mod handler_smoke {
         store.set_active_run("second").unwrap();
         assert_eq!(s.resolve_run_slug(&store, None).as_deref(), Some("second"));
     }
+
+    #[test]
+    fn get_info_announces_addr_and_branches_capabilities() {
+        let dir = tempdir().unwrap();
+        // A prompt-bridging harness (non-Claude) with an announced HTTP address →
+        // instructions carry the DARKRUN_PORT note and prompts are advertised.
+        let bridged = DarkrunServer::new(dir.path())
+            .with_announced_addr("127.0.0.1:58616".parse().unwrap())
+            .with_harness(darkrun_harness::Harness::Cursor);
+        let info = bridged.get_info();
+        let instr = info.instructions.unwrap();
+        assert!(instr.contains("DARKRUN_PORT=58616"));
+        assert!(info.capabilities.prompts.is_some(), "prompts advertised for a bridged harness");
+
+        // Claude Code with no announced address → no port note, no prompts cap.
+        let claude = DarkrunServer::new(dir.path());
+        let info2 = claude.get_info();
+        assert!(!info2.instructions.unwrap().contains("DARKRUN_PORT"));
+        assert!(info2.capabilities.prompts.is_none());
+    }
 }
