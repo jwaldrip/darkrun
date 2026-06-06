@@ -330,4 +330,14 @@ mod tests {
         std::env::remove_var("CHROME");
         let _ = chrome_path();
     }
+
+    #[test]
+    fn web_opts_default_has_sensible_values() {
+        let o = WebOpts::default();
+        assert!(o.screenshot_path.is_none());
+        assert_eq!(o.width, 1280);
+        assert_eq!(o.height, 800);
+        assert_eq!(o.settle, Duration::from_millis(800));
+        assert_eq!(o.timeout, Duration::from_secs(30));
+    }
 }

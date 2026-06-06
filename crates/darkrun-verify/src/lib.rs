@@ -70,6 +70,7 @@ pub fn parse_surface(raw: &str) -> Option<Surface> {
 /// Capture a surface-tagged [`Proof`] for a visual surface by driving the
 /// headless browser. A thin convenience over [`verify_web`] +
 /// [`web_proof_into`] for the CLI.
+#[cfg(not(tarpaulin_include))] // drives the headless browser — irreducible I/O (web_proof_into is tested)
 pub async fn prove_web(url: &str, surface: Surface, opts: &WebOpts) -> Result<Proof> {
     let web = verify_web(url, opts).await?;
     Ok(web_proof_into(web, surface))
