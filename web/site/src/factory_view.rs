@@ -359,4 +359,31 @@ mod tests {
             vec!["frame", "specify", "shape", "build", "prove", "harden"]
         );
     }
+
+    #[test]
+    fn reflection_role_kind_maps_and_labels() {
+        use darkrun_content::RoleKind;
+        // Reflection folds into the Reviewer UI kind + its own label.
+        let _ = ui_role_kind(RoleKind::Reflection);
+        assert_eq!(role_kind_label(RoleKind::Reflection), "reflection");
+    }
+
+    #[test]
+    fn risk_and_summary_extraction_edge_cases() {
+        // No risk heading → None.
+        assert!(risk_from_body("just prose, no heading\n").is_none());
+        // Heading present but nothing after it → None.
+        assert!(risk_from_body("## Risk class eliminated\n").is_none());
+        // An emphasized phrase with no closing `*` keeps the remainder.
+        let r1 = risk_from_body("## Risk class eliminated\n\n*unclosed phrase\n").unwrap();
+        assert_eq!(r1, "unclosed phrase");
+        // A plain phrase is cut at the first sentence break.
+        let r2 = risk_from_body("## Risk class eliminated\n\nWrong-thing risk. More detail.\n").unwrap();
+        assert_eq!(r2, "wrong-thing risk");
+
+        // summary_from_body skips all-emphasis lines and returns None when there's
+        // no prose at all.
+        assert_eq!(summary_from_body("***\n\nReal first line. trailing\n").as_deref(), Some("Real first line."));
+        assert!(summary_from_body("# Heading\n\n---\n").is_none());
+    }
 }
