@@ -807,4 +807,36 @@ mod tests {
         assert!(!tool_failed(&json!({ "tool_response": { "content": [] } })));
         assert!(!tool_failed(&json!({})));
     }
+
+    #[test]
+    fn classify_engine_path_covers_every_run_subtree_and_rejects_non_state() {
+        use EnginePathKind::*;
+        assert!(matches!(classify_engine_path(".darkrun/r/units/u1.md"), Some(Unit)));
+        assert!(matches!(classify_engine_path("/repo/.darkrun/r/feedback/fb-01.md"), Some(Feedback)));
+        assert!(matches!(classify_engine_path(".darkrun/r/run.md"), Some(EngineState)));
+        assert!(matches!(classify_engine_path(".darkrun/r/state.json"), Some(EngineState)));
+        // Any other in-run subtree (drift/, reflections/, proof/) is engine state.
+        assert!(matches!(classify_engine_path(".darkrun/r/drift/x.json"), Some(EngineState)));
+        // Not run state: a bare top-level file, an empty tail, a non-run subtree,
+        // and an out-of-tree path.
+        assert!(classify_engine_path(".darkrun/settings.yml").is_none());
+        assert!(classify_engine_path(".darkrun/r/").is_none());
+        assert!(classify_engine_path(".darkrun/prompts/p.md").is_none());
+        assert!(classify_engine_path("src/main.rs").is_none());
+    }
+
+    #[test]
+    fn response_mentions_unread_scans_strings_objects_and_ignores_others() {
+        // A bare string carrying the phrase.
+        assert!(response_mentions_unread(Some(&json!("File has not been read yet."))));
+        // An object with content[].text.
+        assert!(response_mentions_unread(Some(&json!({
+            "content": [{ "text": "read it first before writing to it" }]
+        }))));
+        // An object with an error field.
+        assert!(response_mentions_unread(Some(&json!({ "error": "file has not been read in this session" }))));
+        // A non-string/object value, and absent, are ignored.
+        assert!(!response_mentions_unread(Some(&json!(42))));
+        assert!(!response_mentions_unread(None));
+    }
 }
