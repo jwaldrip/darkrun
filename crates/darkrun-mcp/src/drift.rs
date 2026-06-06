@@ -621,4 +621,45 @@ mod tests {
         assert_eq!(PremiseDrift::Mutated.as_str(), "mutated");
         assert_eq!(PremiseDrift::Deleted.as_str(), "deleted");
     }
+
+    #[test]
+    fn accept_on_a_deleted_premise_drops_the_witness() {
+        let (_d, store, root) = store();
+        std::fs::write(root.join("spec.md"), b"v1").unwrap();
+        store.write_unit("r", &unit("u", "build", &["spec.md"], &["code"])).unwrap();
+        record_station_witnesses(&store, "r", "build").unwrap();
+        std::fs::remove_file(root.join("spec.md")).unwrap();
+        // Accept directly (no sweep — a sweep would itself drop the deleted-premise
+        // witness): the witness is still present, so accept hits the None arm and
+        // removes it.
+        assert!(accept(&store, "r", "spec.md").unwrap());
+        let units = store.read_units("r").unwrap();
+        assert!(
+            !units[0].frontmatter.input_witnesses.contains_key("spec.md"),
+            "the deleted premise's witness is dropped, not re-stamped"
+        );
+        // An unwitnessed path returns false (nothing to accept).
+        assert!(!accept(&store, "r", "never-witnessed.md").unwrap());
+    }
+
+    #[test]
+    fn rebaseline_all_skips_unwitnessed_units_and_drops_deleted_premises() {
+        let (_d, store, root) = store();
+        std::fs::write(root.join("design.md"), b"v1").unwrap();
+        // One unit consumes design.md (witnessed); a second consumes nothing.
+        store.write_unit("r", &unit("u-build", "build", &["design.md"], &["code"])).unwrap();
+        store.write_unit("r", &unit("u-free", "frame", &[], &["frame.md"])).unwrap();
+        record_station_witnesses(&store, "r", "build").unwrap();
+        // Delete the premise so rebaseline drops (rather than re-stamps) its witness.
+        std::fs::remove_file(root.join("design.md")).unwrap();
+        let n = rebaseline_all(&store, "r").unwrap();
+        assert_eq!(n, 1, "only the one witnessed premise is rebaselined");
+        let units = store.read_units("r").unwrap();
+        for u in units {
+            assert!(
+                u.frontmatter.input_witnesses.is_empty(),
+                "the deleted witness is dropped; the unwitnessed unit is untouched"
+            );
+        }
+    }
 }
