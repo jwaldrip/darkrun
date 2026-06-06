@@ -1507,4 +1507,61 @@ mod tests {
         assert_eq!(body, "# Request changes — build\n\n");
         assert!(station_rework_bundle(&[]).is_empty());
     }
+
+    #[test]
+    fn submit_rejects_a_per_artifact_annotation_missing_its_artifact_or_anchor() {
+        let (_d, store, root) = store();
+        // A non-station work item with no artifact.
+        let mut no_artifact = text_args(AskSeverity::Should);
+        no_artifact.artifact = None;
+        assert!(matches!(
+            submit(&store, &root, "run", no_artifact).unwrap_err(),
+            McpError::InvalidInput(_)
+        ));
+        // An artifact present but no anchor.
+        let mut no_anchor = text_args(AskSeverity::Should);
+        no_anchor.anchor = None;
+        assert!(matches!(
+            submit(&store, &root, "run", no_anchor).unwrap_err(),
+            McpError::InvalidInput(_)
+        ));
+        // A station note carrying a stray anchor is rejected too.
+        let mut noted = station_note_args();
+        noted.anchor = Some(Anchor::Text {
+            range: TextRange { start_line: 1, start_col: 0, end_line: 1, end_col: 1 },
+            quote: "x".into(), prefix: String::new(), suffix: String::new(),
+        });
+        assert!(matches!(
+            submit(&store, &root, "run", noted).unwrap_err(),
+            McpError::InvalidInput(_)
+        ));
+    }
+
+    #[test]
+    fn rework_render_and_station_re_reference_cover_every_severity_and_the_note() {
+        let (_d, store, root) = store();
+        // A station note + per-artifact asks at each severity, all on "build".
+        submit(&store, &root, "run", station_note_args()).unwrap();
+        for sev in [AskSeverity::Must, AskSeverity::Should, AskSeverity::Nit] {
+            let mut a = text_args(sev);
+            // Distinct artifact ids so they don't dedup onto one record.
+            a.artifact.as_mut().unwrap().id = format!("payment-{sev:?}");
+            a.work_item.id = format!("payment-{sev:?}");
+            submit(&store, &root, "run", a).unwrap();
+        }
+        let anns = store.list_annotations("run").unwrap();
+        let body = render_rework_feedback("build", &anns);
+        // The header + the station note + each severity label render.
+        assert!(body.contains("# Request changes — build"));
+        assert!(body.contains("**station note**"));
+        assert!(body.contains("**blocker**") && body.contains("**high**") && body.contains("**nit**"));
+
+        // station_re_reference resolves + severity-sorts the open asks.
+        let payload = station_re_reference(&store, &root, "run", "build", 10).unwrap();
+        assert!(payload.must >= 1 && payload.should >= 1 && payload.nit >= 1);
+        assert!(!payload.items.is_empty());
+        // The cap bounds the resolved item count.
+        let capped = station_re_reference(&store, &root, "run", "build", 1).unwrap();
+        assert_eq!(capped.items.len(), 1, "the cap bounds resolved items");
+    }
 }
