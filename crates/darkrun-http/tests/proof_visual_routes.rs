@@ -214,6 +214,42 @@ async fn visual_review_annotate_produces_feedback() {
 }
 
 #[tokio::test]
+async fn request_unit_reset_surfaces_a_persistence_fault() {
+    use std::os::unix::fs::PermissionsExt;
+    let state = test_state();
+    // Seed a unit, then make its doc file read-only so the read succeeds but the
+    // reset-flag write fails → 500.
+    let unit = darkrun_core::domain::Unit {
+        slug: "u".into(),
+        frontmatter: darkrun_core::domain::UnitFrontmatter { station: Some("build".into()), ..Default::default() },
+        title: "u".into(),
+        body: String::new(),
+    };
+    state.store.write_unit("run", &unit).unwrap();
+    let path = state.store.units_dir("run").join("u.md");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let resp = send(build_router(state), post_json("/api/unit/run/u/reset", &json!({}))).await;
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[tokio::test]
+async fn visual_review_annotate_surfaces_a_persistence_fault() {
+    let state = test_state();
+    state.sessions.upsert(visual_review("vr"));
+    // Plant a FILE where the run's feedback dir belongs → persisting the
+    // visual-review feedback fails, surfacing a 500 rather than a panic.
+    std::fs::create_dir_all(state.store.run_dir("run")).unwrap();
+    std::fs::write(state.store.feedback_dir("run"), b"x").unwrap();
+    let body = json!({
+        "annotations": { "pins": [{ "x": 0.5, "y": 0.25, "note": "n" }], "comments": ["c"] },
+        "title": "review"
+    });
+    let resp = send(build_router(state), post_json("/visual-review/vr/annotate", &body)).await;
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
 async fn visual_review_empty_annotation_is_422() {
     let state = test_state();
     state.sessions.upsert(visual_review("vr"));
