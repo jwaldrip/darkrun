@@ -412,3 +412,42 @@ async fn ws_pushes_visual_review_annotation_update() {
     socket.send(WsMessage::Close(None)).await.ok();
     handle.abort();
 }
+
+#[tokio::test]
+async fn visual_review_without_run_slug_is_unprocessable() {
+    // A visual-review session that names no run can't be routed to a feedback file.
+    let state = test_state();
+    let SessionPayload::VisualReview(mut vr) = visual_review("vr") else { unreachable!() };
+    vr.run_slug = None;
+    state.sessions.upsert(SessionPayload::VisualReview(vr));
+    let body = json!({ "annotations": { "pins": [], "comments": ["x"] } });
+    let resp = send(build_router(state), post_json("/visual-review/vr/annotate", &body)).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn visual_review_title_defaults_from_artifact_path_or_a_generic_label() {
+    // No explicit title + an artifact_path → "Visual review: <path>".
+    let state = test_state();
+    state.sessions.upsert(visual_review("vr"));
+    let resp = send(
+        build_router(state.clone()),
+        post_json("/visual-review/vr/annotate", &json!({ "annotations": { "comments": ["fix"] } })),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let list = body_json(send(build_router(state), get("/api/feedback/run/build")).await).await;
+    assert!(list["items"][0]["title"].as_str().unwrap().contains("build/home.png"));
+
+    // No artifact_path → the generic "Visual review of output" label.
+    let state2 = test_state();
+    let SessionPayload::VisualReview(mut vr) = visual_review("vr2") else { unreachable!() };
+    vr.artifact_path = None;
+    state2.sessions.upsert(SessionPayload::VisualReview(vr));
+    let resp2 = send(
+        build_router(state2.clone()),
+        post_json("/visual-review/vr2/annotate", &json!({ "annotations": { "comments": ["fix"] } })),
+    ).await;
+    assert_eq!(resp2.status(), StatusCode::CREATED);
+    let list2 = body_json(send(build_router(state2), get("/api/feedback/run/build")).await).await;
+    assert!(list2["items"][0]["title"].as_str().unwrap().contains("Visual review of output"));
+}
