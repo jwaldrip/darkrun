@@ -3052,6 +3052,45 @@ mod tests {
     }
 
     #[test]
+    fn choose_checkpoint_rejects_a_station_not_yet_active() {
+        use darkrun_core::domain::CheckpointKind;
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        // `shape` offers the `external` gate path, but a fresh run has only
+        // entered `frame` — `shape` has no recorded state entry yet, so choosing
+        // its gate is rejected as not-active (not an unknown-gate error).
+        let err = choose_checkpoint(&store, "r", "shape", CheckpointKind::External)
+            .expect_err("shape is not active");
+        assert!(
+            format!("{err}").contains("not active"),
+            "expected a not-active rejection, got {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_template_falls_back_when_a_right_sized_plan_keeps_no_real_stations() {
+        use crate::factory::{FactoryDef, StationDef};
+        use darkrun_core::domain::CheckpointKind;
+        // A factory that defines neither `build` nor `prove`: the `quick` template
+        // keeps [build, prove], which filters to nothing, so right-sizing degrades
+        // to the full plan rather than stranding the run with zero stations.
+        let only = StationDef {
+            name: "frame".into(), label: None, kills: "wrong-thing".into(), artifact: "o.md".into(),
+            checkpoint: CheckpointKind::Auto, checkpoint_options: vec![], explorers: vec![],
+            workers: vec![], reviewers: vec![], role_models: Default::default(),
+            role_interpretations: Default::default(), worker_roles: Default::default(),
+            inputs: vec![], role_applies_to: Default::default(),
+        };
+        let factory = FactoryDef {
+            name: "frame-only".into(), stations: vec![only], surfaces: vec![],
+            default_model: "sonnet".into(), run_reviewers: vec![], run_reviewer_applies_to: Default::default(),
+        };
+        let (plan, auto) = resolve_template("quick", &factory);
+        assert!(plan.is_empty(), "an empty kept-set falls back to the full plan");
+        assert!(!auto, "the fallback keeps the factory's own gates");
+    }
+
+    #[test]
     fn a_unit_past_its_pass_budget_escalates() {
         use darkrun_core::domain::{IterationResult, Unit, UnitIteration, UnitFrontmatter};
         let (_d, store) = store();
