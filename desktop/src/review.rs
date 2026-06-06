@@ -2699,6 +2699,70 @@ mod panel_render_tests {
     }
 
     #[test]
+    fn overview_and_feedback_tabs_render_populated() {
+        fn Overview() -> Element {
+            let at = use_signal(|| None::<AnnotateTarget>);
+            let io = use_signal(|| false);
+            let mut review = ReviewSessionPayload::default();
+            review.reflection = Some("Shipped the limiter; revisit the retry budget.".into());
+            let st = |station: &str, phase: Option<&str>, merged: bool| {
+                darkrun_api::session::StationStateInfo {
+                    station: station.into(),
+                    merged_into_main: merged,
+                    status: None,
+                    phase: phase.map(Into::into),
+                    started_at: None,
+                    completed_at: None,
+                    gate_entered_at: None,
+                    gate_outcome: None,
+                }
+            };
+            review.station_states = vec![
+                st("build", Some("manufacture"), true),
+                st("prove", None, false),
+            ];
+            tab_body("overview", &[], &[], &[], &Default::default(), &[], &review, at, io)
+        }
+        fn Feedback() -> Element {
+            let at = use_signal(|| None::<AnnotateTarget>);
+            let io = use_signal(|| false);
+            let review = ReviewSessionPayload::default();
+            let entries = map::feedback_entries(&[fb_item("FB-1", Some("home.png"), "review: home")]);
+            tab_body("feedback", &[], &[], &[], &Default::default(), &entries, &review, at, io)
+        }
+        assert!(render(Overview).contains("Reflection"));
+        assert!(render(Feedback).contains("open inbox panel"));
+    }
+
+    #[test]
+    fn unit_and_output_tabs_render_rows_with_actions() {
+        fn Units() -> Element {
+            let at = use_signal(|| None::<AnnotateTarget>);
+            let units = vec![
+                map::unit_view(&serde_json::json!({
+                    "slug": "u1", "title": "Burst limiter", "status": "completed",
+                    "criteria": ["rejects over budget", "emits a 429"]
+                })),
+            ];
+            let entries = map::feedback_entries(&[fb_item("FB-1", Some("Burst limiter"), "x")]);
+            unit_tab(&units, &Default::default(), &entries, at)
+        }
+        fn Outputs() -> Element {
+            let at = use_signal(|| None::<AnnotateTarget>);
+            let outputs = vec![
+                out("page.html", OutputArtifactType::Html),
+                out("notes.md", OutputArtifactType::Markdown),
+            ];
+            let entries = map::feedback_entries(&[fb_item("FB-1", Some("page.html"), "x")]);
+            output_tab(&outputs, &entries, at)
+        }
+        let u = render(Units);
+        assert!(u.contains("review"), "the row review action renders");
+        let o = render(Outputs);
+        assert!(o.contains("review"));
+    }
+
+    #[test]
     fn question_session_open_state_renders() {
         // The not-yet-answered branch (answered=false) of the wrapper extractor.
         fn App() -> Element {
