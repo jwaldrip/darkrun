@@ -107,6 +107,8 @@ pub fn state_from_env() -> std::io::Result<WebState> {
 ///
 /// Resolves config, transport, and the site directory from the environment,
 /// then serves OAuth + the static site until the process stops.
+#[cfg(not(tarpaulin_include))] // socket bind + serve loop
+
 pub async fn serve(addr: SocketAddr) -> std::io::Result<()> {
     let state = state_from_env()?;
     let site_dir = site_dir_from_env();

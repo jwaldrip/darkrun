@@ -36,6 +36,8 @@ fn resolve_surface(raw: Option<&str>, default: Surface) -> Result<Surface, Box<d
 /// JSON to disk. The screenshot is saved alongside (defaults to `<out>.png`, or
 /// `proof.png` in the cwd).
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(tarpaulin_include))] // drives a real headless browser
+
 pub fn verify_web_command(
     url: String,
     out: Option<PathBuf>,
@@ -81,6 +83,8 @@ pub fn verify_web_command(
 /// `darkrun bench <target>` — run the HTTP load harness and print a
 /// [`BenchProof`].
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(tarpaulin_include))] // runs a live HTTP load harness
+
 pub fn bench_command(
     target: String,
     out: Option<PathBuf>,
