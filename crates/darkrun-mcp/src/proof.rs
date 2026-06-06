@@ -148,14 +148,7 @@ pub fn set_surface(store: &StateStore, slug: &str, raw_surface: &str) -> Result<
     // best-effort: a factory that declares no surfaces — or won't resolve — does
     // not constrain the classification, preserving the prior open behavior.)
     if let Some(def) = crate::position::resolve_factory_for(store, &run.frontmatter.factory) {
-        if !def.surfaces.is_empty() && !def.offers_surface(raw_surface) {
-            return Err(McpError::InvalidInput(format!(
-                "the {} factory does not offer the `{}` surface (offers: {})",
-                def.name,
-                surface.as_str(),
-                def.surfaces.join(", ")
-            )));
-        }
+        enforce_offered_surface(&def, raw_surface, surface)?;
     }
 
     run.set_surface(surface);
@@ -169,6 +162,26 @@ pub fn get_surface(store: &StateStore, slug: &str) -> Result<SurfaceResult> {
         .read_run(slug)
         .map_err(|_| McpError::Core(darkrun_core::CoreError::RunNotFound(slug.to_string())))?;
     Ok(SurfaceResult::from_surface(slug, run.surface()))
+}
+
+/// Enforce that a classification is a surface the factory actually offers. A
+/// factory that declares no surfaces imposes no constraint (the prior open
+/// behavior); one that declares some rejects any other (a library factory can't
+/// classify a run as `web_ui`). Forward-compat for surface-scoped factories.
+fn enforce_offered_surface(
+    def: &crate::factory::FactoryDef,
+    raw_surface: &str,
+    surface: CoreSurface,
+) -> Result<()> {
+    if !def.surfaces.is_empty() && !def.offers_surface(raw_surface) {
+        return Err(McpError::InvalidInput(format!(
+            "the {} factory does not offer the `{}` surface (offers: {})",
+            def.name,
+            surface.as_str(),
+            def.surfaces.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Attach an objective [`Proof`] to a run, optionally scoped to a station.
@@ -522,5 +535,28 @@ mod tests {
         // No proof attached → both the station-scoped and run-level reads error.
         assert!(get_proof(&store, "r", Some("prove".into())).is_err());
         assert!(get_proof(&store, "r", None).is_err());
+    }
+
+    #[test]
+    fn enforce_offered_surface_gates_on_declared_surfaces() {
+        use crate::factory::FactoryDef;
+        let with_surfaces = FactoryDef {
+            name: "web".into(), stations: vec![], surfaces: vec!["web_ui".into()],
+            default_model: String::new(), run_reviewers: vec![],
+            run_reviewer_applies_to: Default::default(),
+        };
+        // An offered surface passes; a non-offered one is rejected.
+        assert!(enforce_offered_surface(&with_surfaces, "web_ui", CoreSurface::WebUi).is_ok());
+        assert!(matches!(
+            enforce_offered_surface(&with_surfaces, "library", CoreSurface::Library),
+            Err(McpError::InvalidInput(_))
+        ));
+        // A factory that declares no surfaces imposes no constraint.
+        let open = FactoryDef {
+            name: "any".into(), stations: vec![], surfaces: vec![],
+            default_model: String::new(), run_reviewers: vec![],
+            run_reviewer_applies_to: Default::default(),
+        };
+        assert!(enforce_offered_surface(&open, "library", CoreSurface::Library).is_ok());
     }
 }
