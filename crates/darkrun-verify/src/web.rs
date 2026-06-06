@@ -321,4 +321,13 @@ mod tests {
         assert_eq!(proof.screenshot_url.as_deref(), Some("/shot.png"));
         let _ = web_proof_into(proof, darkrun_api::proof::Surface::WebUi);
     }
+
+    #[test]
+    fn chrome_path_honors_env_overrides() {
+        std::env::set_var("DARKRUN_CHROME", "/opt/chrome");
+        assert_eq!(chrome_path(), Some(std::path::PathBuf::from("/opt/chrome")));
+        std::env::remove_var("DARKRUN_CHROME");
+        std::env::remove_var("CHROME");
+        let _ = chrome_path();
+    }
 }
