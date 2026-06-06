@@ -592,4 +592,15 @@ mod tests {
             "logged-in"
         );
     }
+
+    #[test]
+    fn real_sleeper_and_reqwest_transport_smoke() {
+        use std::time::Duration;
+        let s = RealSleeper::new();
+        s.sleep(Duration::from_millis(0));
+        let _ = s.elapsed();
+        // A real transport builds; a request to a dead port fails fast.
+        let t = ReqwestTransport::new().expect("client builds");
+        assert!(t.execute(HttpRequest::get("http://127.0.0.1:1/x")).is_err());
+    }
 }
