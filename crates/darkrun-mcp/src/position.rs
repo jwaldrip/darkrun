@@ -4563,4 +4563,25 @@ mod tests {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
+
+    #[test]
+    fn derive_emits_revise_for_a_flagged_unit() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").unwrap();
+        let mut u = crate::units::create(&store, "r", "u1", "frame", None, vec![]).unwrap();
+        u.frontmatter.revise = true;
+        store.write_unit("r", &u).unwrap();
+        let pos = derive_position(&store, "r").unwrap();
+        assert!(matches!(pos.action, Some(RunAction::ReviseUnitSpecs { .. })), "revise: {:?}", pos.action);
+    }
+
+    #[test]
+    fn derive_emits_safe_repair_for_an_undefined_station_unit() {
+        let (_d, store) = store();
+        run_start(&store, "r2", "software", None, "continuous").unwrap();
+        let bad = crate::units::create(&store, "r2", "ub", "ghost-station", None, vec![]).unwrap();
+        store.write_unit("r2", &bad).unwrap();
+        let pos = derive_position(&store, "r2").unwrap();
+        assert!(matches!(pos.action, Some(RunAction::SafeRepair { .. })), "safe_repair: {:?}", pos.action);
+    }
 }
