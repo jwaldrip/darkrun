@@ -4633,6 +4633,33 @@ mod tests {
     }
 
     #[test]
+    fn build_prompt_context_threads_action_specifics() {
+        use darkrun_core::domain::SealKind;
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").unwrap();
+
+        let fq = RunAction::FeedbackQuestion { run: "r".into(), station: "build".into(), feedback_id: "fb-1".into() };
+        let rv = RunAction::ReviseUnitSpecs { run: "r".into(), station: "build".into(), units: vec!["u1".into()] };
+        let mc = RunAction::MergeConflict { run: "r".into(), station: "build".into(), branch: "b".into(), conflict_paths: vec!["x.rs".into()] };
+        let ps = RunAction::PendingSeal { run: "r".into(), kind: SealKind::External };
+
+        // The FeedbackQuestion id threads into the prompt context.
+        let cfq = build_prompt_context(&store, "r", &fq).unwrap();
+        assert_eq!(cfq.feedback_id.as_deref(), Some("fb-1"));
+        // ReviseUnitSpecs carries its unit list.
+        let crv = build_prompt_context(&store, "r", &rv).unwrap();
+        assert_eq!(crv.units, vec!["u1".to_string()]);
+        // MergeConflict carries the branch + conflict paths.
+        let cmc = build_prompt_context(&store, "r", &mc).unwrap();
+        assert_eq!(cmc.branch.as_deref(), Some("b"));
+        assert_eq!(cmc.conflict_paths, vec!["x.rs".to_string()]);
+        // PendingSeal records the seal kind (a run-level action — no station).
+        let cps = build_prompt_context(&store, "r", &ps).unwrap();
+        assert!(cps.seal.is_some());
+        assert!(cps.station.is_none());
+    }
+
+    #[test]
     fn action_tag_and_station_of_cover_the_remaining_variants() {
         use darkrun_core::domain::SealKind;
         let with_station = [
