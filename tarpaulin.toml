@@ -1,34 +1,32 @@
-# darkrun engine line-coverage config (cargo-tarpaulin).
+# darkrun WORKSPACE line-coverage config (cargo-tarpaulin).
 #
-# Run:  cargo tarpaulin --config engine
+# Run:  cargo tarpaulin --config workspace
 #
-# Scope: the engine crates (core + mcp + git), driven by their own unit/
-# integration tests PLUS the cross-crate `darkrun-e2e` suite (so the full-run
-# lifecycle, restart-recovery, VCS-checkpoint, and HTTP-session e2e flows count
-# toward coverage of the engine source they exercise).
+# Scope: the ENTIRE workspace — engine, CLI, contract, content, HTTP, the shared
+# UI component crate, the desktop app, and the website (web/site + web/server).
+# The /goal target is 100% across all of it.
 #
-# Excluded files are EXERCISED ONLY BY RUNNING THE BINARY, not by unit tests —
-# they perform irreducible runtime I/O that can't run in a test process:
-#   - server.rs   : the blocking MCP stdio host + the axum socket bind/serve loop
-#   - desktop.rs  : spawns the external desktop GUI app (LaunchServices `open`,
-#                   on-demand cargo build of the desktop binary)
-# Both are composition/launch glue, conventionally outside a unit-coverage target
-# (like a `main.rs`). Everything else is held to the coverage bar.
+# Excluded files are EXERCISED ONLY BY RUNNING A BINARY or perform irreducible
+# runtime I/O that cannot run in a unit-test process — composition/launch glue,
+# like a conventional `main.rs`:
+#   - **/src/main.rs and **/bin/*.rs : binary entry points
+#   - mcp/server.rs   : the blocking MCP stdio host + axum socket bind/serve loop
+#   - mcp/desktop.rs  : spawns the external desktop GUI app (LaunchServices `open`)
+#   - desktop/src/main.rs : the Dioxus/Wry webview launch (needs a windowing system)
+# Dioxus `rsx!` components ARE covered — via dioxus_ssr render tests that execute
+# the component function — not excluded.
 
-[engine]
-packages = [
-    "darkrun-core",
-    "darkrun-mcp",
-    "darkrun-git",
-    "darkrun-e2e",
-]
+[workspace]
+workspace = true
 engine = "llvm"
-timeout = "900s"
+timeout = "1200s"
 exclude-files = [
     "target/*",
     "crates/darkrun-mcp/src/server.rs",
     "crates/darkrun-mcp/src/desktop.rs",
+    "**/src/main.rs",
+    "**/src/bin/*.rs",
+    "desktop/src/main.rs",
 ]
-# fail-under is enabled once the in-scope surface reaches 100% (the /goal target),
-# so coverage can't regress below the achieved bar.
+# fail-under is enabled once the workspace reaches 100% (the /goal target).
 # fail-under = 100
