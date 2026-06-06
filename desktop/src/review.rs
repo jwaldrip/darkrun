@@ -2434,4 +2434,25 @@ mod tab_render_tests {
         }
         let mut dom2 = VirtualDom::new(KnowPop); dom2.rebuild_in_place(); let _ = dioxus_ssr::render(&dom2);
     }
+
+    #[test]
+    fn tab_body_renders_populated_outputs() {
+        use darkrun_api::session::{OutputArtifact, OutputArtifactType, UnitOutputPreview, UnitOutputType};
+        fn OutPop() -> Element {
+            let at = use_signal(|| None::<AnnotateTarget>);
+            let io = use_signal(|| false);
+            let review = ReviewSessionPayload::default();
+            let mut uo: BTreeMap<String, Vec<UnitOutputPreview>> = BTreeMap::new();
+            uo.insert("u1".into(), vec![UnitOutputPreview {
+                path: "src/x.rs".into(), name: "x.rs".into(), output_type: UnitOutputType::File,
+                url: "/o/x".into(), preview_body: Some("fn x() {}".into()), size_bytes: Some(42), exists: true,
+            }]);
+            let outputs = vec![
+                OutputArtifact { station: "build".into(), name: "page.html".into(), artifact_type: OutputArtifactType::Html, language: None, directory: None, content: Some("<h1>hi</h1>".into()), relative_path: Some("build/page.html".into()), run_relative_path: None },
+                OutputArtifact { station: "build".into(), name: "shot.png".into(), artifact_type: OutputArtifactType::Image, language: None, directory: None, content: None, relative_path: None, run_relative_path: Some("build/shot.png".into()) },
+            ];
+            tab_body("outputs", &[], &outputs, &[], &uo, &[], &review, at, io)
+        }
+        let mut dom = VirtualDom::new(OutPop); dom.rebuild_in_place(); let _ = dioxus_ssr::render(&dom);
+    }
 }
