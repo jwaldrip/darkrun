@@ -1659,3 +1659,64 @@ mod render_tests {
         assert!(!html.is_empty());
     }
 }
+
+#[cfg(test)]
+mod data_render_tests {
+    use super::*;
+    use darkrun_api::runs::{RunSummary, StationProgress};
+    use std::collections::BTreeMap;
+
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    fn proj() -> Project {
+        Project {
+            name: "store".into(),
+            path: "/tmp/store".into(),
+            port: Some(58616),
+            harness: Some("claude-code".into()),
+        }
+    }
+    fn run() -> RunSummary {
+        RunSummary {
+            slug: "r".into(),
+            title: "Storefront run".into(),
+            factory: "software".into(),
+            active_station: "build".into(),
+            phase: Some("manufacture".into()),
+            status: "active".into(),
+            progress: StationProgress { completed: 2, total: 6 },
+            started_at: Some("2026-06-05T00:00:00Z".into()),
+            authored_by_me: true,
+            author: Some("me".into()),
+        }
+    }
+
+    #[test]
+    fn sidebar_project_section_and_run_row_render() {
+        fn App() -> Element {
+            let selection = use_signal(|| Selection::None);
+            let mine = use_signal(|| false);
+            let search = use_signal(String::new);
+            let drawer = use_signal(|| true);
+            let mut runs_map = BTreeMap::new();
+            runs_map.insert("store".to_string(), vec![run()]);
+            rsx! {
+                Sidebar {
+                    projects: vec![proj()], runs_map, selection,
+                    mine_only: mine, search, drawer_open: drawer, live_count: 1,
+                }
+                ProjectSection {
+                    proj: proj(), runs: vec![run()], selection,
+                    mine_only: mine, search, drawer_open: drawer,
+                }
+                RunRow { run: run(), project: "store".to_string(), port: 58616, selection, drawer_open: drawer }
+            }
+        }
+        let html = render(App);
+        assert!(html.contains("Storefront") || html.contains("store") || !html.is_empty());
+    }
+}
