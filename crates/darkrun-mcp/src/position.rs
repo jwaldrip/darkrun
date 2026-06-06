@@ -4584,4 +4584,51 @@ mod tests {
         let pos = derive_position(&store, "r2").unwrap();
         assert!(matches!(pos.action, Some(RunAction::SafeRepair { .. })), "safe_repair: {:?}", pos.action);
     }
+
+    #[test]
+    fn feedback_severity_rank_maps_each_token_and_unknown() {
+        assert_eq!(feedback_severity_rank("severity: blocker\n"), 0);
+        assert_eq!(feedback_severity_rank("severity: high"), 1);
+        assert_eq!(feedback_severity_rank("severity: \"medium\""), 2);
+        assert_eq!(feedback_severity_rank("severity: low"), 3);
+        assert_eq!(feedback_severity_rank("severity: spicy"), 4); // unknown token
+        assert_eq!(feedback_severity_rank("no severity line here"), 4); // absent
+    }
+
+    #[test]
+    fn checkpoint_kind_str_covers_every_kind() {
+        assert_eq!(checkpoint_kind_str(CheckpointKind::Auto), "auto");
+        assert_eq!(checkpoint_kind_str(CheckpointKind::Ask), "ask");
+        assert_eq!(checkpoint_kind_str(CheckpointKind::External), "external");
+        assert_eq!(checkpoint_kind_str(CheckpointKind::Await), "await");
+    }
+
+    #[test]
+    fn artifact_basename_takes_the_last_segment() {
+        assert_eq!(artifact_basename("specify/spec.md"), "spec.md");
+        assert_eq!(artifact_basename("  bare.md  "), "bare.md");
+    }
+
+    #[test]
+    fn run_review_stamp_rejects_an_empty_role() {
+        let (_d, store) = store();
+        assert!(matches!(
+            run_review_stamp(&store, "r", "   "),
+            Err(McpError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn required_station_inputs_empty_for_unknown_or_unplanned_station() {
+        let factory = crate::factory::resolve_factory("software").expect("software factory");
+        // A station the factory doesn't define → no required inputs.
+        assert!(required_station_inputs(&factory, &[], "no-such-station").is_empty());
+        // A real station that isn't in the (non-empty) plan → none required here.
+        let names = factory.station_names();
+        let plan = vec![names[0].clone()];
+        let absent = names.last().cloned().unwrap();
+        if absent != names[0] {
+            assert!(required_station_inputs(&factory, &plan, &absent).is_empty());
+        }
+    }
 }
