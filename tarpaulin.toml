@@ -13,8 +13,15 @@
 #   - mcp/server.rs   : the blocking MCP stdio host + axum socket bind/serve loop
 #   - mcp/desktop.rs  : spawns the external desktop GUI app (LaunchServices `open`)
 #   - desktop/src/main.rs : the Dioxus/Wry webview launch (needs a windowing system)
+#   - http/listen.rs : the CappedListener socket accept loop + AsyncRead/Write glue
 # Dioxus `rsx!` components ARE covered — via dioxus_ssr render tests that execute
 # the component function — not excluded.
+#
+# Individual irreducible-I/O FUNCTIONS inside otherwise-testable files carry a
+# `#[cfg(not(tarpaulin_include))]` annotation with a one-line reason (they compile
+# normally; tarpaulin just skips their lines). Current set: verify browser-capture
+# (verify_web/capture/capture_on_browser), web-server `serve`, cli `login` /
+# `verify_web_command` / `bench_command` / pr `create_for_run`.
 
 [workspace]
 workspace = true
@@ -24,6 +31,7 @@ exclude-files = [
     "target/*",
     "crates/darkrun-mcp/src/server.rs",
     "crates/darkrun-mcp/src/desktop.rs",
+    "crates/darkrun-http/src/listen.rs",
     "**/src/main.rs",
     "**/src/bin/*.rs",
     "desktop/src/main.rs",
