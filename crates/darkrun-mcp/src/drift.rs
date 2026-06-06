@@ -430,6 +430,26 @@ mod tests {
     }
 
     #[test]
+    fn two_units_on_the_same_premise_file_one_deduped_drift() {
+        let (_d, store, root) = store();
+        // Two build units BOTH consume design.md as a premise.
+        std::fs::write(root.join("design.md"), b"v1").unwrap();
+        store.write_unit("r", &unit("u-a", "build", &["design.md"], &["a"])).unwrap();
+        store.write_unit("r", &unit("u-b", "build", &["design.md"], &["b"])).unwrap();
+        record_station_witnesses(&store, "r", "build").unwrap();
+
+        // One hand edit to the shared premise → both units detect drift, but they
+        // share a marker so only ONE feedback is filed (the second dedups).
+        std::fs::write(root.join("design.md"), b"v2-changed").unwrap();
+        sweep(&store, "r").unwrap();
+        assert_eq!(
+            open_drift_bodies(&store, "r").len(),
+            1,
+            "a shared premise files exactly one drift, not one per consumer"
+        );
+    }
+
+    #[test]
     fn in_place_edit_is_baton_exempt_and_never_self_drifts() {
         let (_d, store, root) = store();
         // A unit that BOTH consumes and produces the same file (in-place refactor).
