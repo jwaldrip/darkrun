@@ -120,4 +120,13 @@ mod tests {
         assert_eq!(list(root).unwrap().len(), 1);
         assert!(promote(root, "item-01").unwrap().is_none());
     }
+
+    #[test]
+    fn parse_handles_a_body_only_backlog_doc() {
+        let item = parse("bk-9".into(), "just an idea, no frontmatter
+");
+        assert_eq!(item.id, "bk-9");
+        assert!(item.created_at.is_empty());
+        assert!(item.description.contains("just an idea"));
+    }
 }

@@ -740,4 +740,14 @@ mod tests {
         assert_eq!(fb.status, FeedbackStatus::Pending);
         assert!(fb.body.contains("just a body"));
     }
+
+    #[test]
+    fn set_severity_updates_and_rejects_settled() {
+        let (_d, store) = store();
+        let fb = create(&store, "r", "frame", "finding", None).unwrap();
+        let up = set_severity(&store, "r", &fb.id, FeedbackSeverity::Blocker).unwrap();
+        assert_eq!(up.severity, Some(FeedbackSeverity::Blocker));
+        reject(&store, "r", &fb.id, "stale").unwrap();
+        assert!(set_severity(&store, "r", &fb.id, FeedbackSeverity::Low).is_err());
+    }
 }
