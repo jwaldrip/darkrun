@@ -3052,6 +3052,60 @@ mod tests {
     }
 
     #[test]
+    fn engine_guards_degrade_cleanly_on_a_ghost_factory_or_corrupt_run() {
+        let (_d, store) = store();
+        run_start(&store, "g", "software", None, "continuous").unwrap();
+        // Point the run at a factory that doesn't exist.
+        let mut run = store.read_run("g").unwrap();
+        run.frontmatter.factory = "ghost-factory".into();
+        store.write_run(&run).unwrap();
+
+        // sync_downstream_before_land no-ops when the factory can't resolve.
+        sync_downstream_before_land(&store, "g"); // must not panic
+        // resolve_discrete_gate also bails cleanly on an unresolvable factory.
+        resolve_discrete_gate(&store, "g", &MockHosting::unavailable()).unwrap();
+
+        // A corrupt run.md makes the pre-land sync read no-op rather than panic.
+        std::fs::write(store.run_dir("g").join("run.md"), "---\nfactory: \"oops\n---\n").unwrap();
+        sync_downstream_before_land(&store, "g"); // read_run err → clean return
+    }
+
+    #[test]
+    fn discrete_gate_skips_a_station_whose_effective_kind_is_not_external() {
+        use darkrun_core::domain::{Checkpoint, CheckpointKind, Station, Status};
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "discrete-hybrid").unwrap();
+        // Discrete-hybrid: a station whose factory checkpoint is `ask` (frame)
+        // resolves in-process, NOT via a PR — so the discrete gate is a no-op even
+        // when the station sits at its Checkpoint.
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.discrete = true;
+        state.discrete_hybrid = true;
+        state.stations.insert("frame".into(), Station {
+            station: "frame".into(), status: Status::Active, phase: StationPhase::Checkpoint,
+            elaborated: true, checkpoint: Some(Checkpoint { kind: CheckpointKind::Ask, entered_at: None, outcome: None }),
+            chosen_checkpoint: None, branch: None, pr_ref: None, pr_status: None,
+            pr_ready_at: None, pr_merged_at: None, verifier_nonce: None,
+            started_at: None, completed_at: None,
+        });
+        store.write_state("r", &state).unwrap();
+        resolve_discrete_gate(&store, "r", &MockHosting::new(MergeState::Open)).unwrap();
+        // No PR was opened — the gate didn't engage.
+        assert!(store.read_state("r").unwrap().unwrap().stations["frame"].pr_ref.is_none());
+    }
+
+    #[test]
+    fn apply_requested_unit_resets_tolerates_unreadable_units() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").unwrap();
+        // A corrupt unit doc makes read_units error; the reset pass must no-op.
+        let units = store.units_dir("r");
+        std::fs::create_dir_all(&units).unwrap();
+        std::fs::write(units.join("broken.md"), "---\nstatus: \"x\n---\n").unwrap();
+        apply_requested_unit_resets(&store, "r"); // must not panic
+    }
+
+    #[test]
     fn blocking_a_pre_execution_user_gate_files_spec_feedback_and_holds() {
         let (_d, store) = store();
         run_start(&store, "r", "software", None, "continuous").expect("start");
