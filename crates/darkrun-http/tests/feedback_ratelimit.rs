@@ -2047,3 +2047,57 @@ async fn raw_send(authority: &str, request: &str) -> String {
     stream.read_to_end(&mut buf).await.unwrap();
     String::from_utf8_lossy(&buf).to_string()
 }
+
+// ── Persistence-fault arms (write/remove failures) ───────────────────────────
+
+/// The feedback handlers surface a filesystem write/remove failure as a 500
+/// rather than a panic. Create fails when the collection path is unwritable;
+/// update/reply/delete fail when the (readable) collection dir is read-only so
+/// the read succeeds but the mutation cannot persist.
+#[tokio::test]
+async fn feedback_writes_surface_persistence_faults() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // create: a feedback dir that is a FILE makes the persisting write fail.
+    let (state, _dir) = test_state_with_dir();
+    std::fs::create_dir_all(state.store.run_dir("wfail")).unwrap();
+    std::fs::write(state.store.feedback_dir("wfail"), b"x").unwrap();
+    let resp = send(
+        state,
+        post_json("/api/feedback/wfail/frame", &json!({ "title": "T", "body": "B" })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    // update / reply: seed a settled doc and make the doc FILE read-only — the
+    // read succeeds but truncating it for the rewrite fails.
+    let (state2, _dir2) = test_state_with_dir();
+    seed_doc(&state2, "ro", "fb-1", "frame", "closed", "T");
+    let doc_path = state2.store.feedback_dir("ro").join("fb-1.md");
+    std::fs::set_permissions(&doc_path, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+    let upd = send(
+        state2.clone(),
+        put_json("/api/feedback/ro/frame/fb-1", &json!({ "status": "answered" })),
+    )
+    .await;
+    assert_eq!(upd.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let rep = send(
+        state2.clone(),
+        post_json("/api/feedback/ro/frame/fb-1/replies", &json!({ "body": "noted" })),
+    )
+    .await;
+    assert_eq!(rep.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    std::fs::set_permissions(&doc_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    // delete: a read-only collection DIR lets the read succeed but blocks the
+    // unlink (removing an entry needs write on the directory).
+    let (state3, _dir3) = test_state_with_dir();
+    seed_doc(&state3, "rod", "fb-2", "frame", "closed", "T");
+    let fbdir = state3.store.feedback_dir("rod");
+    std::fs::set_permissions(&fbdir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let del = send(state3.clone(), delete("/api/feedback/rod/frame/fb-2")).await;
+    assert_eq!(del.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    std::fs::set_permissions(&fbdir, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
