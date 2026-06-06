@@ -4649,6 +4649,14 @@ mod tests {
             station_has_merge_debt(&store, "r", "build"),
             "a station with new commits has merge debt"
         );
+
+        // A station whose branch was never created defaults to "has debt" — the
+        // land path (which guards branch existence) then no-ops cleanly, so the
+        // cursor never wedges on a false negative.
+        assert!(
+            station_has_merge_debt(&store, "r", "never-entered"),
+            "a missing station branch defaults to merge debt"
+        );
     }
 
     /// BUG-4 guard: a locally-landed run is `ahead` of the default branch (the
@@ -5003,6 +5011,13 @@ mod tests {
         let cps = build_prompt_context(&store, "r", &ps).unwrap();
         assert!(cps.seal.is_some());
         assert!(cps.station.is_none());
+
+        // SafeRepair and Escalate are station-scoped actions — their station
+        // threads into the context like the rest.
+        let sr = RunAction::SafeRepair { run: "r".into(), station: "frame".into(), reason: "bad state".into() };
+        assert_eq!(build_prompt_context(&store, "r", &sr).unwrap().station.as_deref(), Some("frame"));
+        let es = RunAction::Escalate { run: "r".into(), station: "build".into(), reason: "runaway".into() };
+        assert_eq!(build_prompt_context(&store, "r", &es).unwrap().station.as_deref(), Some("build"));
     }
 
     #[test]
