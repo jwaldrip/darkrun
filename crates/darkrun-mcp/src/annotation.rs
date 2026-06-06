@@ -1104,6 +1104,54 @@ mod tests {
     }
 
     #[test]
+    fn reanchor_skips_off_path_and_settled_marks_and_repins_a_regionless_one() {
+        let (_d, store, root) = store();
+
+        // Three image annotations on the same path + one text on a different path.
+        let oob = submit(&store, &root, "run", image_args(&root)).unwrap().annotation.id;
+        let settled = submit(&store, &root, "run", image_args(&root)).unwrap().annotation.id;
+        let pin = submit(&store, &root, "run", image_args(&root)).unwrap().annotation.id;
+        let off_path = submit(&store, &root, "run", text_args(AskSeverity::Should)).unwrap().annotation.id;
+
+        // `oob`: push its rect out of bounds → the region no longer lands.
+        let mut a = store.read_annotation("run", &oob).unwrap().unwrap();
+        if let Some(Anchor::Image { mark }) = a.anchor.as_mut() {
+            mark.rect = Some(NormRect { x: 0.9, y: 0.9, w: 0.5, h: 0.5 });
+        }
+        store.write_annotation("run", &a).unwrap();
+
+        // `settled`: mark it addressed → the pass leaves it alone.
+        let mut a = store.read_annotation("run", &settled).unwrap().unwrap();
+        a.status = AnnotationStatus::Addressed;
+        store.write_annotation("run", &a).unwrap();
+
+        // `pin`: a regionless mark (no rect, no arrow) → nothing to re-crop.
+        let mut a = store.read_annotation("run", &pin).unwrap().unwrap();
+        if let Some(Anchor::Image { mark }) = a.anchor.as_mut() {
+            mark.rect = None;
+            mark.arrow_from = None;
+            mark.arrow_to = None;
+            mark.point = None;
+        }
+        store.write_annotation("run", &a).unwrap();
+
+        // New bytes for the image path (same dims, distinct fill).
+        let path = root.join("shots/dashboard.png");
+        write_png_color(&path, 1440, 900, [1, 2, 3, 255]);
+        let new_bytes = std::fs::read(&path).unwrap();
+        let outcomes =
+            reanchor_artifact_version(&store, &root, "run", "shots/dashboard.png", &new_bytes).unwrap();
+
+        let got = |id: &str| outcomes.iter().find(|(i, _)| i == id).map(|(_, o)| o.clone());
+        // The off-path text mark and the settled mark are skipped entirely.
+        assert!(got(&off_path).is_none(), "a different-artifact mark is not touched");
+        assert!(got(&settled).is_none(), "an addressed mark is not touched");
+        // The out-of-bounds region is flagged; the regionless mark just re-pins.
+        assert_eq!(got(&oob), Some(VersionReAnchor::SceneChanged));
+        assert_eq!(got(&pin), Some(VersionReAnchor::Repinned));
+    }
+
+    #[test]
     fn reanchor_new_version_refreshes_text_in_the_same_pass() {
         let (_d, store, root) = store();
         // A text annotation pinned to src/payment.rs at line 42.
