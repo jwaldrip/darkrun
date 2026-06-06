@@ -512,4 +512,15 @@ mod tests {
         assert!(s.contains("label"));
         assert!(s.ends_with("\x1b]8;;\x1b\\"));
     }
+
+    #[test]
+    fn phase_chrome_and_parse_git_url_cover_branches() {
+        for p in [StationPhase::Spec, StationPhase::Review, StationPhase::Manufacture, StationPhase::Audit, StationPhase::Reflect, StationPhase::UserGate, StationPhase::Checkpoint] {
+            let (label, _c) = phase_chrome(p);
+            assert!(!label.is_empty());
+        }
+        assert!(parse_git_url("git@github.com:owner/repo.git").is_some());
+        assert!(parse_git_url("https://gitlab.com/owner/repo.git").is_some());
+        assert!(parse_git_url("garbage").is_none());
+    }
 }
