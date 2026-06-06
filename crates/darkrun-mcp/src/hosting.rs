@@ -145,6 +145,7 @@ impl CliHosting {
     ///
     /// `gh`/`glab` have no `-C` flag, so the working directory is set with
     /// `current_dir` rather than a CLI argument.
+    #[cfg(not(tarpaulin_include))] // spawns gh/glab — irreducible network/process I/O
     fn run(&self, bin: &str, args: &[&str]) -> Option<String> {
         use std::io::Read;
         use std::process::Stdio;
@@ -225,6 +226,7 @@ impl Hosting for CliHosting {
         }
     }
 
+    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
     fn merge_state(&self, pr_ref: &str) -> MergeState {
         match self.provider {
             Provider::GitHub => {
@@ -247,6 +249,7 @@ impl Hosting for CliHosting {
         }
     }
 
+    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
     fn is_draft(&self, pr_ref: &str) -> Option<bool> {
         match self.provider {
             Provider::GitHub => {
@@ -263,6 +266,7 @@ impl Hosting for CliHosting {
         }
     }
 
+    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
     fn comment(&self, pr_ref: &str, body: &str) -> bool {
         match self.provider {
             Provider::GitHub => self
@@ -275,6 +279,7 @@ impl Hosting for CliHosting {
         }
     }
 
+    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
     fn review_comments(&self, pr_ref: &str) -> Vec<ReviewComment> {
         match self.provider {
             Provider::GitHub => {
@@ -481,6 +486,7 @@ fn resolve_provider(repo_root: &Path) -> Provider {
 }
 
 /// Whether a binary is resolvable on `PATH` (a cheap `--version` probe).
+#[cfg(not(tarpaulin_include))] // probes PATH by spawning the CLI — irreducible process I/O
 fn binary_on_path(bin: &str) -> bool {
     Command::new(bin)
         .arg("--version")
@@ -892,5 +898,50 @@ mod tests {
         g(broken.path(), &["remote", "add", "origin", "/nope/missing.git"]);
         let bgit = Git::open(broken.path()).unwrap();
         assert!(matches!(push_head_with_nff_recovery(&bgit, broken.path(), "main"), PushOutcome::Failed { .. }));
+    }
+
+    #[test]
+    fn hosting_trait_defaults_are_conservative_no_ops() {
+        // A client that overrides only the required methods inherits the safe
+        // defaults for is_draft / comment / review_comments.
+        struct Stub;
+        impl Hosting for Stub {
+            fn available(&self) -> bool { true }
+            fn open_draft(&self, _req: &OpenRequest) -> Option<String> { None }
+            fn merge_state(&self, _pr_ref: &str) -> MergeState { MergeState::Unknown }
+        }
+        let s = Stub;
+        assert_eq!(s.is_draft("1"), None);
+        assert!(!s.comment("1", "hi"));
+        assert!(s.review_comments("1").is_empty());
+    }
+
+    #[test]
+    fn resolve_provider_handles_none_unknown_and_git_remote_fallback() {
+        use std::process::Command;
+        // `hosting: none` → the none arm; falls through, no remote → None.
+        let none_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(none_dir.path().join(".darkrun")).unwrap();
+        std::fs::write(none_dir.path().join(".darkrun/settings.yml"), "hosting: none\n").unwrap();
+        assert_eq!(resolve_provider(none_dir.path()), Provider::None);
+        // An unrecognized token → the `_` arm; same fall-through.
+        std::fs::write(none_dir.path().join(".darkrun/settings.yml"), "hosting: bitbucket\n").unwrap();
+        assert_eq!(resolve_provider(none_dir.path()), Provider::None);
+
+        // No settings → fall back to the git `origin` remote URL.
+        let mk = |url: &str| {
+            let d = tempfile::tempdir().unwrap();
+            let g = |args: &[&str]| { Command::new("git").current_dir(d.path()).args(args).output().unwrap(); };
+            g(&["init", "-q"]);
+            g(&["remote", "add", "origin", url]);
+            let p = resolve_provider(d.path());
+            (d, p)
+        };
+        let (_gh, gh) = mk("https://github.com/o/r.git");
+        assert_eq!(gh, Provider::GitHub);
+        let (_gl, gl) = mk("git@gitlab.com:o/r.git");
+        assert_eq!(gl, Provider::GitLab);
+        let (_other, other) = mk("https://example.com/o/r.git");
+        assert_eq!(other, Provider::None);
     }
 }

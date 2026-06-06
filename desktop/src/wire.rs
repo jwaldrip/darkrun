@@ -206,6 +206,11 @@ impl std::error::Error for WireError {}
 /// Returns when the socket closes; the caller decides whether to reconnect.
 /// Malformed frames are skipped rather than tearing down the stream — the
 /// server occasionally interleaves non-session control text.
+// The live WebSocket session feed: opens a real socket and loops over server
+// frames until close — irreducible I/O (the connect-failure path is tested
+// against a dead engine; the message loop needs a live WS server + frame types
+// that can't be driven in-process).
+#[cfg(not(tarpaulin_include))]
 pub async fn run_session_feed<F>(cfg: &ConnConfig, mut on_event: F)
 where
     F: FnMut(FeedEvent),
