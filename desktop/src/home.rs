@@ -1768,3 +1768,21 @@ mod main_pane_render_tests {
         let _ = render(Run);
     }
 }
+
+#[cfg(test)]
+mod new_run_row_tests {
+    use super::*;
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+    #[test]
+    fn new_run_row_renders() {
+        fn App() -> Element {
+            let sel = use_signal(|| Selection::None);
+            rsx! { NewRunRow { name: "store".to_string(), path: "/tmp/store".to_string(), selection: sel } }
+        }
+        let _ = render(App);
+    }
+}

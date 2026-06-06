@@ -2319,4 +2319,22 @@ mod subcomponent_render_tests {
         }
         let _ = render(App);
     }
+
+    #[test]
+    fn question_session_component_renders_answered_and_open() {
+        fn App() -> Element {
+            rsx! {
+                QuestionSession {
+                    cfg: ConnConfig::from_env(),
+                    prompt: "Pick one".to_string(),
+                    options: vec![OptionCard::new("a", "A"), OptionCard::new("b", "B")],
+                    multi_select: true,
+                    image_urls: vec!["http://img/1.png".to_string()],
+                    seed_selected: vec!["a".to_string()],
+                    answered: true,
+                }
+            }
+        }
+        let _ = render(App);
+    }
 }
