@@ -922,4 +922,106 @@ mod tests {
         assert!(!view.block_matches_surface);
         assert_eq!(view.kind, ProofMetricKind::Web);
     }
+
+    #[test]
+    fn phase_maps_every_run_phase() {
+        assert_eq!(phase(RunPhase::Spec), Phase::Spec);
+        assert_eq!(phase(RunPhase::Review), Phase::Review);
+        assert_eq!(phase(RunPhase::Manufacture), Phase::Manufacture);
+        assert_eq!(phase(RunPhase::Audit), Phase::Audit);
+        assert_eq!(phase(RunPhase::Reflect), Phase::Reflect);
+        assert_eq!(phase(RunPhase::Checkpoint), Phase::Checkpoint);
+    }
+
+    #[test]
+    fn status_tone_covers_decided_and_answered() {
+        assert_eq!(status_tone(SessionStatus::Decided), Tone::Info);
+        assert_eq!(status_tone(SessionStatus::Answered), Tone::Info);
+    }
+
+    #[test]
+    fn label_tone_unknown_token_is_neutral() {
+        assert_eq!(label_tone("whatever-unmapped"), Tone::Neutral);
+        assert_eq!(label_tone("done"), Tone::Ok);
+        assert_eq!(label_tone("blocked"), Tone::Danger);
+        assert_eq!(label_tone("queued"), Tone::Warn);
+    }
+
+    #[test]
+    fn station_status_derive_completed_arm_for_a_passed_station() {
+        // A not-yet-merged, no-token station BEFORE the active index resolves to
+        // Done via the shared derive (the Completed arm).
+        let info = station_info("early", false, None);
+        assert_eq!(station_status(&info, 0, Some(2)), StationStatus::Done);
+        // And the Pending arm for a station after the active index.
+        assert_eq!(station_status(&info, 3, Some(1)), StationStatus::Pending);
+    }
+
+    #[test]
+    fn feedback_entry_falls_back_to_id_and_title() {
+        let mut item = feedback_item("FB-09", None, FeedbackStatus::Pending);
+        // No source_ref and an empty title → the locator falls back to the id.
+        item.source_ref = None;
+        item.title = String::new();
+        item.body = String::new();
+        let e = feedback_entry(&item);
+        assert_eq!(e.locator, "FB-09");
+        assert_eq!(e.comment, ""); // empty body → empty title
+        // A present title (still no source_ref) becomes the locator + comment.
+        item.title = "Layout drifts".into();
+        let e2 = feedback_entry(&item);
+        assert_eq!(e2.locator, "Layout drifts");
+        assert_eq!(e2.comment, "Layout drifts");
+    }
+
+    #[test]
+    fn run_card_projects_summary_fields() {
+        let summary = darkrun_api::RunSummary {
+            slug: "checkout".into(),
+            title: "Checkout flow".into(),
+            factory: "software".into(),
+            active_station: "build".into(),
+            phase: Some("manufacture".into()),
+            status: "active".into(),
+            progress: darkrun_api::runs::StationProgress { completed: 2, total: 6 },
+            started_at: None,
+            authored_by_me: true,
+            author: None,
+        };
+        let card = run_card(&summary);
+        assert_eq!(card.slug, "checkout");
+        assert_eq!(card.title, "Checkout flow");
+        assert_eq!(card.factory, "software");
+        assert_eq!(card.active_station, "build");
+        assert_eq!(card.phase, Some(Phase::Manufacture));
+        assert_eq!(card.completed, 2);
+        assert_eq!(card.total, 6);
+    }
+
+    #[test]
+    fn extract_criteria_skips_non_string_non_object_items() {
+        // A mixed array — a number is dropped via the `_ => None` arm.
+        let unit = json!({ "criteria": [42, "keep this", { "text": "and this" }] });
+        assert_eq!(
+            extract_criteria(&unit),
+            vec!["keep this".to_string(), "and this".to_string()]
+        );
+    }
+
+    #[test]
+    fn proof_view_appends_extra_non_canonical_vitals() {
+        use darkrun_api::proof::WebProof;
+        use std::collections::BTreeMap;
+        let mut vitals = BTreeMap::new();
+        vitals.insert("lcp".to_string(), 1000.0);
+        vitals.insert("tbt".to_string(), 120.0); // not in VITAL_ORDER → extra arm
+        let proof = Proof::web(
+            Surface::WebUi,
+            WebProof { vitals, audits: vec![], screenshot_url: None },
+        );
+        let view = proof_view(&proof);
+        let keys: Vec<&str> = view.vitals.iter().map(|v| v.key.as_str()).collect();
+        // Canonical lcp first, then the extra appended after.
+        assert_eq!(keys, vec!["lcp", "tbt"]);
+    }
 }
