@@ -1000,4 +1000,31 @@ mod tests {
         assert!(direction_result(&reg, "r", "d-99").is_err());
         assert!(picker_result(&reg, "r", "pk-99").is_err());
     }
+
+    #[test]
+    fn builders_reject_empty_labels_and_ids_across_session_types() {
+        let reg = registry();
+        // Question option with an empty LABEL.
+        let q = QuestionOptionSpec { id: "a".into(), label: "  ".into(), image_url: None, description: None };
+        assert!(create_question(&reg, "r", None, "p", None, vec![q], false, vec![]).is_err());
+
+        // Direction archetype with an empty id, then an empty label.
+        let blank_id = ArchetypeSpec { id: " ".into(), label: "L".into(), image_url: "u".into(), description: "d".into() };
+        assert!(create_direction(&reg, "r", None, "p", None, vec![blank_id]).is_err());
+        let blank_label = ArchetypeSpec { id: "x".into(), label: " ".into(), image_url: "u".into(), description: "d".into() };
+        assert!(create_direction(&reg, "r", None, "p", None, vec![blank_label]).is_err());
+
+        // Picker option with an empty id, then an empty label.
+        let p_blank_id = PickerOptionSpec { id: " ".into(), label: "L".into(), description: None, secondary: None };
+        assert!(create_picker(&reg, "r", PickerKind::Mode, "t", "p", vec![p_blank_id]).is_err());
+        let p_blank_label = PickerOptionSpec { id: "x".into(), label: " ".into(), description: None, secondary: None };
+        assert!(create_picker(&reg, "r", PickerKind::Mode, "t", "p", vec![p_blank_label]).is_err());
+    }
+
+    #[test]
+    fn run_phase_maps_audit_and_reflect() {
+        assert_eq!(run_phase(StationPhase::Audit), RunPhase::Audit);
+        assert_eq!(run_phase(StationPhase::Reflect), RunPhase::Reflect);
+        assert_eq!(run_phase(StationPhase::UserGate), RunPhase::Review);
+    }
 }
