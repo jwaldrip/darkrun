@@ -712,3 +712,34 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod async_client_tests {
+    use super::*;
+
+    /// A config pointing at a port nothing listens on — every client call fails
+    /// fast, exercising the request-build + error/None paths without a server.
+    fn dead() -> ConnConfig {
+        ConnConfig { host: "127.0.0.1".into(), port: 1, session_id: "s".into() }
+    }
+
+    #[tokio::test]
+    async fn fetchers_and_feed_handle_a_dead_engine() {
+        let cfg = dead();
+        assert!(fetch_runs(&cfg).await.is_err());
+        assert!(fetch_run_detail(&cfg, "r").await.is_err());
+        assert!(fetch_current_focus(&cfg).await.is_none());
+        assert!(fetch_feedback(&cfg, "r", "frame").await.is_err());
+        assert!(submit_unit_reset(&cfg, "r", "u1").await.is_err());
+
+        // The WS feed reports a disconnect and returns (no live socket).
+        let mut saw_disconnect = false;
+        run_session_feed(&cfg, |ev| {
+            if matches!(ev, FeedEvent::Disconnected(_)) {
+                saw_disconnect = true;
+            }
+        })
+        .await;
+        assert!(saw_disconnect, "a dead engine yields a Disconnected event");
+    }
+}
