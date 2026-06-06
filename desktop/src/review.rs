@@ -2205,3 +2205,60 @@ mod render_tests {
         let _ = render(AppP);
     }
 }
+
+#[cfg(test)]
+mod review_state_render_tests {
+    use super::*;
+    use crate::wire::ConnConfig;
+    use darkrun_api::common::GateType;
+    use darkrun_api::session::ReviewSessionPayload;
+
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    fn populated(gate: GateType) -> ReviewSessionPayload {
+        ReviewSessionPayload {
+            session_id: "s".into(),
+            run_slug: Some("r".into()),
+            gate_type: Some(gate),
+            station: Some("build".into()),
+            units: vec![
+                serde_json::json!({"slug":"u1","title":"Burst limiter","status":"completed","unit_type":"code"}),
+                serde_json::json!({"slug":"u2","title":"Tests","status":"in_progress"}),
+            ],
+            criteria: vec![serde_json::json!({"text":"limiter caps at N"})],
+            reflection: Some("learned the burst path".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn review_body_renders_populated_across_decision_states() {
+        // Idle (default action surface).
+        fn Idle() -> Element {
+            let d = use_signal(|| Decision::Idle);
+            review_body(ConnConfig::from_env(), populated(GateType::Ask), d)
+        }
+        let _ = render(Idle);
+        // Sending (in-flight).
+        fn Sending() -> Element {
+            let d = use_signal(|| Decision::Sending);
+            review_body(ConnConfig::from_env(), populated(GateType::External), d)
+        }
+        let _ = render(Sending);
+        // Sent + Failed (terminal decision banners).
+        fn Sent() -> Element {
+            let d = use_signal(|| Decision::Sent("approved".into()));
+            review_body(ConnConfig::from_env(), populated(GateType::Auto), d)
+        }
+        let _ = render(Sent);
+        fn Failed() -> Element {
+            let d = use_signal(|| Decision::Failed("network".into()));
+            review_body(ConnConfig::from_env(), populated(GateType::Await), d)
+        }
+        let _ = render(Failed);
+    }
+}
