@@ -3386,4 +3386,17 @@ mod handler_smoke {
         }
         assert!(parse_feedback_status_arg("nope").is_none());
     }
+
+    #[test]
+    fn invalid_enum_tokens_hit_the_error_arms() {
+        let dir = tempdir().unwrap();
+        let s = DarkrunServer::new(dir.path());
+        s.darkrun_run_start(Parameters(RunStartInput { slug: "r".into(), factory: "software".into(), title: None, mode: "continuous".into() })).unwrap();
+        s.darkrun_unit_create(Parameters(UnitCreateInput { slug: "r".into(), unit: "u1".into(), station: "frame".into(), title: None, depends_on: vec![] })).unwrap();
+        let is_err = |r: CallToolResult| r.is_error == Some(true);
+        assert!(is_err(s.darkrun_unit_iterate(Parameters(UnitIterateInput { slug: "r".into(), unit: "u1".into(), worker: "w".into(), result: "bogus".into(), note: None, next_worker: None })).unwrap()));
+        assert!(is_err(s.darkrun_quality_gate_record(Parameters(GateRecordInput { slug: "r".into(), unit: "u1".into(), gate: "t".into(), status: "bogus".into(), detail: None, nonce: None })).unwrap()));
+        assert!(is_err(s.darkrun_checkpoint_choose(Parameters(CheckpointChooseInput { slug: "r".into(), station: "frame".into(), kind: "bogus".into() })).unwrap()));
+        assert!(is_err(s.darkrun_review_stamp(Parameters(ReviewStampInput { slug: "r".into(), station: "frame".into(), role: "x".into(), kind: "bogus".into() })).unwrap()));
+    }
 }
