@@ -1788,6 +1788,92 @@ mod new_run_row_tests {
 }
 
 #[cfg(test)]
+mod component_render_tests {
+    use super::*;
+
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    fn proj(name: &str, live: bool) -> Project {
+        Project {
+            name: name.into(),
+            path: format!("/tmp/{name}").into(),
+            port: if live { Some(58616) } else { None },
+            harness: if live { Some("claude-code".into()) } else { None },
+        }
+    }
+
+    #[test]
+    fn no_engine_renders_the_harness_command_picker_with_a_run() {
+        // The run-scoped variant — exercises the worktree-flag command branch and
+        // renders all harness tabs (one active, the rest inactive).
+        fn App() -> Element {
+            rsx! {
+                NoEngine {
+                    name: "store".to_string(),
+                    path: "/tmp/store".to_string(),
+                    run: Some("checkout".to_string()),
+                }
+            }
+        }
+        let html = render(App);
+        assert!(html.contains("cd ") || html.contains("claude"));
+    }
+
+    #[test]
+    fn welcome_and_project_cards_render_live_and_idle() {
+        fn WithProjects() -> Element {
+            let refresh = use_signal(|| 0u32);
+            rsx! { Welcome { projects: vec![proj("store", true), proj("docs", false)], refresh } }
+        }
+        fn Empty() -> Element {
+            let refresh = use_signal(|| 0u32);
+            rsx! { Welcome { projects: vec![], refresh } }
+        }
+        fn Cards() -> Element {
+            rsx! {
+                ProjectCard { proj: proj("live", true) }
+                ProjectCard { proj: proj("idle", false) }
+            }
+        }
+        let _ = render(WithProjects);
+        let _ = render(Empty);
+        let html = render(Cards);
+        assert!(html.contains("live") && html.contains("idle"));
+    }
+
+    #[test]
+    fn add_project_form_card_and_tabs_render() {
+        fn Form() -> Element {
+            let refresh = use_signal(|| 0u32);
+            rsx! {
+                AddProjectForm { refresh }
+                AddProjectCard {}
+                ModeTab { label: "Git URL".to_string(), active: true, on_pick: move |_| {} }
+                ModeTab { label: "Local".to_string(), active: false, on_pick: move |_| {} }
+                HarnessTab { label: "Claude".to_string(), active: true, on_pick: move |_| {} }
+                HarnessTab { label: "Codex".to_string(), active: false, on_pick: move |_| {} }
+            }
+        }
+        let _ = render(Form);
+    }
+
+    #[test]
+    fn settings_page_and_main_header_render() {
+        fn App() -> Element {
+            rsx! {
+                SettingsPage {}
+                MainHeader { name: "store".to_string(), crumb: "Build".to_string() }
+            }
+        }
+        let _ = render(App);
+    }
+}
+
+#[cfg(test)]
 mod helper_tests {
     use super::*;
     use darkrun_api::runs::{RunSummary, StationProgress};
