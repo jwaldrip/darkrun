@@ -750,4 +750,62 @@ mod tests {
         reject(&store, "r", &fb.id, "stale").unwrap();
         assert!(set_severity(&store, "r", &fb.id, FeedbackSeverity::Low).is_err());
     }
+
+    #[test]
+    fn unspecified_origin_serializes_and_round_trips() {
+        let (_d, store) = store();
+        // Drives the origin_token `Unspecified` arm through serialize→disk→parse.
+        let fb = create_with_origin(
+            &store, "r", "frame", "uncategorized note", None,
+            FeedbackOrigin::Unspecified, vec![],
+        )
+        .unwrap();
+        assert_eq!(get(&store, "r", &fb.id).unwrap().origin, FeedbackOrigin::Unspecified);
+    }
+
+    #[test]
+    fn closing_a_settled_feedback_is_rejected() {
+        let (_d, store) = store();
+        let fb = create(&store, "r", "frame", "x", None).unwrap();
+        close_with_reply(&store, "r", &fb.id, "done").unwrap();
+        // A second close on the now-terminal record errors.
+        assert!(matches!(
+            close_with_reply(&store, "r", &fb.id, "again"),
+            Err(McpError::FeedbackSettled(_))
+        ));
+        // reject on a settled record errors too.
+        assert!(matches!(reject(&store, "r", &fb.id, "no"), Err(McpError::FeedbackSettled(_))));
+    }
+
+    #[test]
+    fn close_clears_invalidated_stamps_only_on_the_target_station() {
+        use darkrun_core::domain::{Status, Stamp, Unit, UnitFrontmatter};
+        let (_d, store) = store();
+        // A feedback on `build` that invalidates the `correctness` review.
+        let fb = create_with_origin(
+            &store, "r", "build", "regresses", Some(FeedbackSeverity::High),
+            FeedbackOrigin::AdversarialReview, vec!["correctness".into()],
+        )
+        .unwrap();
+        // A unit on `build` carrying that review, and a sibling on `frame` (skipped).
+        let mut on_target = Unit {
+            slug: "u-build".into(),
+            frontmatter: UnitFrontmatter { status: Status::Completed, station: Some("build".into()), ..Default::default() },
+            title: "u".into(), body: String::new(),
+        };
+        on_target.frontmatter.reviews.insert("correctness".into(), Some(Stamp { at: "2026-06-04T00:00:00Z".into() }));
+        store.write_unit("r", &on_target).unwrap();
+        let off_target = Unit {
+            slug: "u-frame".into(),
+            frontmatter: UnitFrontmatter { status: Status::Completed, station: Some("frame".into()), ..Default::default() },
+            title: "u".into(), body: String::new(),
+        };
+        store.write_unit("r", &off_target).unwrap();
+
+        close_with_reply(&store, "r", &fb.id, "fixed").unwrap();
+        // The target-station unit lost its invalidated stamp; the off-station one is untouched.
+        let units = store.read_units("r").unwrap();
+        let target = units.iter().find(|u| u.slug == "u-build").unwrap();
+        assert!(!target.frontmatter.reviews.contains_key("correctness"));
+    }
 }
