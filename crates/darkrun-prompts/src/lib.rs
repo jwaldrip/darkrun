@@ -197,6 +197,19 @@ mod tests {
     }
 
     #[test]
+    fn render_surfaces_a_runtime_template_fault() {
+        // A syntactically-valid override that fails at RENDER time: it includes a
+        // partial that doesn't resolve through the cascade. template_from_str
+        // succeeds; the include errors when the body renders → PromptError::Render.
+        let root = empty_root();
+        write_override(root.path(), "phases/reflect", "{% include \"_shared/does-not-exist\" %}");
+        match render("phases/reflect", root.path(), &json!({ "run": "r", "station": "s" })) {
+            Err(PromptError::Render { rel, .. }) => assert_eq!(rel, "phases/reflect"),
+            other => panic!("expected a Render fault, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn unknown_action_tag_has_no_key() {
         assert_eq!(template_key_for_action("teleport"), None);
     }

@@ -232,6 +232,25 @@ mod tests {
     }
 
     #[test]
+    fn override_read_surfaces_metadata_and_read_faults() {
+        // metadata() fails with a non-NotFound error: rooting a layer at a FILE
+        // makes `<file>/x.md` resolve through a non-directory → an OverrideRead
+        // error rather than a clean fall-through.
+        let dir = tempfile::tempdir().unwrap();
+        let file_root = dir.path().join("not-a-dir");
+        std::fs::write(&file_root, "x").unwrap();
+        let layer = OverrideLayer::new(file_root);
+        assert!(matches!(layer.read("x"), Err(PromptError::OverrideRead { .. })));
+
+        // metadata() succeeds but the read fails: a DIRECTORY at the override path
+        // is stat-able yet not readable as a string.
+        let dir2 = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir2.path().join("x.md")).unwrap();
+        let layer2 = OverrideLayer::new(dir2.path().to_path_buf());
+        assert!(matches!(layer2.read("x"), Err(PromptError::OverrideRead { .. })));
+    }
+
+    #[test]
     fn unknown_template_errors() {
         let dir = tempfile::tempdir().unwrap();
         let c = Cascade::new(dir.path());
