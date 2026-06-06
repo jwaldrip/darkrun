@@ -2456,3 +2456,258 @@ mod tab_render_tests {
         let mut dom = VirtualDom::new(OutPop); dom.rebuild_in_place(); let _ = dioxus_ssr::render(&dom);
     }
 }
+
+#[cfg(test)]
+mod panel_render_tests {
+    use super::*;
+    use darkrun_api::common::{
+        AuthorType, FeedbackOrigin, FeedbackStatus, GateType, SessionStatus,
+    };
+    use darkrun_api::session::{
+        ApproveAction, ApproveActionKind, OutputArtifact, OutputArtifactType,
+        ReviewSessionPayload,
+    };
+
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    fn fb_item(id: &str, source_ref: Option<&str>, title: &str) -> FeedbackItem {
+        FeedbackItem {
+            feedback_id: id.into(),
+            title: title.into(),
+            body: "b".into(),
+            status: FeedbackStatus::Pending,
+            origin: FeedbackOrigin::UserVisual,
+            severity: None,
+            author: "you".into(),
+            author_type: AuthorType::Human,
+            created_at: "2026-05-31T00:00:00Z".into(),
+            visit: 1,
+            source_ref: source_ref.map(Into::into),
+            closed_by: None,
+            resolution: None,
+            replies: vec![],
+            inline_anchor: None,
+            scope: None,
+            iterations: vec![],
+            closure_reply: None,
+            closure_reply_unread: None,
+        }
+    }
+
+    fn out(name: &str, ty: OutputArtifactType) -> OutputArtifact {
+        OutputArtifact {
+            station: "build".into(),
+            name: name.into(),
+            artifact_type: ty,
+            language: None,
+            directory: None,
+            content: None,
+            relative_path: Some(format!("/api/output/{name}")),
+            run_relative_path: Some(format!("outputs/{name}")),
+        }
+    }
+
+    // ── Pure helpers (no DOM) ───────────────────────────────────────────────
+
+    #[test]
+    fn output_kind_labels_every_artifact_type() {
+        let cases = [
+            (OutputArtifactType::Markdown, "md"),
+            (OutputArtifactType::Html, "html"),
+            (OutputArtifactType::Image, "img"),
+            (OutputArtifactType::Video, "video"),
+            (OutputArtifactType::Code, "code"),
+            (OutputArtifactType::File, "file"),
+        ];
+        for (ty, label) in cases {
+            assert_eq!(output_kind(&out("x", ty)), label);
+        }
+    }
+
+    #[test]
+    fn output_is_visual_only_for_rendered_surfaces() {
+        assert!(output_is_visual(&out("a.png", OutputArtifactType::Image)));
+        assert!(output_is_visual(&out("a.html", OutputArtifactType::Html)));
+        assert!(output_is_visual(&out("a.mp4", OutputArtifactType::Video)));
+        assert!(!output_is_visual(&out("a.rs", OutputArtifactType::Code)));
+        assert!(!output_is_visual(&out("a.md", OutputArtifactType::Markdown)));
+        assert!(!output_is_visual(&out("a.txt", OutputArtifactType::File)));
+    }
+
+    #[test]
+    fn style_helpers_emit_non_empty_css() {
+        assert!(section_title().contains("font-weight:700"));
+        assert!(criteria_list().contains("margin"));
+    }
+
+    #[test]
+    fn norm_xy_clamps_into_the_unit_square() {
+        let (x, y) = norm_xy(-50.0, -50.0);
+        assert_eq!((x, y), (0.0, 0.0));
+        let (x, y) = norm_xy(1.0e9, 1.0e9);
+        assert_eq!((x, y), (1.0, 1.0));
+        let (x, _) = norm_xy(STAGE_W / 2.0, 0.0);
+        assert!((x - 0.5).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn feedback_count_for_counts_open_locator_matches() {
+        let entries = map::feedback_entries(&[
+            fb_item("FB-1", Some("payment.rs"), "a"),
+            fb_item("FB-2", Some("payment.rs:42"), "b"),
+            fb_item("FB-3", Some("other.rs"), "c"),
+        ]);
+        assert_eq!(feedback_count_for(&entries, "payment.rs"), 2);
+        assert_eq!(feedback_count_for(&entries, "missing"), 0);
+    }
+
+    // ── DOM render: the conditional panels review_body gates behind signals ──
+
+    #[test]
+    fn checkpoint_section_renders_clean_and_blocked() {
+        fn Clean() -> Element {
+            let decision = use_signal(|| Decision::Idle);
+            let mut review = ReviewSessionPayload::default();
+            review.gate_type = Some(GateType::Ask);
+            review.gate_context = Some("Approve the build?".into());
+            review.approve_action = Some(ApproveAction {
+                label: "Ship it".into(),
+                kind: ApproveActionKind::OpenPr,
+            });
+            checkpoint_section(ConnConfig::from_env(), review, decision, 0)
+        }
+        fn Blocked() -> Element {
+            let decision = use_signal(|| Decision::Sending);
+            // No gate_type / approve_action → exercises the fallback labels.
+            let review = ReviewSessionPayload::default();
+            checkpoint_section(ConnConfig::from_env(), review, decision, 3)
+        }
+        assert!(render(Clean).contains("Ship it"));
+        let blocked = render(Blocked);
+        assert!(blocked.contains("3 open blocking"));
+    }
+
+    #[test]
+    fn feedback_inbox_panel_renders_empty_and_populated() {
+        fn Empty() -> Element {
+            let feedback = use_signal(Vec::<FeedbackItem>::new);
+            let active_tab = use_signal(|| "units".to_string());
+            let annotate_target = use_signal(|| None::<AnnotateTarget>);
+            let inbox_open = use_signal(|| true);
+            feedback_inbox_panel(
+                ConnConfig::from_env(),
+                Some("run-1".into()),
+                Some("build".into()),
+                feedback,
+                vec![],
+                &[],
+                active_tab,
+                annotate_target,
+                inbox_open,
+            )
+        }
+        fn Full() -> Element {
+            let items = vec![fb_item("FB-1", Some("home.png"), "review: home")];
+            let entries = map::feedback_entries(&items);
+            let feedback = use_signal(move || items.clone());
+            let active_tab = use_signal(|| "units".to_string());
+            let annotate_target = use_signal(|| None::<AnnotateTarget>);
+            let inbox_open = use_signal(|| true);
+            let outputs = vec![out("home.png", OutputArtifactType::Image)];
+            feedback_inbox_panel(
+                ConnConfig::from_env(),
+                Some("run-1".into()),
+                Some("build".into()),
+                feedback,
+                entries,
+                &outputs,
+                active_tab,
+                annotate_target,
+                inbox_open,
+            )
+        }
+        assert!(render(Empty).contains("No feedback on this station yet."));
+        assert!(render(Full).contains("Feedback inbox"));
+    }
+
+    #[test]
+    fn annotate_panel_mounts_the_surface() {
+        fn App() -> Element {
+            let annotate_target = use_signal(|| None::<AnnotateTarget>);
+            let target = AnnotateTarget {
+                label: "home.png".into(),
+                path: "build/home.png".into(),
+                work_id: "home.png".into(),
+                visual: true,
+                screenshot_url: Some("/api/output/home.png".into()),
+            };
+            annotate_panel(
+                ConnConfig::from_env(),
+                Some("run-1".into()),
+                Some("build".into()),
+                target,
+                annotate_target,
+            )
+        }
+        let _ = render(App);
+    }
+
+    #[test]
+    fn annotate_stage_renders_visual_with_marks_and_text() {
+        fn Visual() -> Element {
+            let marks = vec![
+                VisualMark::Pin { point: PinPoint::new(0.2, 0.3, "") },
+                VisualMark::Rect { rect: NormBox::new(0.1, 0.1, 0.2, 0.2, "") },
+                VisualMark::Highlight { rect: NormBox::new(0.3, 0.3, 0.1, 0.1, "") },
+                VisualMark::Arrow {
+                    from: PinPoint::new(0.1, 0.1, ""),
+                    to: PinPoint::new(0.5, 0.5, ""),
+                },
+                VisualMark::Path {
+                    points: vec![PinPoint::new(0.1, 0.1, ""), PinPoint::new(0.2, 0.2, "")],
+                },
+            ];
+            annotate_stage(true, AnnotateTool::Pin, Some("/s.png".into()), marks, |_| {})
+        }
+        fn VisualNoShot() -> Element {
+            annotate_stage(true, AnnotateTool::Pen, None, vec![], |_| {})
+        }
+        fn Text() -> Element {
+            annotate_stage(false, AnnotateTool::Select, None, vec![], |_| {})
+        }
+        let _ = render(Visual);
+        assert!(render(VisualNoShot).contains("draw on the surface"));
+        assert!(render(Text).contains("Text artifact"));
+    }
+
+    #[test]
+    fn render_mark_paints_each_overlay_primitive() {
+        fn App() -> Element {
+            rsx! {
+                {render_mark(&VisualMark::Pin { point: PinPoint::new(0.2, 0.3, "") }, 1)}
+                {render_mark(&VisualMark::Rect { rect: NormBox::new(0.1, 0.1, 0.2, 0.2, "") }, 2)}
+                {render_mark(&VisualMark::Highlight { rect: NormBox::new(0.2, 0.2, 0.1, 0.1, "") }, 3)}
+                {render_mark(&VisualMark::Arrow { from: PinPoint::new(0.0, 0.0, ""), to: PinPoint::new(0.4, 0.4, "") }, 4)}
+                {render_mark(&VisualMark::Path { points: vec![PinPoint::new(0.1, 0.1, "")] }, 5)}
+            }
+        }
+        let _ = render(App);
+    }
+
+    #[test]
+    fn question_session_open_state_renders() {
+        // The not-yet-answered branch (answered=false) of the wrapper extractor.
+        fn App() -> Element {
+            let q = darkrun_api::session::QuestionSessionPayload {
+                status: SessionStatus::Pending,
+                ..Default::default()
+            };
+            question_session(ConnConfig::from_env(), q)
+        }
+        let _ = render(App);
+    }
+}
