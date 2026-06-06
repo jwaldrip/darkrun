@@ -504,3 +504,41 @@ async fn oauth_routes_take_precedence_over_static_fallback() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
 }
+
+#[tokio::test]
+async fn callback_unknown_provider_is_rejected() {
+    let state = github_exchange_state("tok", Broker::new());
+    let app = build_oauth_only(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/auth/bogus/callback?code=c&state=s")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_client_error(), "unknown provider rejected");
+}
+
+#[tokio::test]
+async fn callback_for_an_unconfigured_provider_is_unavailable() {
+    // A config with NO GitLab credentials → a GitLab callback can't proceed.
+    let cfg = WebConfig::new(
+        "https://darkrun.ai",
+        Some(ProviderCredentials { client_id: "gh".into(), client_secret: "s".into() }),
+        None,
+    );
+    let state = WebState::new(cfg, Broker::new(), Arc::new(FailingTransport));
+    let app = build_oauth_only(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/auth/gitlab/callback?code=c&state=s")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
