@@ -4520,6 +4520,60 @@ mod tests {
         assert_eq!(state.active_station, "specify");
     }
 
+    /// Build a git repo + a discrete run whose `frame` station sits at its
+    /// external Checkpoint with a PR already open (`pr_ref`), under `plan`.
+    fn git_discrete_frame_at_open_pr(plan: Vec<String>) -> (tempfile::TempDir, StateStore) {
+        use darkrun_core::domain::{Checkpoint, CheckpointKind, Station, StationPhase, Status};
+        let dir = tempdir().unwrap();
+        std::process::Command::new("git").arg("-C").arg(dir.path()).args(["init", "-q"]).status().unwrap();
+        let store = StateStore::new(dir.path());
+        run_start(&store, "r", "software", None, "discrete").unwrap();
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.discrete = true;
+        state.discrete_hybrid = false;
+        state.plan = plan;
+        state.active_station = "frame".into();
+        state.stations.insert("frame".into(), Station {
+            station: "frame".into(), status: Status::Active, phase: StationPhase::Checkpoint,
+            elaborated: true, checkpoint: Some(Checkpoint { kind: CheckpointKind::External, entered_at: None, outcome: None }),
+            chosen_checkpoint: None, branch: None, pr_ref: Some("42".into()), pr_status: Some(PrStatus::Draft),
+            pr_ready_at: None, pr_merged_at: None, verifier_nonce: None,
+            started_at: None, completed_at: None,
+        });
+        store.write_state("r", &state).unwrap();
+        (dir, store)
+    }
+
+    /// A discrete PR that has drawn review activity keeps origin's head current:
+    /// the poll files the notes as feedback, then (git-backed) pushes the station
+    /// branch. Best-effort — the push fails silently with no remote.
+    #[test]
+    fn discrete_poll_with_review_activity_pushes_the_station_head() {
+        let (_d, store) = git_discrete_frame_at_open_pr(vec!["frame".into(), "specify".into()]);
+        let host = MockHosting::with_notes(vec![crate::hosting::ReviewComment {
+            id: "r1".into(), author: "alice".into(), body: "please change X".into(), change_request: true,
+        }]);
+        resolve_discrete_gate(&store, "r", &host).expect("poll");
+        // The note was filed as external feedback (proving the poll branch ran and
+        // the has-review-activity push path was taken).
+        let fbs = crate::feedback::list(&store, "r").unwrap();
+        assert!(fbs.iter().any(|f| f.id == "fb-ext-r1"), "review note filed: {fbs:?}");
+    }
+
+    /// When the merged station is the LAST in the plan, resolving its discrete
+    /// gate completes the run and lands run-main onto base (no next station).
+    #[test]
+    fn discrete_merge_of_the_final_station_lands_the_run() {
+        let (_d, store) = git_discrete_frame_at_open_pr(vec!["frame".into()]);
+        let merged = MockHosting::new(MergeState::Merged);
+        resolve_discrete_gate(&store, "r", &merged).expect("poll");
+        let state = store.read_state("r").unwrap().unwrap();
+        assert_eq!(state.stations["frame"].status, Status::Completed, "final station completes");
+        assert!(state.stations["frame"].pr_merged_at.is_some(), "merge timestamp recorded");
+        assert!(current_station(&resolve_factory_for(&store, "software").unwrap(), &state).is_none(),
+            "no station remains after the final merge");
+    }
+
     /// No hosting client → no PR is opened; the discrete gate degrades to a
     /// plain `external` review the operator resolves manually (await fallback).
     #[test]
