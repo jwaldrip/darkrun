@@ -53,5 +53,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+dioxus-ssr = "0.7"
 # Mock the `~/.darkrun` discovery tree in unit tests for engine discovery.
 tempfile = "3"

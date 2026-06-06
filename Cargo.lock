@@ -1121,6 +1121,7 @@ dependencies = [
  "darkrun-mcp",
  "darkrun-ui",
  "dioxus",
+ "dioxus-ssr",
  "dirs",
  "futures-util",
  "serde",
