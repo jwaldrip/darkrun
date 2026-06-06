@@ -42,3 +42,40 @@ fn renders_station_flow_and_phase_machine() {
     let html = render(App);
     assert!(html.contains("dr-station-flow") || html.contains("svg"), "flow svg: {html}");
 }
+
+#[test]
+fn renders_output_review_and_view_artifacts() {
+    fn App() -> Element {
+        rsx! {
+            OutputReview {
+                artifact_label: Some("home.png".to_string()),
+                prompt: Some("Review the page".to_string()),
+                pins: Vec::<PinPoint>::new(),
+                comments: vec!["looks off".to_string()],
+                submitted: false,
+            }
+            ViewArtifacts { artifacts: Vec::<ArtifactEntry>::new() }
+        }
+    }
+    let html = render(App);
+    assert!(!html.is_empty());
+}
+
+#[test]
+fn renders_factory_cards_and_tabs() {
+    fn App() -> Element {
+        rsx! {
+            FactoryCard {
+                title: "Storefront".to_string(),
+                factory: "software".to_string(),
+                station: Some("build".to_string()),
+                phase: Some(Phase::Manufacture),
+                status_label: "in progress".to_string(),
+            }
+            UnitRow { title: "burst limiter".to_string(), status_label: "done".to_string(), pass: 2 }
+            TabBar { tabs: vec![TabItem::new("a", "Alpha"), TabItem::new("b", "Beta")], active: "a".to_string() }
+        }
+    }
+    let html = render(App);
+    assert!(html.contains("Storefront") || html.contains("dr-"), "{html}");
+}
