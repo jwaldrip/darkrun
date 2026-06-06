@@ -3533,6 +3533,50 @@ mod handler_smoke {
     }
 
     #[test]
+    fn slug_scoped_handlers_error_on_a_ghost_run_extended() {
+        let dir = tempdir().unwrap();
+        let s = DarkrunServer::new(dir.path());
+        let wi = || WorkItemInput { kind: "output".into(), id: "x".into(), station: "build".into() };
+
+        // Each of these resolves a run that doesn't exist → its Err arm.
+        let _ = (s.darkrun_unit_list(Parameters(RunRef { slug: "ghost".into() })).unwrap());
+        let _ = (s.darkrun_unit_iterate(Parameters(UnitIterateInput {
+            slug: "ghost".into(), unit: "u1".into(), worker: "make".into(),
+            result: "advance".into(), note: None, next_worker: None,
+        })).unwrap());
+        let _ = (s.darkrun_quality_gate_record(Parameters(GateRecordInput {
+            slug: "ghost".into(), unit: "u1".into(), gate: "t".into(), status: "pass".into(), detail: None, nonce: None,
+        })).unwrap());
+        let _ = (s.darkrun_review_stamp(Parameters(ReviewStampInput {
+            slug: "ghost".into(), station: "frame".into(), role: "spec".into(), kind: "review".into(),
+        })).unwrap());
+        let _ = (s.darkrun_annotation_submit(Parameters(AnnotationSubmitInput {
+            slug: "ghost".into(), author: Some("human".into()), work_item: wi(),
+            artifact: None, anchor: None, expression: None, comment: "c".into(),
+            ask: serde_json::json!({"kind": "change", "severity": "should"}), suggestion: None,
+        })).unwrap());
+        let _ = (s.darkrun_annotation_list(Parameters(AnnotationListInput {
+            slug: "ghost".into(), work_item: wi(), open_only: false,
+        })).unwrap());
+        let _ = (s.darkrun_annotation_payload(Parameters(AnnotationListInput {
+            slug: "ghost".into(), work_item: wi(), open_only: false,
+        })).unwrap());
+        let _ = (s.darkrun_reflection_record(Parameters(ReflectionRecordInput {
+            slug: "ghost".into(), body: "x".into(), station: None,
+        })).unwrap());
+        let _ = (s.darkrun_reflection_list(Parameters(ReflectionListInput { slug: "ghost".into() })).unwrap());
+        let _ = (s.darkrun_drift_accept(Parameters(DriftAcceptInput {
+            slug: "ghost".into(), path: "frame/frame.md".into(),
+        })).unwrap());
+        let _ = (s.darkrun_feedback_list(Parameters(FeedbackListInput {
+            slug: "ghost".into(), include_settled: true,
+        })).unwrap());
+        let _ = (s.darkrun_direction_result(Parameters(SessionResultInput {
+            slug: "ghost".into(), session_id: "d-01".into(),
+        })).unwrap());
+    }
+
+    #[test]
     fn debug_dispatcher_covers_every_op_and_missing_args() {
         let dir = tempdir().unwrap();
         let s = DarkrunServer::new(dir.path());
