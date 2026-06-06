@@ -2337,4 +2337,36 @@ mod subcomponent_render_tests {
         }
         let _ = render(App);
     }
+
+    #[test]
+    fn remaining_session_components_render() {
+        fn App() -> Element {
+            rsx! {
+                DirectionSession {
+                    cfg: ConnConfig::from_env(),
+                    prompt: "Choose".to_string(),
+                    archetypes: vec![ArchetypeCard::new("x", "X", "u", "d")],
+                    seed_pins: vec![PinPoint::new(0.2, 0.3, "n")],
+                    seed_comments: vec!["c".to_string()],
+                    decided: true,
+                }
+                OutputReviewSession {
+                    cfg: ConnConfig::from_env(),
+                    artifact_label: Some("home.png".to_string()),
+                    screenshot_url: Some("/s.png".to_string()),
+                }
+                PickerSession {
+                    cfg: ConnConfig::from_env(),
+                    prompt: "Confirm".to_string(),
+                    options: vec![PickerItem::new("y", "Yes")],
+                    decided: true,
+                }
+                ViewSession {
+                    cfg: ConnConfig::from_env(),
+                    artifacts: vec![ArtifactEntry::new("a1", "build/x.html", ArtifactKind::File, "x")],
+                }
+            }
+        }
+        let _ = render(App);
+    }
 }
