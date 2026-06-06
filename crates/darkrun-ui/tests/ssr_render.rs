@@ -159,3 +159,55 @@ fn renders_proof_panel_for_each_kind() {
     let html = render(App);
     assert!(html.contains("lcp") || html.contains("p50") || html.contains("dr-"), "{html}");
 }
+
+#[test]
+fn renders_alternate_component_states() {
+    use darkrun_ui::components::feedback::{feedback_inbox, FeedbackEntry, Severity};
+    use darkrun_ui::components::session_views::PickerItem;
+    use darkrun_ui::components::view_artifacts::ArtifactEntry;
+    fn App() -> Element {
+        rsx! {
+            QuestionView {
+                prompt: "Pick".to_string(),
+                options: vec![OptionCard::new("a", "A"), OptionCard::new("b", "B")],
+                multi_select: true,
+                selected: vec!["a".to_string(), "b".to_string()],
+                image_urls: vec!["http://img/1.png".to_string()],
+                answered: true,
+            }
+            DirectionView {
+                prompt: "Choose".to_string(),
+                archetypes: vec![ArchetypeCard::new("x", "X", "u", "d")],
+                chosen: Some("x".to_string()),
+                pins: vec![PinPoint::new(0.2, 0.3, "note")],
+                comments: vec!["c".to_string()],
+                decided: true,
+            }
+            PickerView {
+                prompt: "Confirm".to_string(),
+                options: vec![PickerItem::new("y", "Yes"), PickerItem::new("n", "No")],
+                selected: Some("y".to_string()),
+                decided: true,
+            }
+            OutputReview {
+                screenshot_url: Some("/s.png".to_string()),
+                pins: vec![PinPoint::new(0.5, 0.5, "p")],
+                comments: vec!["fix".to_string()],
+                submitted: true,
+            }
+            ViewArtifacts {
+                artifacts: vec![
+                    ArtifactEntry::new("a1", "build/x.html", ArtifactKind::File, "x.html"),
+                    ArtifactEntry::new("a2", "build/home.png", ArtifactKind::Screenshot, "Home"),
+                ],
+                focused: Some("a2".to_string()),
+            }
+            {feedback_inbox(vec![
+                FeedbackEntry::new("fb-1", Severity::Must, "frame", "line 5", "fix it", "alice"),
+                FeedbackEntry::new("fb-2", Severity::Nit, "build", "x", "tidy", "bob"),
+            ], None)}
+        }
+    }
+    let html = render(App);
+    assert!(!html.is_empty());
+}
