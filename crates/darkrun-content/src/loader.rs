@@ -444,6 +444,45 @@ mod tests {
     }
 
     #[test]
+    fn inherits_parent_that_does_not_exist_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let fdir = dir.path().join(".darkrun").join("factories").join("orphan");
+        fs::create_dir_all(&fdir).unwrap();
+        fs::write(
+            fdir.join("FACTORY.md"),
+            "---\nname: orphan\ninherits: ghost-parent-xyz\n---\n# orphan\n",
+        )
+        .unwrap();
+        match load_factory_at(Some(dir.path()), "orphan") {
+            Err(ContentError::FactoryNotFound(name)) => assert_eq!(name, "ghost-parent-xyz"),
+            other => panic!("expected FactoryNotFound for the missing parent, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inherits_chain_deeper_than_the_cap_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        // f0 -> f1 -> … -> f15 (MAX_INHERITS_DEPTH factories), each inheriting the
+        // next. Walking from f0 trips the depth guard before it can resolve f16.
+        for i in 0..MAX_INHERITS_DEPTH {
+            let name = format!("f{i}");
+            let fdir = dir.path().join(".darkrun").join("factories").join(&name);
+            fs::create_dir_all(&fdir).unwrap();
+            fs::write(
+                fdir.join("FACTORY.md"),
+                format!("---\nname: {name}\ninherits: f{}\n---\n# {name}\n", i + 1),
+            )
+            .unwrap();
+        }
+        match load_factory_at(Some(dir.path()), "f0") {
+            Err(ContentError::Invalid { message, .. }) => {
+                assert!(message.contains("exceeds depth"), "depth message: {message}")
+            }
+            other => panic!("expected a depth-cap error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn inherits_cycle_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         for (a, b) in [("x", "y"), ("y", "x")] {
