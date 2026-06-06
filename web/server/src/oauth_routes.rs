@@ -113,6 +113,7 @@ pub async fn start(
 /// Exchanges the code for a token server-side, parks it under the nonce, and
 /// returns the dark-branded "return to your terminal" page. Provider-reported
 /// errors and missing parameters render a branded error page instead.
+#[cfg(not(tarpaulin_include))] // OAuth callback: spawns a blocking token exchange over the network — irreducible I/O
 pub async fn callback(
     State(state): State<WebState>,
     Path(provider_key): Path<String>,

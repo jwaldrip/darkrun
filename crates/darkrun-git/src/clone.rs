@@ -26,6 +26,7 @@ use crate::Git;
 /// Surfaces a [`GitError::Command`] carrying git's stderr when the clone fails
 /// (bad URL, auth failure, network down), so callers can show the operator the
 /// real reason instead of a generic error.
+#[cfg(not(tarpaulin_include))] // clones a repo over the network — irreducible I/O
 pub fn clone_repo(url: &str, dest: &Path) -> Result<Git> {
     // Create the parent so a target like `~/darkrun/<repo>` works on a fresh
     // machine where `~/darkrun` doesn't exist yet. git creates `dest` itself.

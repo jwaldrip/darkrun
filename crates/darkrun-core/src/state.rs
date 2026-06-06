@@ -744,4 +744,12 @@ mod tests {
         );
         assert_eq!(state.active_phase(), StationPhase::Audit);
     }
+
+    #[test]
+    fn io_helper_tags_errors_with_their_path_and_passes_ok_through() {
+        use std::path::Path;
+        let err = io::<()>(Path::new("/some/where"), Err(std::io::Error::other("boom"))).unwrap_err();
+        assert!(matches!(err, CoreError::Io { .. }));
+        assert_eq!(io(Path::new("/x"), Ok(42)).unwrap(), 42);
+    }
 }
