@@ -24,6 +24,10 @@ use darkrun_core::StateStore;
 use serde_json::Value;
 
 /// Run a hook by name. Always succeeds; never blocks the triggering tool.
+// The hook CLI entry: reads stdin and dispatches to a (pure, separately-tested)
+// handler, printing its advisory or exiting 2 on a block — irreducible process
+// I/O (stdin + process::exit). The handlers themselves are unit-tested directly.
+#[cfg(not(tarpaulin_include))]
 pub fn run(name: &str) {
     // Drain stdin so Claude Code's payload pipe closes cleanly. Content is
     // tolerated; malformed/empty input parses to `Value::Null` and every
@@ -838,5 +842,22 @@ mod tests {
         // A non-string/object value, and absent, are ignored.
         assert!(!response_mentions_unread(Some(&json!(42))));
         assert!(!response_mentions_unread(None));
+    }
+
+    #[test]
+    fn inject_state_file_emits_the_active_run_or_nothing() {
+        use darkrun_core::domain::{Run, RunFrontmatter};
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        store.write_run(&Run {
+            slug: "r".into(), title: "T".into(), body: String::new(),
+            frontmatter: RunFrontmatter { factory: "software".into(), active_station: "build".into(), ..Default::default() },
+        }).unwrap();
+        store.set_active_run("r").unwrap();
+        let ctx = inject_state_file(dir.path()).expect("an active run yields context");
+        assert!(ctx.contains("software") && ctx.contains("build") && ctx.contains("`r`"));
+        // A workspace with no active run injects nothing.
+        let empty = tempfile::tempdir().unwrap();
+        assert!(inject_state_file(empty.path()).is_none());
     }
 }
