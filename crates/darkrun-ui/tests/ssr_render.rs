@@ -79,3 +79,49 @@ fn renders_factory_cards_and_tabs() {
     let html = render(App);
     assert!(html.contains("Storefront") || html.contains("dr-"), "{html}");
 }
+
+#[test]
+fn renders_session_views() {
+    fn App() -> Element {
+        rsx! {
+            QuestionView {
+                prompt: "Pick one".to_string(),
+                options: vec![OptionCard::new("a", "A"), OptionCard::new("b", "B")],
+                multi_select: false,
+                selected: vec!["a".to_string()],
+                image_urls: Vec::<String>::new(),
+                answered: false,
+            }
+            DirectionView {
+                prompt: "Choose a direction".to_string(),
+                archetypes: vec![ArchetypeCard::new("x", "X", "http://img/x.png", "the x")],
+                pins: Vec::<PinPoint>::new(),
+                comments: Vec::<String>::new(),
+                decided: false,
+            }
+        }
+    }
+    let html = render(App);
+    assert!(html.contains("Pick one") || html.contains("dr-"), "{html}");
+}
+
+#[test]
+fn renders_station_strip_and_annotate() {
+    fn App() -> Element {
+        rsx! {
+            StationStrip {
+                stations: vec![
+                    StationItem::new("frame", StationStatus::Done),
+                    StationItem::new("build", StationStatus::Current),
+                    StationItem::new("harden", StationStatus::Pending),
+                ],
+            }
+            AnnotateToolbar { kind: SurfaceKind::Visual, active: AnnotateTool::Pin }
+            PinMarker { point: PinPoint::new(0.5, 0.5, "here"), number: 1 }
+            BoxMarker { x: 0.1, y: 0.1, w: 0.2, h: 0.2, number: 2 }
+            ArrowMarker { from: PinPoint::new(0.1, 0.1, ""), to: PinPoint::new(0.4, 0.4, ""), number: 3 }
+        }
+    }
+    let html = render(App);
+    assert!(!html.is_empty());
+}
