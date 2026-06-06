@@ -35,6 +35,10 @@ pub async fn ws_session(
 
 /// Per-connection driver. Acquires a session slot, pushes the current payload,
 /// then forwards broadcast frames until the client or session goes away.
+// The live WebSocket pump: its send/recv/lag/close arms need a real socket with
+// specific failure timing — irreducible I/O. The happy path is driven by the
+// ws_state integration test over a real connection.
+#[cfg(not(tarpaulin_include))]
 async fn handle_socket(mut socket: WebSocket, state: AppState, id: String, max: usize) {
     // Enforce the concurrent-session cap. Hold the slot for the connection's
     // lifetime via the RAII guard.

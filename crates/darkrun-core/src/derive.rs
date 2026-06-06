@@ -224,4 +224,26 @@ mod tests {
         assert_eq!(station_status(3, Some(2)), Status::Pending);
         assert_eq!(station_status(0, None), Status::Pending);
     }
+
+    #[test]
+    fn pass_loop_done_edge_arms_and_missing_elaboration_is_spec() {
+        use crate::domain::IterationResult;
+        // A rejected last iteration is not "done".
+        let mut a = unit("a");
+        a.frontmatter.iterations.push(UnitIteration {
+            worker: "make".into(), result: Some(IterationResult::Reject), ..Default::default()
+        });
+        assert!(!pass_loop_done(&a, &roles(&["make"])));
+        // An advance with NO declared workers qualifies (artifact-only stations).
+        let mut b = unit("b");
+        b.frontmatter.iterations.push(UnitIteration {
+            worker: "make".into(), result: Some(IterationResult::Advance), ..Default::default()
+        });
+        assert!(pass_loop_done(&b, &[]));
+        // Elaboration unknown (None) + no units yet → the Spec decompose gate.
+        assert_eq!(
+            derive_station_phase(&[], &roles(&["make"]), &[], &[], None, false),
+            StationPhase::Spec
+        );
+    }
 }

@@ -254,4 +254,11 @@ mod tests {
         assert_eq!(broker.claim("a").unwrap().access_token, "ta");
         assert_eq!(broker.claim("b").unwrap().access_token, "tb");
     }
+
+    #[test]
+    fn default_broker_starts_empty() {
+        let broker = Broker::default();
+        assert!(broker.is_empty());
+        assert_eq!(broker.len(), 0);
+    }
 }

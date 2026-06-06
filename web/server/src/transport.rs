@@ -31,6 +31,7 @@ impl ReqwestTransport {
 }
 
 impl HttpTransport for ReqwestTransport {
+    #[cfg(not(tarpaulin_include))] // real blocking HTTP via reqwest — irreducible network I/O
     fn execute(&self, request: HttpRequest) -> Result<HttpResponse> {
         let method = match request.method {
             Method::Get => reqwest::Method::GET,
