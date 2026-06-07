@@ -24,6 +24,12 @@ variable "web_domain" {
   default     = ""
 }
 
+variable "manage_www" {
+  description = "Also map the www subdomain to the service (paired with the www CNAME in the dns module)."
+  type        = bool
+  default     = true
+}
+
 variable "min_instances" {
   description = "Cloud Run minimum instances (0 = scale to zero)."
   type        = number

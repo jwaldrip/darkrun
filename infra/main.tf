@@ -22,6 +22,7 @@ resource "google_project_service" "services" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
+    "dns.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
@@ -57,6 +58,21 @@ module "web" {
   enable_sentry       = var.enable_sentry
   sentry_dsn          = try(module.sentry.dsns["web"], "")
   external_secret_ids = local.oauth_secret_ids
+  manage_www          = var.manage_www
+
+  depends_on = [google_project_service.services]
+}
+
+# The authoritative Cloud DNS zone for the domain + apex/www records pointing at
+# Cloud Run. Decoupled from the domain mapping so you can provision DNS first;
+# the module output exposes the nameservers to set at your registrar.
+module "dns" {
+  source = "./modules/dns"
+
+  enable     = var.manage_dns && var.web_domain != ""
+  domain     = var.web_domain
+  zone_name  = var.dns_zone_name
+  manage_www = var.manage_www
 
   depends_on = [google_project_service.services]
 }

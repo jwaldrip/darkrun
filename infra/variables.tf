@@ -40,6 +40,25 @@ variable "min_instances" {
   default     = 0
 }
 
+# ── DNS ──────────────────────────────────────────────────────────────────
+variable "manage_dns" {
+  description = "Create the Cloud DNS zone + apex/www records for web_domain. Set false to manage DNS elsewhere."
+  type        = bool
+  default     = true
+}
+
+variable "dns_zone_name" {
+  description = "The Cloud DNS managed-zone resource name ([a-z0-9-])."
+  type        = string
+  default     = "darkrun-ai"
+}
+
+variable "manage_www" {
+  description = "Map + point the www subdomain at the service (web mapping + dns CNAME)."
+  type        = bool
+  default     = true
+}
+
 variable "max_instances" {
   description = "Cloud Run maximum instances."
   type        = number

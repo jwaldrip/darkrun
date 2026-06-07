@@ -134,3 +134,17 @@ resource "google_cloud_run_domain_mapping" "web" {
     route_name = google_cloud_run_v2_service.web.name
   }
 }
+
+# www subdomain mapping (paired with the www CNAME in the dns module). A
+# subdomain under the verified apex needs no separate verification.
+resource "google_cloud_run_domain_mapping" "www" {
+  count    = var.web_domain != "" && var.manage_www ? 1 : 0
+  name     = "www.${var.web_domain}"
+  location = var.region
+  metadata {
+    namespace = var.project
+  }
+  spec {
+    route_name = google_cloud_run_v2_service.web.name
+  }
+}
