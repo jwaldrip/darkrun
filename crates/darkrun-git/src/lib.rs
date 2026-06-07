@@ -78,8 +78,9 @@ impl Git {
     }
 
     /// Open `repo_root` forcing the pure-Rust gitoxide backend (in-process, no
-    /// C, no `git` CLI). Built out incrementally — unimplemented operations
-    /// return [`GitError::Unsupported`] until their phase lands.
+    /// C, no `git` CLI). Implements the full [`GitBackend`] surface, including
+    /// the operations gitoxide has no high-level API for (push/rebase/merge/
+    /// worktree-create), each built over its plumbing and conformance-tested.
     pub fn open_gix(repo_root: impl AsRef<Path>) -> Result<Self> {
         let root = repo_root.as_ref().to_path_buf();
         let inner = GixBackend::open(&root)?;

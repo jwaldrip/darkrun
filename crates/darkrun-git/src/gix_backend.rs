@@ -1,11 +1,12 @@
 //! Pure-Rust [`GitBackend`] over **gitoxide** (`gix`) — no C, no `git` CLI.
 //!
-//! Built incrementally behind the [`GitBackend`](crate::GitBackend) trait and
-//! validated against the same real-git conformance fixtures as the libgit2 and
-//! shell backends (they must AGREE). Operations gitoxide doesn't yet provide
-//! (push/rebase/merge/worktree-create) return [`GitError::Unsupported`] until
-//! their build-out phase lands, so the migration flips on one operation at a
-//! time without ever breaking the working engine.
+//! The full trait is implemented and validated against the same real-git
+//! conformance fixtures as the libgit2 and shell backends (they must AGREE).
+//! Where gitoxide has no high-level API, the internals are built here over its
+//! plumbing: `git write-tree` (tree assembly from the index), linked-worktree
+//! creation (admin files + checkout), the engine-protected three-way merge, and
+//! `git push`/`git rebase` (the receive-pack client in [`push`](crate::push)
+//! and a cherry-pick replay loop). No operation falls back to a subprocess.
 
 use std::path::{Path, PathBuf};
 
