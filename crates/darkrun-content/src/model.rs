@@ -78,6 +78,11 @@ pub struct StationFrontmatter {
     /// Worker slugs, in Make -> Challenge -> Resolve sequence.
     #[serde(default)]
     pub workers: Vec<String>,
+    /// Fix-worker slugs for THIS station's Track-B repairs. Overrides the
+    /// factory-level `fix_workers` when non-empty; inherited from the factory
+    /// otherwise — so a station can specialize who repairs its feedback.
+    #[serde(default)]
+    pub fix_workers: Vec<String>,
     /// Reviewer slugs that verify output in the Review phase.
     #[serde(default)]
     pub reviewers: Vec<String>,

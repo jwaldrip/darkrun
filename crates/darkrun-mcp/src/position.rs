@@ -323,6 +323,11 @@ pub struct PromptContext {
     /// branch. Present only on a git-backed run where the worktree was forked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix_worktree: Option<String>,
+    /// The station's effective fix-worker roster (its own override, else the
+    /// factory's), surfaced so the agent dispatches the RIGHT repairer for this
+    /// station's feedback.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fix_workers: Vec<String>,
     /// What's structurally wrong, for `UnitsInvalid` (`invalid_naming` etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -1778,6 +1783,15 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         RunAction::FixFeedback { feedback_id, station, .. } => {
             ctx.feedback_id = Some(feedback_id.clone());
             ctx.fix_worktree = fix_worktree_for(store, slug, station, feedback_id);
+            // The station's effective fix-worker roster (station override, else
+            // the factory's) — who repairs THIS station's feedback.
+            if let Ok(run) = store.read_run(slug) {
+                if let Some(factory) = resolve_factory_for(store, &run.frontmatter.factory) {
+                    if let Some(def) = factory.station(station) {
+                        ctx.fix_workers = def.fix_workers.clone();
+                    }
+                }
+            }
         }
         RunAction::FeedbackQuestion { feedback_id, .. } => {
             ctx.feedback_id = Some(feedback_id.clone());
@@ -3297,7 +3311,7 @@ mod tests {
         let only = StationDef {
             name: "frame".into(), label: None, kills: "wrong-thing".into(), artifact: "o.md".into(),
             checkpoint: CheckpointKind::Auto, checkpoint_options: vec![], explorers: vec![],
-            workers: vec![], reviewers: vec![], role_models: Default::default(),
+            workers: vec![], fix_workers: vec![], reviewers: vec![], role_models: Default::default(),
             role_interpretations: Default::default(), worker_roles: Default::default(),
             inputs: vec![], role_applies_to: Default::default(),
         };

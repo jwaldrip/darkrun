@@ -129,7 +129,7 @@ mod tests {
         let station = StationDef {
             name: "frame".into(), label: None, kills: "wrong-thing".into(), artifact: "o.md".into(),
             checkpoint: CheckpointKind::Auto, checkpoint_options: vec![], explorers: vec![],
-            workers: vec![], reviewers: vec![], role_models: Default::default(),
+            workers: vec![], fix_workers: vec![], reviewers: vec![], role_models: Default::default(),
             role_interpretations: Default::default(), worker_roles: Default::default(),
             inputs: vec![], role_applies_to: Default::default(),
         };

@@ -35,6 +35,10 @@ pub struct StationDef {
     pub explorers: Vec<String>,
     /// The ordered Workers run in the Pass loop (Make -> Challenge -> Resolve...).
     pub workers: Vec<String>,
+    /// The fix-workers that repair this station's Track-B feedback. Resolved
+    /// station-first: the station's own `fix_workers` when it declares any, else
+    /// inherited from the factory-level roster.
+    pub fix_workers: Vec<String>,
     /// The Reviewers that verify the station's output in the Review phase.
     pub reviewers: Vec<String>,
     /// Per-role model overrides, keyed by role name (any explorer/worker/
@@ -130,11 +134,19 @@ impl FactoryDef {
     /// orientation (kills/label/artifact/checkpoint and the role rosters) comes
     /// from its `STATION.md`.
     fn from_content(f: &darkrun_content::Factory) -> FactoryDef {
-        let stations = Position::FLOW
+        let mut stations: Vec<StationDef> = Position::FLOW
             .iter()
             .filter_map(|pos| f.station(pos.dir()))
             .map(StationDef::from_content)
             .collect();
+        // Inherit the factory-level fix-worker roster into any station that
+        // didn't declare its own (#1: per-station override, factory fallback).
+        let factory_fix_workers = f.frontmatter.fix_workers.clone();
+        for st in &mut stations {
+            if st.fix_workers.is_empty() {
+                st.fix_workers = factory_fix_workers.clone();
+            }
+        }
         let mut run_reviewer_applies_to = std::collections::BTreeMap::new();
         for r in &f.run_reviewers {
             if !r.frontmatter.applies_to.is_empty() {
@@ -193,6 +205,9 @@ impl StationDef {
             checkpoint_options: s.frontmatter.checkpoint_options.clone(),
             explorers: s.frontmatter.explorers.clone(),
             workers: s.frontmatter.workers.clone(),
+            // Station-declared fix-workers; the factory fallback is filled in by
+            // `FactoryDef::from_content` (which has the factory roster in scope).
+            fix_workers: s.frontmatter.fix_workers.clone(),
             reviewers: s.frontmatter.reviewers.clone(),
             role_models,
             role_interpretations,
@@ -333,7 +348,7 @@ mod tests {
         let station = Station {
             frontmatter: StationFrontmatter {
                 name: "build".into(), description: "d".into(), kills: "k".into(), label: None,
-                explorers: vec![], workers: vec!["w".into()], reviewers: vec!["a11y".into()],
+                explorers: vec![], workers: vec!["w".into()], fix_workers: vec![], reviewers: vec!["a11y".into()],
                 checkpoint: CheckpointKind::Auto, checkpoint_options: vec![],
                 locked_artifact: "o.md".into(), inputs: vec![], inputs_waived: vec![],
             },
@@ -365,5 +380,65 @@ mod tests {
         );
         // A run reviewer's applies_to scope is collected too.
         assert_eq!(def.run_reviewer_applies_to.get("audit"), Some(&vec!["desktop".to_string()]));
+    }
+
+    /// Gap #1: a station inherits the factory-level fix-workers unless it
+    /// declares its own, which overrides.
+    #[test]
+    fn fix_workers_resolve_station_override_then_factory_fallback() {
+        use darkrun_content::{Factory, FactoryFrontmatter, Station, StationFrontmatter};
+        use darkrun_core::domain::CheckpointKind;
+        let mk_station = |name: &str, fix: Vec<&str>| Station {
+            frontmatter: StationFrontmatter {
+                name: name.into(),
+                description: "d".into(),
+                kills: "k".into(),
+                label: None,
+                explorers: vec![],
+                workers: vec![],
+                fix_workers: fix.iter().map(|s| s.to_string()).collect(),
+                reviewers: vec![],
+                checkpoint: CheckpointKind::Auto,
+                checkpoint_options: vec![],
+                locked_artifact: "o.md".into(),
+                inputs: vec![],
+                inputs_waived: vec![],
+            },
+            body: format!("# {name}"),
+            explorers: vec![],
+            workers: vec![],
+            reviewers: vec![],
+        };
+        let factory = Factory {
+            frontmatter: FactoryFrontmatter {
+                name: "t".into(),
+                description: "d".into(),
+                category: "e".into(),
+                default_model: "sonnet".into(),
+                inherits: None,
+                stations: vec!["frame".into(), "build".into()],
+                // The factory-level roster — the default repairers.
+                fix_workers: vec!["generic-fixer".into()],
+                reviewers: vec![],
+                reflections: vec![],
+                surfaces: vec![],
+            },
+            body: "# t".into(),
+            // frame declares none → inherits; build declares its own → overrides.
+            stations: vec![mk_station("frame", vec![]), mk_station("build", vec!["impl-fixer"])],
+            run_reviewers: vec![],
+            reflections: vec![],
+        };
+        let def = FactoryDef::from_content(&factory);
+        assert_eq!(
+            def.station("frame").unwrap().fix_workers,
+            vec!["generic-fixer".to_string()],
+            "a station with no fix_workers inherits the factory roster"
+        );
+        assert_eq!(
+            def.station("build").unwrap().fix_workers,
+            vec!["impl-fixer".to_string()],
+            "a station's own fix_workers override the factory roster"
+        );
     }
 }

@@ -4,6 +4,10 @@
 
 Open feedback preempts forward run progress. Something a reviewer or operator flagged is unresolved, and it routes to a **fix-worker** before the line moves on.
 
+{% if fix_workers %}
+Dispatch one of **this station's** fix-workers — {% for w in fix_workers %}`{{ w }}`{% if not loop.last %}, {% endif %}{% endfor %} — the repairers specialized for this station's class of work.
+{% endif %}
+
 {% include "_shared/contracts.md" %}
 
 {% if fix_worktree %}

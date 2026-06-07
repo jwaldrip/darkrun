@@ -68,6 +68,7 @@ fn valid_station() -> Station {
             label: None,
             explorers: vec!["e1".into()],
             workers: vec!["w1".into(), "w2".into(), "w3".into()],
+            fix_workers: vec![],
             reviewers: vec!["r1".into()],
             checkpoint: CheckpointKind::Auto,
             checkpoint_options: vec![],
