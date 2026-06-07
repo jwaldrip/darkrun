@@ -444,6 +444,21 @@ mod tests {
     }
 
     #[test]
+    fn a_standalone_factory_missing_its_station_files_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        // A project factory with a FACTORY.md but none of the six STATION.md
+        // files (and not inheriting one that has them) → the first station's
+        // require finds no layer with the file.
+        let fdir = dir.path().join(".darkrun").join("factories").join("solo");
+        fs::create_dir_all(&fdir).unwrap();
+        fs::write(fdir.join("FACTORY.md"), "---\nname: solo\n---\n# solo\n").unwrap();
+        match load_factory_at(Some(dir.path()), "solo") {
+            Err(ContentError::FileNotFound(_)) => {}
+            other => panic!("expected a missing-file error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn inherits_parent_that_does_not_exist_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let fdir = dir.path().join(".darkrun").join("factories").join("orphan");
