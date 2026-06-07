@@ -211,6 +211,27 @@ async fn runs_populated_count_matches() {
 }
 
 #[tokio::test]
+async fn runs_list_resolves_authorship_in_a_git_repo() {
+    use std::process::Command;
+    let (app, store) = state_with_store();
+    // Make the project root (parent of `.darkrun`) a git repo with an identity,
+    // so the browse list resolves a "Mine" check via branch authorship rather
+    // than short-circuiting on a missing identity.
+    let repo = store.root().parent().unwrap().to_path_buf();
+    let git = |args: &[&str]| { Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap(); };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "me@darkrun.ai"]);
+    git(&["config", "user.name", "Me"]);
+    seed_run(&store, "alpha", Some("Alpha"), "software", "frame", Status::Active, None, false);
+    let resp = send(build_router(app), get("/api/runs")).await;
+    let json = body_json(resp).await;
+    assert_eq!(json["count"], 1);
+    // No darkrun/alpha branch exists, so authorship resolves to not-mine — but the
+    // git-backed authorship path ran rather than the no-identity short-circuit.
+    assert_eq!(json["runs"][0]["authored_by_me"], false);
+}
+
+#[tokio::test]
 async fn runs_list_skips_a_corrupt_run() {
     let (app, store) = state_with_store();
     seed_run(&store, "alpha", Some("Alpha"), "software", "frame", Status::Active, None, false);
