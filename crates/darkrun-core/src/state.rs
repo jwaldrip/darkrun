@@ -539,6 +539,60 @@ impl StateStore {
         io(&path, fs::write(&path, content))
     }
 
+    /// The `prompts/` directory for a run — where every rendered engine prompt
+    /// is persisted for inspection / replay (a durable record of exactly what
+    /// the engine handed the agent at each step).
+    pub fn prompts_dir(&self, run: &str) -> PathBuf {
+        self.run_dir(run).join("prompts")
+    }
+
+    /// Persist a rendered prompt under `prompts/<scope>/<label>.md` (a stable
+    /// path overwritten each time that action re-renders, so the dir holds the
+    /// current prompt per station/phase rather than growing unbounded). `scope`
+    /// is the station slug (or `_run` for run-level actions); `label` the action
+    /// tag. Both are sanitized to a single safe path component.
+    pub fn write_prompt(&self, run: &str, scope: &str, label: &str, body: &str) -> Result<()> {
+        let safe = |s: &str| -> String {
+            let s: String = s
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+                .collect();
+            if s.is_empty() { "_".to_string() } else { s }
+        };
+        let dir = self.prompts_dir(run).join(safe(scope));
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = dir.join(format!("{}.md", safe(label)));
+        io(&path, fs::write(&path, body))
+    }
+
+    /// Read every persisted prompt for a run, keyed by its `<scope>/<label>`
+    /// relative path (sorted). Used by tests + replay tooling.
+    pub fn read_prompts(&self, run: &str) -> Result<BTreeMap<String, String>> {
+        let root = self.prompts_dir(run);
+        let mut out = BTreeMap::new();
+        if !root.exists() {
+            return Ok(out);
+        }
+        for scope in io(&root, fs::read_dir(&root))? {
+            let scope = io(&root, scope)?.path();
+            if !scope.is_dir() {
+                continue;
+            }
+            let Some(scope_name) = scope.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            for entry in io(&scope, fs::read_dir(&scope))? {
+                let path = io(&scope, entry)?.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let raw = io(&path, fs::read_to_string(&path))?;
+                        out.insert(format!("{scope_name}/{stem}"), raw);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// Whether a run is in a terminal (completed) status.

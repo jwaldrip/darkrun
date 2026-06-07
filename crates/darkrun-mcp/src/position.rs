@@ -2061,6 +2061,14 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     // state, so the prompt reflects the action exactly as derived.
     let prompt = render_prompt(store, slug, &action)?;
 
+    // Persist the rendered prompt under `.darkrun/<run>/prompts/<station>/<tag>.md`
+    // so there's a durable, inspectable record of exactly what the engine handed
+    // the agent at each step (replay / debugging). Best-effort: never fails a tick.
+    if let Some(body) = &prompt {
+        let scope = station_of(&action).unwrap_or("_run");
+        let _ = store.write_prompt(slug, scope, action_tag(&action), body);
+    }
+
     // Advance the phase write-cache based on the derived action.
     advance_state(store, slug, &action)?;
 
@@ -2857,6 +2865,28 @@ mod tests {
         let units2 = vec![c];
         let su2: Vec<&Unit> = units2.iter().collect();
         assert!(validate_units(&units2, &su2).is_none());
+    }
+
+    /// Gap #7: every rendered prompt is persisted under
+    /// `.darkrun/<run>/prompts/<station>/<tag>.md` for inspection / replay.
+    #[test]
+    fn run_tick_persists_the_rendered_prompt() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        let t = run_tick(&store, "r").expect("tick");
+        let prompt = t.prompt.clone().expect("the first tick renders a prompt");
+
+        let persisted = store.read_prompts("r").expect("read prompts");
+        assert!(!persisted.is_empty(), "a prompt was persisted to disk");
+        // The persisted file is keyed by the action's station + tag and matches
+        // exactly what the tick handed back.
+        let station = station_of(&t.action).unwrap_or("_run");
+        let key = format!("{station}/{}", action_tag(&t.action));
+        assert_eq!(
+            persisted.get(&key).map(String::as_str),
+            Some(prompt.as_str()),
+            "persisted prompt at {key} matches the tick's prompt"
+        );
     }
 
     #[test]
