@@ -140,4 +140,14 @@ mod remote_tests {
             Err(VcsError::RemoteParse(_))
         ));
     }
+
+    #[test]
+    fn remote_url_with_an_empty_host_is_rejected() {
+        // Two path segments pass the count check, but the empty authority leaves
+        // the host blank → the final emptiness guard rejects it.
+        assert!(matches!(
+            parse_remote_url("https:///owner/repo"),
+            Err(VcsError::RemoteParse(_))
+        ));
+    }
 }

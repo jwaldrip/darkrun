@@ -169,4 +169,15 @@ mod store_tests {
         assert!(store.get(Provider::GitHub).unwrap().is_none());
         assert!(store.path().ends_with("does-not-exist.json"));
     }
+
+    #[test]
+    fn empty_credential_file_loads_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("creds.json");
+        // A present-but-empty (0-byte) file is treated as an empty map, not a
+        // parse error — the empty-bytes fast path in load_map.
+        std::fs::write(&path, b"").unwrap();
+        let store = CredentialStore::at(&path);
+        assert!(store.get(Provider::GitHub).unwrap().is_none());
+    }
 }
