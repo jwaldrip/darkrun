@@ -153,26 +153,68 @@ pub trait GitBackend {
 
     // ── Remote push + NFF recovery primitives (mechanic #7) ───────────────
     //
-    // These talk to a remote, so they always route through the shell backend
-    // (network + worktree-cwd semantics). They run non-interactively so an
-    // auth prompt fails fast instead of hanging.
+    // Network ops over the pure-Rust transport (reqwest + rustls); push is the
+    // hand-built send-pack. They run non-interactively so a missing credential
+    // fails fast instead of hanging.
 
     /// Push `HEAD` of the working tree at `worktree_path` to `origin` as
-    /// `refs/heads/<branch>` (`git -C <wt> push origin HEAD:refs/heads/<branch>`).
-    /// The [`GitError::Command`] carries the remote's stderr so the caller can
-    /// narrowly match a non-fast-forward rejection.
+    /// `refs/heads/<branch>`. A rejected ref surfaces as an error whose message
+    /// preserves the remote's reason, so the caller can narrowly match a
+    /// non-fast-forward rejection.
     fn push(&self, worktree_path: &Path, branch: &str) -> Result<()>;
 
-    /// Fetch `branch` from `origin` (`git -C <wt> fetch origin <branch>`).
+    /// Fetch `branch` from `origin` into `refs/remotes/origin/<branch>`.
     fn fetch(&self, worktree_path: &Path, branch: &str) -> Result<()>;
 
-    /// Rebase the working tree at `worktree_path` onto `upstream`
-    /// (`git -C <wt> rebase <upstream>`). The NFF-recovery rebase target is
-    /// `origin/<branch>`.
+    /// Rebase the working tree at `worktree_path` onto `upstream` (replay
+    /// `upstream..HEAD`). The NFF-recovery rebase target is `origin/<branch>`.
     fn rebase_onto(&self, worktree_path: &Path, upstream: &str) -> Result<()>;
 
-    /// Abort an in-progress rebase in the working tree at `worktree_path`
-    /// (`git -C <wt> rebase --abort`). Best-effort recovery after a failed
+    /// Abort an in-progress rebase in the working tree at `worktree_path`,
+    /// restoring the branch to `ORIG_HEAD`. Best-effort recovery after a failed
     /// NFF rebase.
     fn rebase_abort(&self, worktree_path: &Path) -> Result<()>;
+
+    // ── Plumbing for the lifecycle / setup / gate read paths ──────────────
+
+    /// Create a worktree named `name` at `path` with a DETACHED `HEAD` at
+    /// `committish`'s commit (`git worktree add --detach <path> <committish>`).
+    /// Always detached — even when `committish` is a branch — so it works when
+    /// that branch is checked out elsewhere (the engine's merge-site worktree).
+    fn create_worktree_detached(
+        &self,
+        name: &str,
+        path: &Path,
+        committish: &str,
+    ) -> Result<WorktreeInfo>;
+
+    /// The full commit id `HEAD` resolves to in the working tree at
+    /// `worktree_path` (`git -C <wt> rev-parse HEAD`). Read-only.
+    fn head_oid(&self, worktree_path: &Path) -> Result<String>;
+
+    /// Force-update (or create) the local branch `name` to point at `committish`
+    /// (`git branch -f <name> <committish>`). Used to fast-update a target branch
+    /// to a merge commit produced in a detached worktree.
+    fn set_branch_to(&self, name: &str, committish: &str) -> Result<()>;
+
+    /// Delete the local branch `name` (`git branch -D <name>`). A no-op when the
+    /// branch does not exist.
+    fn delete_branch(&self, name: &str) -> Result<()>;
+
+    /// The configured URL of remote `name` (`git remote get-url <name>`), or
+    /// `None` when the remote is not configured. Read-only.
+    fn remote_url(&self, name: &str) -> Result<Option<String>>;
+
+    /// The default branch's short name, resolved from `origin/HEAD`
+    /// (`git symbolic-ref refs/remotes/origin/HEAD`). `None` when unset.
+    /// Read-only.
+    fn default_branch(&self) -> Result<Option<String>>;
+
+    /// A `git diff --stat <reference>` summary of the working tree against
+    /// `reference` (the changed-files overview). Read-only.
+    fn diff_stat(&self, reference: &str) -> Result<String>;
+
+    /// The unified `git diff <reference>` of the working tree against
+    /// `reference`. Read-only.
+    fn diff(&self, reference: &str) -> Result<String>;
 }

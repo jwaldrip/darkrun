@@ -283,6 +283,71 @@ fn move_branch_and_checkout(
     Ok(())
 }
 
+/// Write a linked worktree's admin files (`.git/worktrees/<name>/…`) + its
+/// `.git` gitdir pointer at `path`, with `head_content` as its HEAD (a branch
+/// ref or a detached oid), then check out `base`'s tree. The shared body of
+/// both the attached and detached worktree-create paths.
+fn materialize_worktree(
+    repo: &gix::Repository,
+    admin: &Path,
+    name: &str,
+    path: &Path,
+    base: &gix::Commit<'_>,
+    head_content: &str,
+    branch: Option<String>,
+) -> Result<WorktreeInfo> {
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+
+    // Like `git worktree add`: refuse a pre-existing NON-empty target so the
+    // checkout never clobbers files already on disk. An empty dir is fine.
+    if abs_path.exists() {
+        let occupied = std::fs::read_dir(&abs_path)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(true);
+        if occupied {
+            return Err(GitError::Gix(format!(
+                "'{}' already exists and is not empty",
+                abs_path.display()
+            )));
+        }
+    }
+
+    let tree_id = base.tree_id().map_err(gix_err)?.detach();
+
+    // Admin files.
+    std::fs::create_dir_all(admin)?;
+    std::fs::write(admin.join("HEAD"), head_content)?;
+    std::fs::write(admin.join("commondir"), "../..\n")?;
+    std::fs::write(
+        admin.join("gitdir"),
+        format!("{}\n", abs_path.join(".git").display()),
+    )?;
+    let idx = repo.index_from_tree(&tree_id).map_err(gix_err)?;
+    let mut idx_out = std::fs::File::create(admin.join("index"))?;
+    idx.write_to(&mut idx_out, gix::index::write::Options::default())
+        .map_err(gix_err)?;
+
+    // The worktree directory + its `.git` gitdir file, then the checkout.
+    std::fs::create_dir_all(&abs_path)?;
+    std::fs::write(
+        abs_path.join(".git"),
+        format!("gitdir: {}\n", admin.display()),
+    )?;
+    let tree = base.tree().map_err(gix_err)?;
+    checkout_tree_into(repo, &tree, &abs_path)?;
+
+    Ok(WorktreeInfo {
+        name: name.to_string(),
+        path: abs_path,
+        branch,
+        locked: false,
+    })
+}
+
 impl GixBackend {
     /// Open the git repository that contains `repo_root` (walks up, like
     /// `Repository::discover` / running `git` from a subdirectory).
@@ -374,7 +439,6 @@ impl GitBackend for GixBackend {
             None => repo.head_commit().map_err(gix_err)?,
         };
         let base_id = base.id;
-        let tree_id = base.tree_id().map_err(gix_err)?.detach();
 
         // Decide the worktree's HEAD + which branch it attaches to (if any).
         let (head_content, branch) = if let Some(nb) = &opts.new_branch {
@@ -389,54 +453,7 @@ impl GitBackend for GixBackend {
             (format!("{base_id}\n"), None) // detached
         };
 
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            std::env::current_dir()?.join(path)
-        };
-
-        // Like `git worktree add`: refuse a pre-existing NON-empty target so the
-        // checkout never clobbers files already on disk. An empty dir is fine.
-        if abs_path.exists() {
-            let occupied = std::fs::read_dir(&abs_path)
-                .map(|mut d| d.next().is_some())
-                .unwrap_or(true);
-            if occupied {
-                return Err(GitError::Gix(format!(
-                    "'{}' already exists and is not empty",
-                    abs_path.display()
-                )));
-            }
-        }
-
-        // Admin files.
-        std::fs::create_dir_all(&admin)?;
-        std::fs::write(admin.join("HEAD"), &head_content)?;
-        std::fs::write(admin.join("commondir"), "../..\n")?;
-        std::fs::write(
-            admin.join("gitdir"),
-            format!("{}\n", abs_path.join(".git").display()),
-        )?;
-        let idx = repo.index_from_tree(&tree_id).map_err(gix_err)?;
-        let mut idx_out = std::fs::File::create(admin.join("index"))?;
-        idx.write_to(&mut idx_out, gix::index::write::Options::default())
-            .map_err(gix_err)?;
-
-        // The worktree directory + its `.git` gitdir file, then the checkout.
-        std::fs::create_dir_all(&abs_path)?;
-        std::fs::write(
-            abs_path.join(".git"),
-            format!("gitdir: {}\n", admin.display()),
-        )?;
-        let tree = base.tree().map_err(gix_err)?;
-        checkout_tree_into(&repo, &tree, &abs_path)?;
-
-        Ok(WorktreeInfo {
-            name: name.to_string(),
-            path: abs_path,
-            branch,
-            locked: false,
-        })
+        materialize_worktree(&repo, &admin, name, path, &base, &head_content, branch)
     }
 
     fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
@@ -967,5 +984,104 @@ impl GitBackend for GixBackend {
         }
         let _ = std::fs::remove_dir_all(&marker);
         Ok(())
+    }
+
+    fn create_worktree_detached(
+        &self,
+        name: &str,
+        path: &Path,
+        committish: &str,
+    ) -> Result<WorktreeInfo> {
+        // Always-detached worktree at `committish`'s commit — even when it names
+        // a branch — so it works while that branch is checked out elsewhere.
+        let repo = self.repo()?;
+        let admin = repo.common_dir().join("worktrees").join(name);
+        if admin.exists() {
+            return Err(GitError::WorktreeExists(name.to_string()));
+        }
+        let base = repo
+            .rev_parse_single(committish)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?;
+        let head_content = format!("{}\n", base.id);
+        materialize_worktree(&repo, &admin, name, path, &base, &head_content, None)
+    }
+
+    fn head_oid(&self, worktree_path: &Path) -> Result<String> {
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let oid = repo.head_commit().map_err(gix_err)?.id;
+        Ok(oid.to_string())
+    }
+
+    fn set_branch_to(&self, name: &str, committish: &str) -> Result<()> {
+        // `git branch -f <name> <committish>`: force-create-or-update the ref.
+        let repo = self.repo()?;
+        let target = repo
+            .rev_parse_single(committish)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+        repo.reference(
+            format!("refs/heads/{name}"),
+            target,
+            gix::refs::transaction::PreviousValue::Any,
+            format!("branch: reset to {committish}"),
+        )
+        .map_err(gix_err)?;
+        Ok(())
+    }
+
+    fn delete_branch(&self, name: &str) -> Result<()> {
+        // `git branch -D <name>`: delete the ref; absent is a no-op.
+        let repo = self.repo()?;
+        match repo.find_reference(&format!("refs/heads/{name}")) {
+            Ok(r) => {
+                r.delete().map_err(gix_err)?;
+                Ok(())
+            }
+            Err(_) => Ok(()),
+        }
+    }
+
+    fn remote_url(&self, name: &str) -> Result<Option<String>> {
+        let repo = self.repo()?;
+        Ok(repo.find_remote(name).ok().and_then(|r| {
+            r.url(gix::remote::Direction::Fetch)
+                .map(|u| u.to_bstring().to_string())
+        }))
+    }
+
+    fn default_branch(&self) -> Result<Option<String>> {
+        // `git symbolic-ref refs/remotes/origin/HEAD` → the short branch name.
+        let repo = self.repo()?;
+        let Ok(reference) = repo.find_reference("refs/remotes/origin/HEAD") else {
+            return Ok(None);
+        };
+        // A symbolic ref points at refs/remotes/origin/<branch>; take the leaf.
+        Ok(match reference.target() {
+            gix::refs::TargetRef::Symbolic(name) => name
+                .shorten()
+                .to_string()
+                .rsplit('/')
+                .next()
+                .map(str::to_string),
+            gix::refs::TargetRef::Object(_) => None,
+        })
+    }
+
+    fn diff_stat(&self, reference: &str) -> Result<String> {
+        let repo = self.repo()?;
+        crate::diff::diff_worktree_against(&repo, reference, crate::diff::Format::Stat)
+    }
+
+    fn diff(&self, reference: &str) -> Result<String> {
+        let repo = self.repo()?;
+        crate::diff::diff_worktree_against(&repo, reference, crate::diff::Format::Unified)
     }
 }

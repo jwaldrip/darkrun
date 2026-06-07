@@ -24,6 +24,7 @@
 mod authorship;
 mod backend;
 mod clone;
+mod diff;
 mod error;
 mod gix_backend;
 pub mod merge;
@@ -160,6 +161,43 @@ impl GitBackend for Git {
 
     fn rebase_abort(&self, worktree_path: &Path) -> Result<()> {
         self.inner.rebase_abort(worktree_path)
+    }
+
+    fn create_worktree_detached(
+        &self,
+        name: &str,
+        path: &Path,
+        committish: &str,
+    ) -> Result<WorktreeInfo> {
+        self.inner.create_worktree_detached(name, path, committish)
+    }
+
+    fn head_oid(&self, worktree_path: &Path) -> Result<String> {
+        self.inner.head_oid(worktree_path)
+    }
+
+    fn set_branch_to(&self, name: &str, committish: &str) -> Result<()> {
+        self.inner.set_branch_to(name, committish)
+    }
+
+    fn delete_branch(&self, name: &str) -> Result<()> {
+        self.inner.delete_branch(name)
+    }
+
+    fn remote_url(&self, name: &str) -> Result<Option<String>> {
+        self.inner.remote_url(name)
+    }
+
+    fn default_branch(&self) -> Result<Option<String>> {
+        self.inner.default_branch()
+    }
+
+    fn diff_stat(&self, reference: &str) -> Result<String> {
+        self.inner.diff_stat(reference)
+    }
+
+    fn diff(&self, reference: &str) -> Result<String> {
+        self.inner.diff(reference)
     }
 }
 

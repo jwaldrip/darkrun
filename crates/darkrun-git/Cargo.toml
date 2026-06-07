@@ -21,6 +21,10 @@ gix = { version = "0.84", features = [
 # module) — Cargo unifies this into the gix-pack instance gix already uses, so
 # `gix::odb::pack::data::output` lights up. Pure Rust (gix-traverse/-diff).
 gix-pack = { version = "0.71", default-features = false, features = ["generate"] }
+# The gate review renders `git diff` itself (gitoxide has no diff porcelain).
+# `unified_diff` turns on imara-diff's Display-based unified renderer — Cargo
+# unifies it into the gix-imara-diff instance gix already uses. Pure Rust.
+gix-imara-diff = { version = "0.2.2", default-features = false, features = ["unified_diff"] }
 thiserror.workspace = true
 
 [dev-dependencies]

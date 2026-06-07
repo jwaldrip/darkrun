@@ -1227,6 +1227,7 @@ name = "darkrun-git"
 version = "0.1.0"
 dependencies = [
  "gix",
+ "gix-imara-diff",
  "gix-pack",
  "tempfile",
  "thiserror 2.0.18",

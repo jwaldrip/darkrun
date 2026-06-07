@@ -2389,3 +2389,143 @@ fn gix_rebase_conflict_aborts_back_to_orig_head() {
     assert_eq!(git_out(&root, &["rev-parse", "HEAD"]), feat_tip, "abort restores ORIG_HEAD");
     assert!(gx.is_clean().unwrap(), "clean worktree after abort");
 }
+
+// ===========================================================================
+// GIX BACKEND — lifecycle/setup/gate plumbing methods, vs the real-git oracle
+// ===========================================================================
+
+/// head_oid resolves a worktree's HEAD exactly like `git rev-parse HEAD`.
+#[test]
+fn gix_head_oid_matches_rev_parse() {
+    let (_d, root) = init_repo();
+    let g = Git::open(&root).unwrap();
+    assert_eq!(g.head_oid(&root).unwrap(), git_out(&root, &["rev-parse", "HEAD"]));
+}
+
+/// set_branch_to force-creates and force-moves a branch like `git branch -f`.
+#[test]
+fn gix_set_branch_to_force_updates_like_git() {
+    let (_d, root) = init_repo();
+    let base = git_out(&root, &["rev-parse", "HEAD"]);
+    std::fs::write(root.join("n.txt"), "n\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "second"]);
+    let head = git_out(&root, &["rev-parse", "HEAD"]);
+
+    let g = Git::open(&root).unwrap();
+    // Force-create at an older commit, then force-move it forward.
+    g.set_branch_to("feature", &base).unwrap();
+    assert_eq!(git_out(&root, &["rev-parse", "feature"]), base);
+    g.set_branch_to("feature", &head).unwrap();
+    assert_eq!(git_out(&root, &["rev-parse", "feature"]), head);
+}
+
+/// delete_branch removes a branch; deleting an absent branch is a no-op.
+#[test]
+fn gix_delete_branch_matches_git() {
+    let (_d, root) = init_repo();
+    git(&root, &["branch", "doomed"]);
+    let g = Git::open(&root).unwrap();
+    assert!(g.branch_exists("doomed").unwrap());
+    g.delete_branch("doomed").unwrap();
+    assert!(!g.branch_exists("doomed").unwrap());
+    // Absent → Ok no-op.
+    g.delete_branch("never-existed").unwrap();
+}
+
+/// remote_url reads the configured origin URL like `git remote get-url`.
+#[test]
+fn gix_remote_url_matches_git() {
+    let (_d, root) = init_repo();
+    let g = Git::open(&root).unwrap();
+    assert_eq!(g.remote_url("origin").unwrap(), None, "no remote yet");
+    git(&root, &["remote", "add", "origin", "https://example.com/x/y.git"]);
+    assert_eq!(
+        g.remote_url("origin").unwrap().as_deref(),
+        Some("https://example.com/x/y.git")
+    );
+}
+
+/// default_branch reads origin/HEAD's leaf like `git symbolic-ref`.
+#[test]
+fn gix_default_branch_matches_origin_head() {
+    let bare = TempDir::new().unwrap();
+    git(bare.path(), &["init", "-q", "--bare", "-b", "main"]);
+    let (_d, root) = init_repo();
+    git(&root, &["remote", "add", "origin", &bare.path().to_string_lossy()]);
+    git(&root, &["push", "-q", "origin", "main"]);
+    git(&root, &["remote", "set-head", "origin", "main"]);
+
+    let g = Git::open(&root).unwrap();
+    assert_eq!(g.default_branch().unwrap().as_deref(), Some("main"));
+}
+
+/// create_worktree_detached produces a worktree real git sees as detached, even
+/// when the committish names a branch checked out in the primary tree.
+#[test]
+fn gix_create_worktree_detached_is_detached_to_real_git() {
+    let (_d, root) = init_repo();
+    let g = Git::open(&root).unwrap();
+    let wt = sibling(&root, "detached");
+    // `main` is checked out at root; a detached worktree at `main`'s commit works.
+    let info = g.create_worktree_detached("det", &wt, "main").unwrap();
+    assert_eq!(info.branch, None, "reported as detached");
+    // Real git agrees the worktree exists and is detached (no branch).
+    let porcelain = git_out(&root, &["worktree", "list", "--porcelain"]);
+    assert!(porcelain.contains(&wt.to_string_lossy().to_string()), "git lists the worktree");
+    assert_eq!(git_out(&wt, &["rev-parse", "HEAD"]), git_out(&root, &["rev-parse", "main"]));
+    // Detached HEAD: git reports the abbrev ref as the literal "HEAD".
+    assert_eq!(git_out(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD", "detached HEAD");
+    let fsck = Command::new("git").arg("-C").arg(&root).args(["fsck", "--strict"]).output().unwrap();
+    assert!(fsck.status.success(), "fsck: {}", String::from_utf8_lossy(&fsck.stderr));
+}
+
+/// diff_stat reports the same changed file + insertion/deletion counts as
+/// `git diff --stat HEAD` for a simple edit + a new file.
+#[test]
+fn gix_diff_stat_matches_git_counts() {
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "base"]);
+    // Modify a.txt (one line changed) and add b.txt (tracked, new).
+    std::fs::write(root.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+    std::fs::write(root.join("b.txt"), "new\nfile\n").unwrap();
+    git(&root, &["add", "b.txt"]);
+
+    let g = Git::open(&root).unwrap();
+    let stat = g.diff_stat("HEAD").unwrap();
+    let git_stat = git_out(&root, &["diff", "--stat", "HEAD"]);
+    assert!(stat.contains("a.txt"), "a.txt listed: {stat}");
+    assert!(stat.contains("b.txt"), "b.txt listed: {stat}");
+    // The summary line's counts must match git's (3 insertions: 1 in a, 2 in b;
+    // 1 deletion in a).
+    assert!(stat.contains("2 files changed"), "file count: {stat}");
+    assert!(
+        stat.contains("3 insertions(+)") && stat.contains("1 deletion(-)"),
+        "gix stat: {stat}\n---\ngit stat: {git_stat}"
+    );
+}
+
+/// diff renders a unified diff whose headers + hunks line up with `git diff
+/// HEAD` (same file headers, real index hashes, +/- lines), ignoring untracked.
+#[test]
+fn gix_diff_unified_matches_git_shape() {
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("a.txt"), "alpha\nbeta\ngamma\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "base"]);
+    std::fs::write(root.join("a.txt"), "alpha\nBETA\ngamma\n").unwrap();
+    std::fs::write(root.join("untracked.txt"), "ignore me\n").unwrap();
+
+    let g = Git::open(&root).unwrap();
+    let diff = g.diff("HEAD").unwrap();
+    assert!(diff.contains("diff --git a/a.txt b/a.txt"), "file header: {diff}");
+    assert!(diff.contains("--- a/a.txt") && diff.contains("+++ b/a.txt"), "markers: {diff}");
+    assert!(diff.contains("-beta") && diff.contains("+BETA"), "the change: {diff}");
+    assert!(!diff.contains("untracked.txt"), "untracked files are not in `git diff HEAD`");
+    // The index line carries git's real short blob hashes.
+    let git_diff = git_out(&root, &["diff", "HEAD", "--", "a.txt"]);
+    let index_line = git_diff.lines().find(|l| l.starts_with("index ")).unwrap();
+    assert!(diff.contains(index_line), "index line matches git: want `{index_line}` in\n{diff}");
+}
