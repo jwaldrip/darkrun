@@ -9,6 +9,10 @@ description = "darkrun git worktree management — libgit2-backed with a shell-o
 
 [dependencies]
 git2 = { version = "0.20", default-features = false }
+# Pure-Rust git (gitoxide). Default features are C-free (pure-Rust miniz_oxide +
+# sha1, NOT the zlib-ng/`max-performance` C path); the rustls network/TLS
+# transport features are added in the fetch/push phases.
+gix = "0.84"
 thiserror.workspace = true
 wait-timeout.workspace = true
 

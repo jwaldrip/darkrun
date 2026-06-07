@@ -1772,3 +1772,49 @@ fn merge_network_and_rebase_through_the_wrapper() {
         g.rebase_abort(&root).unwrap();
     }
 }
+
+// ===========================================================================
+// GIX BACKEND (pure Rust) — read conformance vs the reference backends
+// ===========================================================================
+
+/// The gix backend's implemented reads must agree with libgit2 on the same repo.
+#[test]
+fn gix_reads_agree_with_reference() {
+    let (_d, root) = init_repo();
+    git(&root, &["checkout", "-q", "-b", "gixtest/branch"]);
+
+    let lib = Git::open(&root).unwrap();
+    let gx = Git::open_gix(&root).unwrap();
+
+    // current_branch on a branch
+    assert_eq!(gx.current_branch().unwrap(), lib.current_branch().unwrap());
+    assert_eq!(gx.current_branch().unwrap().as_deref(), Some("gixtest/branch"));
+
+    // branch_exists
+    assert!(gx.branch_exists("gixtest/branch").unwrap());
+    assert!(!gx.branch_exists("no-such-branch").unwrap());
+    assert_eq!(
+        gx.branch_exists("gixtest/branch").unwrap(),
+        lib.branch_exists("gixtest/branch").unwrap()
+    );
+
+    // is_clean: clean → then dirty
+    assert!(gx.is_clean().unwrap());
+    assert_eq!(gx.is_clean().unwrap(), lib.is_clean().unwrap());
+    std::fs::write(root.join("dirty.txt"), "x").unwrap();
+    let gx2 = Git::open_gix(&root).unwrap();
+    let lib2 = Git::open(&root).unwrap();
+    assert!(!gx2.is_clean().unwrap());
+    assert_eq!(gx2.is_clean().unwrap(), lib2.is_clean().unwrap());
+}
+
+/// A detached HEAD reports no current branch — same as libgit2.
+#[test]
+fn gix_detached_head_has_no_branch() {
+    let (_d, root) = init_repo();
+    let head = git_out(&root, &["rev-parse", "HEAD"]);
+    git(&root, &["checkout", "-q", &head]);
+    let gx = Git::open_gix(&root).unwrap();
+    assert_eq!(gx.current_branch().unwrap(), None);
+    assert_eq!(Git::open(&root).unwrap().current_branch().unwrap(), None);
+}

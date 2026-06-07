@@ -27,6 +27,7 @@ mod authorship;
 mod backend;
 mod clone;
 mod error;
+mod gix_backend;
 mod libgit2;
 pub mod merge;
 mod shell;
@@ -39,6 +40,7 @@ pub use authorship::{
 pub use backend::{CreateOptions, GitBackend, MergeOutcome, WorktreeInfo};
 pub use clone::{clone_repo, default_clone_dest, repo_name_from_url};
 pub use error::{GitError, Result};
+pub use gix_backend::GixBackend;
 pub use libgit2::Libgit2Backend;
 pub use merge::{engine_protected_merge, is_engine_owned_state_path, ENGINE_STATE_PREFIX};
 // `has_no_merge_debt` + `is_merge_in_progress` are defined below in this module.
@@ -68,6 +70,18 @@ impl Git {
     pub fn open_shell(repo_root: impl AsRef<Path>) -> Result<Self> {
         let root = repo_root.as_ref().to_path_buf();
         let inner = ShellBackend::open(&root)?;
+        Ok(Self {
+            inner: Box::new(inner),
+            repo_root: root,
+        })
+    }
+
+    /// Open `repo_root` forcing the pure-Rust gitoxide backend (in-process, no
+    /// C, no `git` CLI). Built out incrementally — unimplemented operations
+    /// return [`GitError::Unsupported`] until their phase lands.
+    pub fn open_gix(repo_root: impl AsRef<Path>) -> Result<Self> {
+        let root = repo_root.as_ref().to_path_buf();
+        let inner = GixBackend::open(&root)?;
         Ok(Self {
             inner: Box::new(inner),
             repo_root: root,

@@ -56,6 +56,16 @@ pub enum GitError {
     /// An error surfaced from libgit2.
     #[error("libgit2 error: {0}")]
     Git2(#[from] git2::Error),
+
+    /// An error surfaced from the pure-Rust gitoxide backend.
+    #[error("gix error: {0}")]
+    Gix(String),
+
+    /// An operation the gix backend does not yet implement (a build-out gap that
+    /// gitoxide itself doesn't cover yet — push/rebase/merge/worktree-create).
+    /// Tracked so the migration can flip operations on incrementally.
+    #[error("operation not yet supported by the gix backend: {0}")]
+    Unsupported(&'static str),
 }
 
 /// Convenience alias for results in this crate.
