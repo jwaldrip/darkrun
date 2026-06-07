@@ -370,7 +370,10 @@ mod tests {
             Some("harden")
         );
         assert_eq!(
-            action_station(&RunAction::Checkpoint { run: "r".into(), station: "prove".into() }),
+            action_station(&RunAction::Checkpoint {
+                run: "r".into(), station: "prove".into(),
+                kind: darkrun_core::domain::CheckpointKind::Ask,
+            }),
             Some("prove")
         );
         // A variant with no station → None.

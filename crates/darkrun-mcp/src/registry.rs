@@ -634,6 +634,20 @@ mod tests {
     }
 
     #[test]
+    fn list_live_engines_in_skips_an_unreadable_slug_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        // A slug dir that stats as a directory but can't be read (perms) → the
+        // inner read_dir errors and that slug is skipped, not fatal.
+        let slug = tmp.path().join("darkrun-locked");
+        fs::create_dir_all(&slug).unwrap();
+        fs::set_permissions(&slug, fs::Permissions::from_mode(0o000)).unwrap();
+        let live = list_live_engines_in(tmp.path());
+        fs::set_permissions(&slug, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(live.unwrap().is_empty(), "an unreadable slug dir is skipped");
+    }
+
+    #[test]
     fn home_rooted_wrappers_resolve_under_an_overridden_home() {
         // Override HOME so the home-based wrappers (new / default_root /
         // register_project / list_projects / list_live_engines) operate under a
