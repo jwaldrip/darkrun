@@ -96,6 +96,18 @@ fn backends() -> Vec<NamedBackend> {
     vec![
         ("libgit2", |p| Git::open(p)),
         ("shell", |p| Git::open_shell(p)),
+        // The pure-Rust gitoxide backend runs the full LOCAL conformance matrix
+        // (network ops live in the network-only list below until those phases).
+        ("gix", |p| Git::open_gix(p)),
+    ]
+}
+
+/// Backends that implement the network/rebase ops (push/fetch/rebase). The gix
+/// backend builds those out in later phases, so it's excluded here for now.
+fn backends_with_network() -> Vec<NamedBackend> {
+    vec![
+        ("libgit2", |p| Git::open(p)),
+        ("shell", |p| Git::open_shell(p)),
     ]
 }
 
@@ -1134,6 +1146,7 @@ fn create_duplicate_branch_name_errors() {
         match err {
             GitError::WorktreeExists(_)
             | GitError::Git2(_)
+            | GitError::Gix(_)
             | GitError::Command { .. } => {}
             other => panic!("[{label}] unexpected error for dup branch: {other:?}"),
         }
@@ -1205,7 +1218,7 @@ fn create_with_nonexistent_reference_errors() {
             .create_worktree("br", &path, &opts)
             .expect_err(&format!("[{label}] bad reference should fail"));
         match err {
-            GitError::Git2(_) | GitError::Command { .. } => {}
+            GitError::Git2(_) | GitError::Command { .. } | GitError::Gix(_) => {}
             other => panic!("[{label}] unexpected error for bad ref: {other:?}"),
         }
         cleanup(&root, &path);
@@ -1726,7 +1739,7 @@ fn current_branch_in_worktree_after_commit_there() {
 /// and (for libgit2) its lazy-shell delegation for these ops.
 #[test]
 fn merge_network_and_rebase_through_the_wrapper() {
-    for (label, open) in backends() {
+    for (label, open) in backends_with_network() {
         let bare = TempDir::new().unwrap();
         git(bare.path(), &["init", "-q", "--bare"]);
         let (_dir, root) = init_repo();

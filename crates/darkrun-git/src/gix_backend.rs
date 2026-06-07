@@ -302,6 +302,12 @@ impl GitBackend for GixBackend {
         if admin.exists() {
             return Err(GitError::WorktreeExists(name.to_string()));
         }
+        // `git worktree add -b <new>` refuses if the new branch already exists.
+        if let Some(nb) = &opts.new_branch {
+            if self.branch_exists(nb)? {
+                return Err(GitError::Gix(format!("a branch named '{nb}' already exists")));
+            }
+        }
 
         // Resolve the base commit (a reference, else HEAD).
         let base = match &opts.reference {
