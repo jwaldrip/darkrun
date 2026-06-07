@@ -23,7 +23,7 @@ tokio = { version = "1", features = ["full"] }
 schemars = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 nix = { version = "0.29", features = ["signal", "process"] }
-sha2 = "0.10"
+sha2 = "0.11"
 dirs = "6"
 # Hard wall-clock ceiling on network subprocesses (git fetch/push, gh/glab) so an
 # unresponsive remote can't wedge a tick — the analog of the predecessor's run_next
