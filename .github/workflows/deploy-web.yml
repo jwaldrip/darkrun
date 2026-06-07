@@ -1,0 +1,98 @@
+name: deploy-web
+
+# Build the darkrun-web container (OAuth broker + static site), push it to
+# Artifact Registry, and roll it onto Cloud Run via Terraform.
+#
+# Auth is Workload Identity Federation (no long-lived JSON key): the repo's
+# GitHub OIDC token is exchanged for short-lived GCP creds. Configure these
+# repo secrets/vars first (see infra/README.md):
+#   secrets.GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<n>/locations/global/workloadIdentityPools/<pool>/providers/<prov>
+#   secrets.GCP_DEPLOY_SA                    deploy@darkrun.iam.gserviceaccount.com
+#   secrets.TF_VAR_*                         the sensitive Terraform inputs (client secrets, sentry token)
+#
+# Terraform's GCS backend (bucket darkrun-tfstate) must already exist — run
+# infra/bootstrap.sh once before the first deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - "infra/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for Workload Identity Federation
+
+env:
+  GCP_PROJECT: darkrun
+  GCP_REGION: us-central1
+  REPO: darkrun
+  IMAGE: darkrun-web
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          sha="${GITHUB_SHA::12}"
+          base="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${REPO}/${IMAGE}"
+          echo "image=${base}:${sha}" >> "$GITHUB_OUTPUT"
+          echo "latest=${base}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: |
+          docker build \
+            -t "${{ steps.tag.outputs.image }}" \
+            -t "${{ steps.tag.outputs.latest }}" \
+            .
+
+      - name: Push image
+        run: |
+          docker push "${{ steps.tag.outputs.image }}"
+          docker push "${{ steps.tag.outputs.latest }}"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform apply
+        working-directory: infra
+        env:
+          # Non-secret inputs.
+          TF_VAR_web_image: ${{ steps.tag.outputs.image }}
+          TF_VAR_github_client_id: ${{ vars.GITHUB_CLIENT_ID }}
+          TF_VAR_gitlab_client_id: ${{ vars.GITLAB_CLIENT_ID }}
+          TF_VAR_sentry_organization: ${{ vars.SENTRY_ORGANIZATION }}
+          TF_VAR_sentry_team: ${{ vars.SENTRY_TEAM }}
+          # Secrets.
+          TF_VAR_github_client_secret: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          TF_VAR_gitlab_client_secret: ${{ secrets.GITLAB_CLIENT_SECRET }}
+          TF_VAR_sentry_auth_token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          terraform init -input=false
+          terraform apply -input=false -auto-approve

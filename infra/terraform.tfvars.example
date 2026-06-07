@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Secrets can also be passed
+# via TF_VAR_* environment variables in CI instead of this file.
+
+gcp_project = "darkrun"
+gcp_region  = "us-central1"
+web_base    = "https://darkrun.ai"
+web_domain  = "darkrun.ai"
+
+# OAuth apps you created (GitHub OAuth App + GitLab Application).
+github_client_id     = "Iv1.xxxxxxxxxxxx"
+github_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+gitlab_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+gitlab_client_secret = "gloas-xxxxxxxxxxxxxxxxxxxx"
+
+# Sentry. Create an internal integration / auth token with project:write.
+sentry_auth_token   = "sntrys_xxxxxxxx"   # or export SENTRY_AUTH_TOKEN
+sentry_organization = "your-sentry-org-slug"
+sentry_team         = "your-sentry-team-slug"
+# enable_sentry = false   # uncomment to deploy Cloud Run before Sentry exists

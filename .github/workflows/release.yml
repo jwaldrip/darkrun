@@ -80,10 +80,17 @@ jobs:
 
       - name: Build
         shell: bash
+        # DARKRUN_SENTRY_DSN / DARKRUN_RELEASE are read via option_env! at compile
+        # time and baked into the binaries (darkrun-telemetry). The DSN is a public
+        # ingest key, not a secret — set as a repo secret only to keep it out of logs.
+        env:
+          DARKRUN_SENTRY_DSN: ${{ secrets.DARKRUN_CLI_SENTRY_DSN }}
+          DARKRUN_RELEASE: ${{ github.ref_name }}
         run: |
           cargo build --release -p darkrun-cli --target ${{ matrix.target }}
           if [ -n "${{ matrix.desktop_bin }}" ]; then
-            cargo build --release -p darkrun-desktop --target ${{ matrix.target }}
+            DARKRUN_SENTRY_DSN="${{ secrets.DARKRUN_DESKTOP_SENTRY_DSN }}" \
+              cargo build --release -p darkrun-desktop --target ${{ matrix.target }}
           fi
 
       - name: Stage binaries for npm sub-package
