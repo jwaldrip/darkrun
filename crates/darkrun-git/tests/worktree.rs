@@ -94,7 +94,7 @@ type NamedBackend = (&'static str, fn(&Path) -> darkrun_git::Result<Git>);
 /// The two backends under test, as named constructors over a repo root.
 fn backends() -> Vec<NamedBackend> {
     vec![
-        ("libgit2", |p| Git::open(p)),
+        ("libgit2", |p| Git::open_libgit2(p)),
         ("shell", |p| Git::open_shell(p)),
         // The pure-Rust gitoxide backend runs the full LOCAL conformance matrix
         // (network ops live in the network-only list below until those phases).
@@ -106,7 +106,7 @@ fn backends() -> Vec<NamedBackend> {
 /// backend builds those out in later phases, so it's excluded here for now.
 fn backends_with_network() -> Vec<NamedBackend> {
     vec![
-        ("libgit2", |p| Git::open(p)),
+        ("libgit2", |p| Git::open_libgit2(p)),
         ("shell", |p| Git::open_shell(p)),
     ]
 }
@@ -1308,7 +1308,7 @@ fn libgit2_remove_worktree_surfaces_a_disk_removal_fault() {
     use std::os::unix::fs::PermissionsExt;
     let (_d, root) = init_repo();
     // libgit2 backend specifically (its remove does an in-process remove_dir_all).
-    let g = Git::open(&root).unwrap();
+    let g = Git::open_libgit2(&root).unwrap();
     let info = make_branch_worktree(&g, "rmfault", "gone", "gone-br");
     let name = g
         .list_worktrees()
@@ -1495,7 +1495,7 @@ fn remove_one_of_many_leaves_others() {
 
 #[test]
 fn full_lifecycle_libgit2() {
-    lifecycle(|p| Git::open(p), "libgit2");
+    lifecycle(|p| Git::open_libgit2(p), "libgit2");
 }
 
 #[test]

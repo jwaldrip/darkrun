@@ -49,16 +49,22 @@ pub use shell::ShellBackend;
 
 /// The recommended entry point: a [`GitBackend`] facade over a repository.
 ///
-/// `Git` wraps the libgit2 backend by default. Use [`Git::open_shell`] to force
-/// the shell-out fallback when libgit2 is undesirable in a given environment.
+/// `Git` wraps the pure-Rust gitoxide backend (no C, no `git` CLI). The
+/// libgit2 and shell backends remain available as conformance oracles via
+/// [`Git::open_libgit2`] / [`Git::open_shell`].
 pub struct Git {
     inner: Box<dyn GitBackend + Send + Sync>,
     repo_root: PathBuf,
 }
 
 impl Git {
-    /// Open `repo_root` with the default (libgit2) backend.
+    /// Open `repo_root` with the default pure-Rust gitoxide backend.
     pub fn open(repo_root: impl AsRef<Path>) -> Result<Self> {
+        Self::open_gix(repo_root)
+    }
+
+    /// Open `repo_root` forcing the libgit2 backend (a conformance oracle).
+    pub fn open_libgit2(repo_root: impl AsRef<Path>) -> Result<Self> {
         let root = repo_root.as_ref().to_path_buf();
         let inner = Libgit2Backend::open(&root)?;
         Ok(Self {

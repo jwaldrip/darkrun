@@ -93,7 +93,7 @@ type NamedBackend = (&'static str, fn(&Path) -> darkrun_git::Result<Git>);
 /// The two backends under test, as named constructors over a repo root.
 fn backends() -> Vec<NamedBackend> {
     vec![
-        ("libgit2", |p| Git::open(p)),
+        ("libgit2", |p| Git::open_libgit2(p)),
         ("shell", |p| Git::open_shell(p)),
     ]
 }
@@ -1946,12 +1946,24 @@ fn empty_repo_libgit2_unborn_head_is_none() {
     let dir = TempDir::new().unwrap();
     let root = dir.path().to_path_buf();
     git(&root, &["init", "-q", "-b", "main"]);
-    let g = Git::open(&root).unwrap();
+    let g = Git::open_libgit2(&root).unwrap();
     assert_eq!(
         g.current_branch().unwrap(),
         None,
         "libgit2 reports an unborn branch as None"
     );
+}
+
+/// The pure-Rust gitoxide default reports an unborn HEAD's branch by NAME (like
+/// `git branch --show-current`), not None — the more faithful behavior, and a
+/// deliberate divergence from libgit2's peel-to-None above.
+#[test]
+fn empty_repo_gix_unborn_head_is_the_branch_name() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().to_path_buf();
+    git(&root, &["init", "-q", "-b", "main"]);
+    let g = Git::open(&root).unwrap();
+    assert_eq!(g.current_branch().unwrap().as_deref(), Some("main"));
 }
 
 #[test]
