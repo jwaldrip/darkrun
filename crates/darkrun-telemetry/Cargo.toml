@@ -1,0 +1,21 @@
+[package]
+name = "darkrun-telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "darkrun observability — Sentry init shared across the binary surfaces (C-free, rustls)"
+
+[dependencies]
+# Sentry, C-free: reqwest + rustls transport (no native-tls / openssl), with
+# panic + backtrace + release-health. The DSN is injected at build time for the
+# distributed binaries and read from the env for the server.
+sentry = { version = "0.48", default-features = false, features = [
+    "backtrace",
+    "contexts",
+    "panic",
+    "release-health",
+    "reqwest",
+    "rustls",
+] }

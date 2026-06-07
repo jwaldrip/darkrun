@@ -12,6 +12,7 @@ name = "darkrun"
 path = "src/main.rs"
 
 [dependencies]
+darkrun-telemetry.workspace = true
 darkrun-core.workspace = true
 darkrun-api.workspace = true
 darkrun-verify.workspace = true

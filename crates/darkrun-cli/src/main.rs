@@ -281,6 +281,9 @@ enum StatuslineAction {
 }
 
 fn main() -> ExitCode {
+    // Sentry for the CLI/MCP surface — the guard lives for the whole process so
+    // panics + errors flush on exit. A no-op build (no DSN) never phones home.
+    let _sentry = darkrun_telemetry::init("cli");
     let cli = Cli::parse();
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,

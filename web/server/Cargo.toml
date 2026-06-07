@@ -13,6 +13,7 @@ name = "darkrun-web"
 path = "src/bin/darkrun-web.rs"
 
 [dependencies]
+darkrun-telemetry.workspace = true
 darkrun-vcs.workspace = true
 serde.workspace = true
 serde_json.workspace = true

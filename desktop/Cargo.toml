@@ -13,6 +13,7 @@ name = "darkrun-desktop"
 path = "src/main.rs"
 
 [dependencies]
+darkrun-telemetry.workspace = true
 # Wire contract — the session/review payload types rendered by the UI.
 darkrun-api = { workspace = true }
 

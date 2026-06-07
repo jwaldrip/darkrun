@@ -1,9 +1,61 @@
+# ── Rust / build artifacts ───────────────────────────────────────────────
 /target
-/dist
+**/target/
+*.profraw
+
+# Built web + desktop bundles (generated, never committed)
+dist/
+web/site/dist/
+*.wasm
+# Desktop app bundles (dx bundle output)
+*.app/
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.msi
+/bundle/
+
+# ── Secrets / credentials / env ──────────────────────────────────────────
+# Never commit env files, OAuth/Sentry secrets, or GCP service-account keys.
+.env
+.env.*
+!.env.example
+*.pem
+*-key.json
+*_key.json
+service-account*.json
+gcp-*-key.json
+sa-key*.json
+sentry.dsn
+.sentryclirc
+
+# ── Terraform ────────────────────────────────────────────────────────────
+# State (may contain secrets), plans, crash logs, and provider caches.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+crash.log
+crash.*.log
+# Real variable files carry secrets; only the *.example is committed.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Keep the provider lock committed (reproducible builds): .terraform.lock.hcl
+# is intentionally NOT ignored.
+
+# ── OS / editor / tooling ────────────────────────────────────────────────
 .DS_Store
 *.tmp
 node_modules
 
 # Local agent worktrees (never commit)
 .claude/worktrees/
-*.profraw

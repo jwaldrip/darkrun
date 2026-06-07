@@ -10,6 +10,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Sentry for the hosted web surface — the DSN comes from the environment
+    // (Cloud Run wires it from Secret Manager). Held for the process lifetime.
+    let _sentry = darkrun_telemetry::init("web");
+
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer())

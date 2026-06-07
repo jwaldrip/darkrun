@@ -24,6 +24,9 @@ use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use wire::ConnConfig;
 
 fn main() {
+    // Sentry for the desktop surface — the guard lives for the whole process.
+    // The DSN is compiled into the distributed app; a no-DSN build is a no-op.
+    let _sentry = darkrun_telemetry::init("desktop");
     // A titled, focused window so a launched app is recognizable and comes to
     // the front (the engine spawns this from the MCP server, not Finder, so it
     // must request focus or it opens hidden behind the terminal).
