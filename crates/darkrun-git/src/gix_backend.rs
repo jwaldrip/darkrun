@@ -233,6 +233,55 @@ fn collect_tree_paths(
     Ok(())
 }
 
+/// Point the ref the worktree HEAD follows (a branch, or detached HEAD itself)
+/// at `target`, then refresh the worktree index + files to `target`'s tree.
+/// The move-the-tip-then-check-out step shared by rebase replay and abort.
+fn move_branch_and_checkout(
+    repo: &gix::Repository,
+    branch: Option<&str>,
+    target: gix::ObjectId,
+) -> Result<()> {
+    match branch {
+        Some(name) => {
+            repo.reference(
+                format!("refs/heads/{name}"),
+                target,
+                gix::refs::transaction::PreviousValue::Any,
+                "rebase: move branch",
+            )
+            .map_err(gix_err)?;
+        }
+        // Detached HEAD: write the oid straight into the worktree's HEAD file.
+        None => {
+            std::fs::write(repo.git_dir().join("HEAD"), format!("{target}\n"))?;
+        }
+    }
+
+    let tree_id = repo
+        .find_commit(target)
+        .map_err(gix_err)?
+        .tree_id()
+        .map_err(gix_err)?
+        .detach();
+    let index = repo.index_from_tree(&tree_id).map_err(gix_err)?;
+    let mut idx_out = std::fs::File::create(repo.git_dir().join("index"))?;
+    index
+        .write_to(&mut idx_out, gix::index::write::Options::default())
+        .map_err(gix_err)?;
+
+    let tree = repo
+        .find_object(tree_id)
+        .map_err(gix_err)?
+        .peel_to_tree()
+        .map_err(gix_err)?;
+    let work_dir = repo
+        .workdir()
+        .ok_or_else(|| GitError::Gix("rebase: repository has no work tree".into()))?
+        .to_path_buf();
+    checkout_tree_into(repo, &tree, &work_dir)?;
+    Ok(())
+}
+
 impl GixBackend {
     /// Open the git repository that contains `repo_root` (walks up, like
     /// `Repository::discover` / running `git` from a subdirectory).
@@ -378,7 +427,7 @@ impl GitBackend for GixBackend {
 
         // The primary working tree isn't enumerated by `worktrees()`; include it
         // explicitly as "(main)" so callers see the complete picture.
-        if let Some(workdir) = repo.work_dir() {
+        if let Some(workdir) = repo.workdir() {
             out.push(WorktreeInfo {
                 name: "(main)".to_string(),
                 path: workdir.to_path_buf(),
@@ -753,11 +802,139 @@ impl GitBackend for GixBackend {
         Ok(())
     }
 
-    fn rebase_onto(&self, _worktree_path: &Path, _upstream: &str) -> Result<()> {
-        Err(GitError::Unsupported("rebase_onto"))
+    fn rebase_onto(&self, worktree_path: &Path, upstream: &str) -> Result<()> {
+        // `git rebase <upstream>`: replay `upstream..HEAD` onto `upstream`, then
+        // move the current branch to the new tip. gix has no rebase, so build it
+        // as a cherry-pick loop over the three-way merge primitive — each commit
+        // re-applied with `merge_trees(parent, moving-base, commit)`.
+        use gix::merge::tree::TreatAsUnresolved;
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let ours_id = repo.head_commit().map_err(gix_err)?.id;
+        let upstream_id = repo
+            .rev_parse_single(upstream)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+
+        // The ref the worktree HEAD follows — moved once every pick lands clean.
+        let branch = head_branch_of(&repo);
+        // ORIG_HEAD lets a follow-up rebase_abort restore us (like `git rebase`).
+        let git_dir = repo.git_dir().to_path_buf();
+        std::fs::write(git_dir.join("ORIG_HEAD"), format!("{ours_id}\n"))?;
+
+        // Trivial cases off the merge base.
+        let base = repo
+            .merge_base(ours_id, upstream_id)
+            .map_err(gix_err)?
+            .detach();
+        if base == upstream_id {
+            // Upstream is already an ancestor of HEAD → nothing to replay.
+            return Ok(());
+        }
+        if base == ours_id {
+            // HEAD is an ancestor of upstream → fast-forward onto upstream.
+            move_branch_and_checkout(&repo, branch.as_deref(), upstream_id)?;
+            return Ok(());
+        }
+
+        // Commits to replay: `upstream..HEAD`, reordered oldest-first.
+        let mut todo: Vec<gix::ObjectId> = repo
+            .rev_walk([ours_id])
+            .with_hidden([upstream_id])
+            .all()
+            .map_err(gix_err)?
+            .map(|info| info.map(|i| i.id).map_err(gix_err))
+            .collect::<Result<Vec<_>>>()?;
+        todo.reverse();
+
+        // Cherry-pick each onto the moving base (starting at upstream). Commit
+        // objects are built in memory; the branch only moves once every pick is
+        // clean, so a conflict leaves the worktree untouched for a clean abort.
+        let options = repo.tree_merge_options().map_err(gix_err)?;
+        let how = TreatAsUnresolved::git();
+        let mut base_id = upstream_id;
+        for cid in todo {
+            let commit = repo.find_commit(cid).map_err(gix_err)?;
+            let commit_tree = commit.tree_id().map_err(gix_err)?.detach();
+            // The pick's ancestor is the commit's own first parent; `merge_trees`
+            // then re-applies the parent→commit diff onto the moving base.
+            let parent_tree = match commit.parent_ids().next() {
+                Some(p) => repo
+                    .find_commit(p.detach())
+                    .map_err(gix_err)?
+                    .tree_id()
+                    .map_err(gix_err)?
+                    .detach(),
+                None => repo.empty_tree().id().detach(),
+            };
+            let base_tree = repo
+                .find_commit(base_id)
+                .map_err(gix_err)?
+                .tree_id()
+                .map_err(gix_err)?
+                .detach();
+            let labels = gix::merge::blob::builtin_driver::text::Labels::default();
+            let mut outcome = repo
+                .merge_trees(parent_tree, base_tree, commit_tree, labels, options.clone())
+                .map_err(gix_err)?;
+            if outcome.has_unresolved_conflicts(how) {
+                // Stop-on-conflict like `git rebase`: drop a rebase-in-progress
+                // marker so rebase_abort restores ORIG_HEAD. Nothing moved yet.
+                std::fs::create_dir_all(git_dir.join("rebase-merge")).ok();
+                return Err(GitError::Gix(format!(
+                    "rebase conflict replaying {cid} onto {base_id}"
+                )));
+            }
+            let merged_tree = outcome.tree.write().map_err(gix_err)?.detach();
+            // Preserve the original author/committer/message; only the parent
+            // changes — that's exactly what re-parents the commit (new hash).
+            let author = commit
+                .author()
+                .map_err(gix_err)?
+                .to_owned()
+                .map_err(gix_err)?;
+            let committer = commit
+                .committer()
+                .map_err(gix_err)?
+                .to_owned()
+                .map_err(gix_err)?;
+            let message = commit.message_raw().map_err(gix_err)?.to_owned();
+            let new_commit = gix::objs::Commit {
+                tree: merged_tree,
+                parents: std::iter::once(base_id).collect(),
+                author,
+                committer,
+                encoding: None,
+                message,
+                extra_headers: Vec::new(),
+            };
+            base_id = repo.write_object(&new_commit).map_err(gix_err)?.detach();
+        }
+
+        move_branch_and_checkout(&repo, branch.as_deref(), base_id)?;
+        Ok(())
     }
 
-    fn rebase_abort(&self, _worktree_path: &Path) -> Result<()> {
-        Err(GitError::Unsupported("rebase_abort"))
+    fn rebase_abort(&self, worktree_path: &Path) -> Result<()> {
+        // Best-effort, like `git rebase --abort`: if a rebase is in flight (our
+        // marker present), restore the branch + worktree to ORIG_HEAD; with
+        // nothing in flight it's a no-op.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let git_dir = repo.git_dir().to_path_buf();
+        let marker = git_dir.join("rebase-merge");
+        if !marker.exists() {
+            return Ok(());
+        }
+        if let Ok(raw) = std::fs::read_to_string(git_dir.join("ORIG_HEAD")) {
+            if let Ok(orig) = gix::ObjectId::from_hex(raw.trim().as_bytes()) {
+                let branch = head_branch_of(&repo);
+                move_branch_and_checkout(&repo, branch.as_deref(), orig)?;
+            }
+        }
+        let _ = std::fs::remove_dir_all(&marker);
+        Ok(())
     }
 }

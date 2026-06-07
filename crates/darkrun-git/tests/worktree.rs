@@ -2203,3 +2203,113 @@ fn gix_fetch_advances_remote_tracking_ref() {
     let got = git_out(&a, &["rev-parse", "refs/remotes/origin/main"]);
     assert_eq!(got, want, "gix fetch advanced origin/main to the pushed commit");
 }
+
+/// Build the divergent setup `git rebase` is tested against: `main` and a `feat`
+/// branch each add a non-conflicting file on top of a shared base. Returns the
+/// repo (kept alive) and root, left checked out on `feat`.
+fn diverged_rebase_repo() -> (TempDir, PathBuf) {
+    let (d, root) = init_repo();
+    std::fs::write(root.join("base.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "base"]);
+    // feat: one commit adding f.txt.
+    git(&root, &["checkout", "-q", "-b", "feat"]);
+    std::fs::write(root.join("f.txt"), "f\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "feat work"]);
+    // main advances with its own file, diverging from feat.
+    git(&root, &["checkout", "-q", "main"]);
+    std::fs::write(root.join("m.txt"), "m\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "main work"]);
+    git(&root, &["checkout", "-q", "feat"]);
+    (d, root)
+}
+
+/// gix rebase replays `feat` onto `main` and produces the SAME result tree as
+/// real `git rebase`, preserves the original author + message, re-parents onto
+/// main's tip, and leaves a strict-fsck-clean object graph.
+#[test]
+fn gix_rebase_replays_commits_like_git() {
+    // Reference: drive the identical scenario through real `git rebase`.
+    let (_dref, refroot) = diverged_rebase_repo();
+    git(&refroot, &["rebase", "-q", "main"]);
+    let want_tree = git_out(&refroot, &["rev-parse", "HEAD^{tree}"]);
+
+    // Subject: drive it through the pure-Rust backend.
+    let (_d, root) = diverged_rebase_repo();
+    let main_tip = git_out(&root, &["rev-parse", "main"]);
+    let orig_author = git_out(&root, &["log", "-1", "--pretty=%an <%ae>", "feat"]);
+
+    Git::open_gix(&root).unwrap().rebase_onto(&root, "main").unwrap();
+
+    // Same content as `git rebase` would have produced.
+    assert_eq!(
+        git_out(&root, &["rev-parse", "HEAD^{tree}"]),
+        want_tree,
+        "gix rebase tree matches real git rebase"
+    );
+    // Re-parented onto main's tip (main is now an ancestor of feat).
+    assert_eq!(
+        git_out(&root, &["rev-parse", "HEAD^"]),
+        main_tip,
+        "rebased commit's parent is main's tip"
+    );
+    // Original authorship + message preserved.
+    assert_eq!(git_out(&root, &["log", "-1", "--pretty=%an <%ae>"]), orig_author);
+    assert_eq!(git_out(&root, &["log", "-1", "--pretty=%s"]), "feat work");
+    // Both files present; branch still 'feat'; object graph intact.
+    assert!(root.join("f.txt").exists() && root.join("m.txt").exists());
+    assert_eq!(git_out(&root, &["rev-parse", "--abbrev-ref", "HEAD"]), "feat");
+    let fsck = Command::new("git")
+        .arg("-C").arg(&root).args(["fsck", "--strict"]).output().unwrap();
+    assert!(fsck.status.success(), "fsck: {}", String::from_utf8_lossy(&fsck.stderr));
+    // Worktree is clean after the rebase (index + files match the new tip).
+    assert!(Git::open_gix(&root).unwrap().is_clean().unwrap(), "clean after rebase");
+}
+
+/// Rebasing onto an ancestor (upstream already merged into HEAD) is a no-op:
+/// HEAD is unchanged, mirroring `git rebase`'s "up to date".
+#[test]
+fn gix_rebase_onto_ancestor_is_noop() {
+    let (_d, root) = init_repo();
+    git(&root, &["branch", "old"]);
+    std::fs::write(root.join("ahead.txt"), "ahead\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "ahead"]);
+    let before = git_out(&root, &["rev-parse", "HEAD"]);
+    Git::open_gix(&root).unwrap().rebase_onto(&root, "old").unwrap();
+    assert_eq!(git_out(&root, &["rev-parse", "HEAD"]), before, "no-op rebase onto ancestor");
+}
+
+/// A conflicting rebase stops with an error WITHOUT moving the branch, and
+/// rebase_abort restores HEAD to ORIG_HEAD with a clean worktree.
+#[test]
+fn gix_rebase_conflict_aborts_back_to_orig_head() {
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("c.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "base"]);
+    // feat edits c.txt one way.
+    git(&root, &["checkout", "-q", "-b", "feat"]);
+    std::fs::write(root.join("c.txt"), "feat\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "feat edit"]);
+    // main edits the same line differently → replay conflicts.
+    git(&root, &["checkout", "-q", "main"]);
+    std::fs::write(root.join("c.txt"), "main\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "main edit"]);
+    git(&root, &["checkout", "-q", "feat"]);
+    let feat_tip = git_out(&root, &["rev-parse", "HEAD"]);
+
+    let gx = Git::open_gix(&root).unwrap();
+    let err = gx.rebase_onto(&root, "main").unwrap_err();
+    assert!(matches!(err, darkrun_git::GitError::Gix(_)), "conflict surfaced: {err:?}");
+    // The branch never moved (commits built in memory only).
+    assert_eq!(git_out(&root, &["rev-parse", "HEAD"]), feat_tip, "branch unmoved on conflict");
+
+    gx.rebase_abort(&root).unwrap();
+    assert_eq!(git_out(&root, &["rev-parse", "HEAD"]), feat_tip, "abort restores ORIG_HEAD");
+    assert!(gx.is_clean().unwrap(), "clean worktree after abort");
+}
