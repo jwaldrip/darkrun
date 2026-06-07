@@ -101,16 +101,42 @@ impl GitBackend for GixBackend {
         Err(GitError::Unsupported("create_branch"))
     }
 
-    fn is_ancestor(&self, _maybe_ancestor: &str, _descendant: &str) -> Result<bool> {
-        Err(GitError::Unsupported("is_ancestor"))
+    fn is_ancestor(&self, maybe_ancestor: &str, descendant: &str) -> Result<bool> {
+        let repo = self.repo()?;
+        let a = repo
+            .rev_parse_single(maybe_ancestor)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+        let b = repo
+            .rev_parse_single(descendant)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+        if a == b {
+            return Ok(true);
+        }
+        // `a` is an ancestor of `b` iff their merge base is `a` itself.
+        let base = repo.merge_base(a, b).map_err(gix_err)?;
+        Ok(base.detach() == a)
     }
 
     fn merge_no_commit(&self, _worktree_path: &Path, _source_ref: &str) -> Result<MergeOutcome> {
         Err(GitError::Unsupported("merge_no_commit"))
     }
 
-    fn merge_in_progress(&self, _worktree_path: &Path) -> Result<bool> {
-        Err(GitError::Unsupported("merge_in_progress"))
+    fn merge_in_progress(&self, worktree_path: &Path) -> Result<bool> {
+        // A merge is in progress when MERGE_HEAD exists in the (worktree's) git
+        // dir. `gix::open` resolves the correct git dir whether `worktree_path`
+        // is the primary checkout or a linked worktree.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        Ok(repo.git_dir().join("MERGE_HEAD").exists())
     }
 
     fn checkout_paths(&self, _worktree_path: &Path, _from_ref: &str, _paths: &[String]) -> Result<()> {
@@ -133,8 +159,29 @@ impl GitBackend for GixBackend {
         Err(GitError::Unsupported("unresolved_paths"))
     }
 
-    fn refs_have_identical_trees(&self, _ref_a: &str, _ref_b: &str) -> Result<bool> {
-        Err(GitError::Unsupported("refs_have_identical_trees"))
+    fn refs_have_identical_trees(&self, ref_a: &str, ref_b: &str) -> Result<bool> {
+        // Contract: never errors — any resolution failure is `false` (the merge-
+        // debt short-circuit is an optimization, not a correctness gate).
+        let Ok(repo) = self.repo() else {
+            return Ok(false);
+        };
+        let tree_of = |spec: &str| -> Option<gix::ObjectId> {
+            Some(
+                repo.rev_parse_single(spec)
+                    .ok()?
+                    .object()
+                    .ok()?
+                    .peel_to_commit()
+                    .ok()?
+                    .tree_id()
+                    .ok()?
+                    .detach(),
+            )
+        };
+        match (tree_of(ref_a), tree_of(ref_b)) {
+            (Some(a), Some(b)) => Ok(a == b),
+            _ => Ok(false),
+        }
     }
 
     fn push(&self, _worktree_path: &Path, _branch: &str) -> Result<()> {

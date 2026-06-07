@@ -1818,3 +1818,59 @@ fn gix_detached_head_has_no_branch() {
     assert_eq!(gx.current_branch().unwrap(), None);
     assert_eq!(Git::open(&root).unwrap().current_branch().unwrap(), None);
 }
+
+/// gix ancestry + tree-identity reads agree with libgit2.
+#[test]
+fn gix_ancestry_and_tree_identity_agree() {
+    let (_d, root) = init_repo();
+    let c1 = git_out(&root, &["rev-parse", "HEAD"]);
+    std::fs::write(root.join("a.txt"), "a").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "c2"]);
+    let c2 = git_out(&root, &["rev-parse", "HEAD"]);
+
+    let gx = Git::open_gix(&root).unwrap();
+    let lib = Git::open(&root).unwrap();
+
+    // is_ancestor: c1 → c2 (yes), c2 → c1 (no), self (yes); agrees with libgit2.
+    assert!(gx.is_ancestor(&c1, &c2).unwrap());
+    assert!(!gx.is_ancestor(&c2, &c1).unwrap());
+    assert!(gx.is_ancestor(&c1, &c1).unwrap());
+    assert_eq!(gx.is_ancestor(&c1, &c2).unwrap(), lib.is_ancestor(&c1, &c2).unwrap());
+    assert_eq!(gx.is_ancestor(&c2, &c1).unwrap(), lib.is_ancestor(&c2, &c1).unwrap());
+
+    // refs_have_identical_trees: same ref identical; distinct commits differ; an
+    // unresolvable ref is false (never errors).
+    assert!(gx.refs_have_identical_trees(&c2, &c2).unwrap());
+    assert!(!gx.refs_have_identical_trees(&c1, &c2).unwrap());
+    assert!(!gx.refs_have_identical_trees(&c1, "no-such-ref").unwrap());
+    assert_eq!(
+        gx.refs_have_identical_trees(&c1, &c2).unwrap(),
+        lib.refs_have_identical_trees(&c1, &c2).unwrap()
+    );
+}
+
+/// gix merge_in_progress agrees with the reference: false on a clean repo, true
+/// while a merge with conflicts is unresolved in-tree.
+#[test]
+fn gix_merge_in_progress_agrees() {
+    let (_d, root) = init_repo();
+    let gx = Git::open_gix(&root).unwrap();
+    let lib = Git::open(&root).unwrap();
+    // Clean repo: no merge in progress.
+    assert!(!gx.merge_in_progress(&root).unwrap());
+    assert_eq!(gx.merge_in_progress(&root).unwrap(), lib.merge_in_progress(&root).unwrap());
+
+    // Force a conflicting merge in-tree (leave MERGE_HEAD set).
+    git(&root, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(root.join("c.txt"), "side\n").unwrap();
+    git(&root, &["add", "-A"]); git(&root, &["commit", "-qm", "side"]);
+    git(&root, &["checkout", "-q", "main"]);
+    std::fs::write(root.join("c.txt"), "main\n").unwrap();
+    git(&root, &["add", "-A"]); git(&root, &["commit", "-qm", "main"]);
+    let _ = std::process::Command::new("git").arg("-C").arg(&root)
+        .args(["merge", "--no-edit", "side"]).output().unwrap(); // conflicts, leaves MERGE_HEAD
+    let gx2 = Git::open_gix(&root).unwrap();
+    assert!(gx2.merge_in_progress(&root).unwrap(), "MERGE_HEAD present => in progress");
+    assert_eq!(gx2.merge_in_progress(&root).unwrap(), Git::open(&root).unwrap().merge_in_progress(&root).unwrap());
+}
