@@ -1,0 +1,27 @@
+# Cloud Build: build the darkrun-web image and push it to Artifact Registry.
+# Triggered from the GitHub repo (VCS) on push to main. The infra (Cloud Run etc.)
+# is applied separately by the VCS-driven HCP Terraform workspace.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -t
+      - ${_IMAGE}:${SHORT_SHA}
+      - -t
+      - ${_IMAGE}:latest
+      - .
+
+images:
+  - ${_IMAGE}:${SHORT_SHA}
+  - ${_IMAGE}:latest
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/darkrun/darkrun/darkrun-web
+
+options:
+  # The multi-stage Rust + dx(wasm) build is heavy — bigger machine, longer clock.
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 3600s

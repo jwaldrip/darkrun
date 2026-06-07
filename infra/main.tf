@@ -35,13 +35,13 @@ module "sentry" {
   team         = var.sentry_team
 }
 
+# The registry is a bootstrap resource (created by gcloud/bootstrap.sh); this
+# module only references it, so no depends_on on API enablement is needed.
 module "registry" {
   source = "./modules/registry"
 
   project = var.gcp_project
   region  = var.gcp_region
-
-  depends_on = [google_project_service.services]
 }
 
 module "web" {

@@ -41,7 +41,19 @@ gcloud services enable \
   cloudresourcemanager.googleapis.com \
   --project "${PROJECT}"
 
-# 2. Operator-managed OAuth secrets (stored ONLY in Secret Manager).
+# 2. Artifact Registry repo (a bootstrap resource — both Cloud Build and Cloud Run
+#    need it before either runs, so it's created here and only referenced by TF).
+echo
+REGION="${GCP_REGION:-us-central1}"
+if gcloud artifacts repositories describe darkrun --location="$REGION" --project "$PROJECT" >/dev/null 2>&1; then
+  echo "==> Artifact Registry repo 'darkrun' exists."
+else
+  echo "==> Creating Artifact Registry repo 'darkrun'..."
+  gcloud artifacts repositories create darkrun --location="$REGION" --project "$PROJECT" \
+    --repository-format=docker --description="darkrun container images (darkrun-web)."
+fi
+
+# 3. Operator-managed OAuth secrets (stored ONLY in Secret Manager).
 create_secret() {
   local name="$1"
   if gcloud secrets describe "${name}" --project "${PROJECT}" >/dev/null 2>&1; then
