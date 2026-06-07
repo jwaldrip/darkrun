@@ -12,7 +12,8 @@ darkrun-core.workspace = true
 darkrun-api.workspace = true
 darkrun-content.workspace = true
 darkrun-git.workspace = true
-wait-timeout.workspace = true
+darkrun-vcs.workspace = true
+ureq.workspace = true
 darkrun-http = { path = "../darkrun-http" }
 darkrun-prompts.workspace = true
 darkrun-harness.workspace = true

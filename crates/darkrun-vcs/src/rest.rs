@@ -104,7 +104,7 @@ pub fn github_get_repo(
     })
 }
 
-/// GitHub: `POST /repos/{owner}/{repo}/pulls`.
+/// GitHub: `POST /repos/{owner}/{repo}/pulls` — opens a ready (non-draft) PR.
 pub fn github_create_pull_request(
     transport: &dyn HttpTransport,
     cred: &Credential,
@@ -113,6 +113,21 @@ pub fn github_create_pull_request(
     base: &str,
     title: &str,
     body: &str,
+) -> Result<ChangeRequest> {
+    github_create_pull_request_with(transport, cred, coords, head, base, title, body, false)
+}
+
+/// GitHub: `POST /repos/{owner}/{repo}/pulls`. `draft` opens it as a draft PR.
+#[allow(clippy::too_many_arguments)]
+pub fn github_create_pull_request_with(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    coords: &RepoCoords,
+    head: &str,
+    base: &str,
+    title: &str,
+    body: &str,
+    draft: bool,
 ) -> Result<ChangeRequest> {
     let url = format!(
         "{base}/repos/{owner}/{repo}/pulls",
@@ -125,6 +140,7 @@ pub fn github_create_pull_request(
         "head": head,
         "base": base,
         "body": body,
+        "draft": draft,
     });
     let request =
         authorize(HttpRequest::post(url), Provider::GitHub, cred).json_body(&payload)?;
@@ -184,7 +200,9 @@ pub fn gitlab_resolve_project(
     })
 }
 
-/// GitLab: `POST /projects/{id}/merge_requests`.
+/// GitLab: `POST /projects/{id}/merge_requests`. A draft MR is marked by a
+/// `Draft:` title prefix (GitLab's convention — there is no create-time flag),
+/// which callers prepend to `title` themselves.
 pub fn gitlab_create_merge_request(
     transport: &dyn HttpTransport,
     cred: &Credential,
@@ -251,4 +269,282 @@ pub fn create_change_request(
             gitlab_create_merge_request(transport, cred, project.id, head, base, title, body)
         }
     }
+}
+
+/// The merge state of a change request, normalized across providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeRequestState {
+    /// Open and not yet merged.
+    Open,
+    /// Merged.
+    Merged,
+    /// Closed without merging.
+    Closed,
+}
+
+/// A change request's poll-time view: its merge state and draft flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChangeRequestView {
+    /// The merge state.
+    pub state: ChangeRequestState,
+    /// Whether it is still a draft / work-in-progress.
+    pub draft: bool,
+}
+
+/// A human review note pulled off a change request (a comment or review verdict).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteNote {
+    /// A provider-stable id, prefixed by kind (`c<id>` comment, `r<id>` review).
+    pub id: String,
+    /// The note author's handle.
+    pub author: String,
+    /// The note's markdown body.
+    pub body: String,
+    /// Whether this is a change-request review (vs a plain comment).
+    pub change_request: bool,
+}
+
+/// GitHub: `GET /repos/{o}/{r}/pulls/{n}` → merge state + draft flag.
+pub fn github_pull_view(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    coords: &RepoCoords,
+    number: u64,
+) -> Result<ChangeRequestView> {
+    let url = format!(
+        "{base}/repos/{owner}/{repo}/pulls/{number}",
+        base = Provider::GitHub.api_base(),
+        owner = coords.owner,
+        repo = coords.repo,
+    );
+    let request = authorize(HttpRequest::get(url), Provider::GitHub, cred);
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitHub, &response));
+    }
+    let v: serde_json::Value = response.json()?;
+    let merged = v.get("merged").and_then(|x| x.as_bool()).unwrap_or(false);
+    let closed = v.get("state").and_then(|x| x.as_str()) == Some("closed");
+    let state = if merged {
+        ChangeRequestState::Merged
+    } else if closed {
+        ChangeRequestState::Closed
+    } else {
+        ChangeRequestState::Open
+    };
+    Ok(ChangeRequestView {
+        state,
+        draft: v.get("draft").and_then(|x| x.as_bool()).unwrap_or(false),
+    })
+}
+
+/// GitLab: `GET /projects/{id}/merge_requests/{iid}` → merge state + draft flag.
+pub fn gitlab_mr_view(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    project_id: u64,
+    iid: u64,
+) -> Result<ChangeRequestView> {
+    let url = format!(
+        "{base}/projects/{id}/merge_requests/{iid}",
+        base = Provider::GitLab.api_base(),
+        id = project_id,
+    );
+    let request = authorize(HttpRequest::get(url), Provider::GitLab, cred);
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitLab, &response));
+    }
+    let v: serde_json::Value = response.json()?;
+    let state = match v.get("state").and_then(|x| x.as_str()) {
+        Some("merged") => ChangeRequestState::Merged,
+        Some("closed") | Some("locked") => ChangeRequestState::Closed,
+        _ => ChangeRequestState::Open,
+    };
+    // GitLab reports draft via `draft` (and the legacy `work_in_progress`).
+    let draft = v.get("draft").and_then(|x| x.as_bool()).or_else(|| {
+        v.get("work_in_progress").and_then(|x| x.as_bool())
+    });
+    Ok(ChangeRequestView {
+        state,
+        draft: draft.unwrap_or(false),
+    })
+}
+
+/// GitHub: `POST /repos/{o}/{r}/issues/{n}/comments` — post a comment.
+pub fn github_create_comment(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    coords: &RepoCoords,
+    number: u64,
+    body: &str,
+) -> Result<()> {
+    let url = format!(
+        "{base}/repos/{owner}/{repo}/issues/{number}/comments",
+        base = Provider::GitHub.api_base(),
+        owner = coords.owner,
+        repo = coords.repo,
+    );
+    let payload = serde_json::json!({ "body": body });
+    let request =
+        authorize(HttpRequest::post(url), Provider::GitHub, cred).json_body(&payload)?;
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitHub, &response));
+    }
+    Ok(())
+}
+
+/// GitLab: `POST /projects/{id}/merge_requests/{iid}/notes` — post a note.
+pub fn gitlab_create_note(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    project_id: u64,
+    iid: u64,
+    body: &str,
+) -> Result<()> {
+    let url = format!(
+        "{base}/projects/{id}/merge_requests/{iid}/notes",
+        base = Provider::GitLab.api_base(),
+        id = project_id,
+    );
+    let payload = serde_json::json!({ "body": body });
+    let request =
+        authorize(HttpRequest::post(url), Provider::GitLab, cred).json_body(&payload)?;
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitLab, &response));
+    }
+    Ok(())
+}
+
+/// GitHub: the human review notes on a PR — issue comments (`c<id>`) plus review
+/// verdicts (`r<id>`), with `CHANGES_REQUESTED` flagged as a change request.
+/// Two GETs: `/issues/{n}/comments` and `/pulls/{n}/reviews`.
+pub fn github_review_notes(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    coords: &RepoCoords,
+    number: u64,
+) -> Result<Vec<RemoteNote>> {
+    let base = Provider::GitHub.api_base();
+    let mut out = Vec::new();
+
+    // Issue comments.
+    let curl = format!(
+        "{base}/repos/{owner}/{repo}/issues/{number}/comments",
+        owner = coords.owner,
+        repo = coords.repo,
+    );
+    let resp = transport.execute(authorize(HttpRequest::get(curl), Provider::GitHub, cred))?;
+    if !resp.is_success() {
+        return Err(api_error(Provider::GitHub, &resp));
+    }
+    if let serde_json::Value::Array(items) = resp.json::<serde_json::Value>()? {
+        for c in items {
+            let Some(id) = c.get("id").and_then(|x| x.as_u64()) else {
+                continue;
+            };
+            let body = c.get("body").and_then(|x| x.as_str()).unwrap_or_default();
+            if body.is_empty() {
+                continue;
+            }
+            out.push(RemoteNote {
+                id: format!("c{id}"),
+                author: gh_login(&c),
+                body: body.to_string(),
+                change_request: false,
+            });
+        }
+    }
+
+    // Review verdicts.
+    let rurl = format!(
+        "{base}/repos/{owner}/{repo}/pulls/{number}/reviews",
+        owner = coords.owner,
+        repo = coords.repo,
+    );
+    let resp = transport.execute(authorize(HttpRequest::get(rurl), Provider::GitHub, cred))?;
+    if !resp.is_success() {
+        return Err(api_error(Provider::GitHub, &resp));
+    }
+    if let serde_json::Value::Array(items) = resp.json::<serde_json::Value>()? {
+        for r in items {
+            let Some(id) = r.get("id").and_then(|x| x.as_u64()) else {
+                continue;
+            };
+            let state = r.get("state").and_then(|x| x.as_str()).unwrap_or_default();
+            let change_request = state == "CHANGES_REQUESTED";
+            let body = r.get("body").and_then(|x| x.as_str()).unwrap_or_default();
+            // A bodyless non-change-request review (plain APPROVED) carries no
+            // actionable feedback — skip it.
+            if body.is_empty() && !change_request {
+                continue;
+            }
+            out.push(RemoteNote {
+                id: format!("r{id}"),
+                author: gh_login(&r),
+                body: body.to_string(),
+                change_request,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// GitLab: the human notes on an MR (`GET /merge_requests/{iid}/notes`),
+/// skipping system notes. GitLab notes carry no change-request verdict, so all
+/// are plain comments.
+pub fn gitlab_notes(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    project_id: u64,
+    iid: u64,
+) -> Result<Vec<RemoteNote>> {
+    let url = format!(
+        "{base}/projects/{id}/merge_requests/{iid}/notes",
+        base = Provider::GitLab.api_base(),
+        id = project_id,
+    );
+    let resp = transport.execute(authorize(HttpRequest::get(url), Provider::GitLab, cred))?;
+    if !resp.is_success() {
+        return Err(api_error(Provider::GitLab, &resp));
+    }
+    let mut out = Vec::new();
+    if let serde_json::Value::Array(items) = resp.json::<serde_json::Value>()? {
+        for n in items {
+            if n.get("system").and_then(|x| x.as_bool()).unwrap_or(false) {
+                continue; // skip auto-generated system notes
+            }
+            let Some(id) = n.get("id").and_then(|x| x.as_u64()) else {
+                continue;
+            };
+            let body = n.get("body").and_then(|x| x.as_str()).unwrap_or_default();
+            if body.is_empty() {
+                continue;
+            }
+            let author = n
+                .get("author")
+                .and_then(|a| a.get("username"))
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string();
+            out.push(RemoteNote {
+                id: id.to_string(),
+                author,
+                body: body.to_string(),
+                change_request: false,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The GitHub `user.login` of a comment/review object.
+fn gh_login(v: &serde_json::Value) -> String {
+    v.get("user")
+        .and_then(|u| u.get("login"))
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .to_string()
 }

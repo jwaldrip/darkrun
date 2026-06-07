@@ -45,3 +45,6 @@ darkrun-mcp = { path = "crates/darkrun-mcp" }
 darkrun-git = { path = "crates/darkrun-git" }
 darkrun-ui = { path = "crates/darkrun-ui" }
 darkrun-vcs = { path = "crates/darkrun-vcs" }
+# Pure-Rust sync HTTP (rustls, no C) — the engine tick calls hosting APIs from a
+# synchronous context inside the tokio runtime, where reqwest::blocking panics.
+ureq = { version = "2", default-features = false, features = ["rustls", "json"] }

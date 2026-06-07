@@ -11,15 +11,17 @@
 //! 2. **poll** that ref on each tick to see if it has been merged — the signal
 //!    that advances the station.
 //!
-//! This wraps the `gh` (GitHub) / `glab` (GitLab) CLIs through a small
-//! [`Hosting`] seam so the manager stays testable: the CLI implementation
-//! ([`CliHosting`]) shells out, while tests inject a mock. Every call is
-//! **best-effort** — when no CLI / no hosting is configured the client reports
-//! the absence cleanly and the manager falls back to an await gate the operator
+//! This drives the GitHub/GitLab REST APIs in-process (over the pure-Rust
+//! [`darkrun_vcs`] HTTP layer — no `gh`/`glab` CLI) behind a small [`Hosting`]
+//! seam so the manager stays testable: the API implementation ([`ApiHosting`])
+//! makes the calls, while tests inject a mock. Every call is **best-effort** —
+//! when no provider / credential / remote is configured the client reports the
+//! absence cleanly and the manager falls back to an await gate the operator
 //! resolves by hand (it never crashes the tick).
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
+
+use darkrun_vcs::{HttpRequest, HttpResponse, HttpTransport, Method};
 
 /// What the manager wants done at a discrete station's gate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,17 +112,79 @@ pub trait Hosting {
     }
 }
 
-/// The CLI-backed hosting client: shells `gh` / `glab` against a repo root.
-///
-/// Provider selection mirrors `darkrun-setup`'s `hosting:` detection — `github`
-/// drives `gh`, `gitlab` drives `glab`. An unknown / absent provider yields an
-/// [`CliHosting`] that reports [`available`](Hosting::available) `== false`.
-pub struct CliHosting {
-    repo_root: PathBuf,
-    provider: Provider,
+/// A pure-Rust synchronous [`HttpTransport`] over `ureq` (rustls, no C). The
+/// engine tick calls hosting APIs from a synchronous context inside the tokio
+/// runtime, where `reqwest::blocking` would panic — `ureq` has no internal
+/// runtime, so it's safe to call there.
+pub struct UreqTransport {
+    agent: ureq::Agent,
 }
 
-/// The hosting provider a [`CliHosting`] drives.
+impl Default for UreqTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UreqTransport {
+    /// Build a transport with a hard per-request wall-clock ceiling so an
+    /// unresponsive host can't wedge a tick.
+    pub fn new() -> Self {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+        Self { agent }
+    }
+}
+
+impl HttpTransport for UreqTransport {
+    #[cfg(not(tarpaulin_include))] // real network I/O
+    fn execute(&self, request: HttpRequest) -> darkrun_vcs::Result<HttpResponse> {
+        use std::io::Read;
+        let mut req = match request.method {
+            Method::Get => self.agent.get(&request.url),
+            Method::Post => self.agent.post(&request.url),
+        };
+        for (k, v) in &request.headers {
+            req = req.set(k, v);
+        }
+        let send = match request.body {
+            Some(body) => req.send_bytes(&body),
+            None => req.call(),
+        };
+        // ureq surfaces a non-2xx as `Error::Status(code, response)`; capture the
+        // status + body for BOTH paths so the caller's error handling works.
+        let response = match send {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(darkrun_vcs::VcsError::Transport(e.to_string())),
+        };
+        let status = response.status();
+        let mut body = Vec::new();
+        response
+            .into_reader()
+            .read_to_end(&mut body)
+            .map_err(|e| darkrun_vcs::VcsError::Transport(e.to_string()))?;
+        Ok(HttpResponse::new(status, body))
+    }
+}
+
+/// The API-backed hosting client: drives the provider REST API (GitHub PRs /
+/// GitLab MRs) in-process over [`UreqTransport`], with a token from the
+/// credential store. Replaces the old `gh`/`glab` CLI shell-outs.
+///
+/// Provider selection mirrors `darkrun-setup`'s `hosting:` detection. An unknown
+/// provider, an unconfigured remote, or a missing credential yields a client
+/// that reports [`available`](Hosting::available) `== false`, so the manager
+/// falls back to an await gate.
+pub struct ApiHosting {
+    provider: Option<darkrun_vcs::Provider>,
+    coords: Option<darkrun_vcs::RepoCoords>,
+    cred: Option<darkrun_vcs::Credential>,
+    transport: Box<dyn HttpTransport>,
+}
+
+/// The hosting provider an [`ApiHosting`] drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Provider {
     GitHub,
@@ -128,325 +192,196 @@ enum Provider {
     None,
 }
 
-impl CliHosting {
-    /// Build a CLI hosting client for `repo_root`, resolving the provider from
-    /// `.darkrun/settings.yml`'s `hosting:` line (written by `darkrun-setup`),
-    /// falling back to the git remote URL when settings are absent.
+impl ApiHosting {
+    /// Build an API hosting client for `repo_root` over a real [`UreqTransport`]:
+    /// resolve the provider (settings.yml then remote URL), parse the repo
+    /// coordinates from `origin`, and load the provider token from the credential
+    /// store. Any missing piece simply renders the client unavailable.
     pub fn resolve(repo_root: &Path) -> Self {
-        let provider = resolve_provider(repo_root);
+        Self::with_transport(repo_root, Box::new(UreqTransport::new()))
+    }
+
+    /// [`resolve`](Self::resolve) with an injected transport — the seam tests use
+    /// to drive the REST flow over a `MockTransport`.
+    pub fn with_transport(repo_root: &Path, transport: Box<dyn HttpTransport>) -> Self {
+        let provider = match resolve_provider(repo_root) {
+            Provider::GitHub => Some(darkrun_vcs::Provider::GitHub),
+            Provider::GitLab => Some(darkrun_vcs::Provider::GitLab),
+            Provider::None => None,
+        };
+        let coords = darkrun_git::Git::open(repo_root)
+            .ok()
+            .and_then(|g| {
+                use darkrun_git::GitBackend;
+                g.remote_url("origin").ok().flatten()
+            })
+            .and_then(|url| darkrun_vcs::parse_remote_url(&url).ok());
+        let cred = provider.and_then(|p| {
+            darkrun_vcs::CredentialStore::default_path()
+                .ok()
+                .and_then(|store| store.get(p).ok().flatten())
+        });
         Self {
-            repo_root: repo_root.to_path_buf(),
             provider,
+            coords,
+            cred,
+            transport,
         }
     }
 
-    /// Run the provider CLI in the repo root, returning trimmed stdout on a
-    /// zero exit, or `None` on any failure (missing binary, non-zero exit).
-    ///
-    /// `gh`/`glab` have no `-C` flag, so the working directory is set with
-    /// `current_dir` rather than a CLI argument.
-    #[cfg(not(tarpaulin_include))] // spawns gh/glab — irreducible network/process I/O
-    fn run(&self, bin: &str, args: &[&str]) -> Option<String> {
-        use std::io::Read;
-        use std::process::Stdio;
-        use std::time::Duration;
-        use wait_timeout::ChildExt;
-
-        // `gh`/`glab` make network/API calls (and can prompt for auth) — a hard
-        // wall-clock ceiling so an unresponsive host can't wedge a tick. Prompts
-        // are suppressed so they fail fast rather than block on input.
-        const HOST_TIMEOUT: Duration = Duration::from_secs(60);
-
-        let mut child = Command::new(bin)
-            .args(args)
-            .current_dir(&self.repo_root)
-            .env("GH_PROMPT_DISABLED", "1")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .ok()?;
-
-        let status = match child.wait_timeout(HOST_TIMEOUT).ok()? {
-            Some(status) => status,
-            None => {
-                // Unresponsive host — kill and report failure (best-effort: the
-                // caller falls back to an await gate).
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        };
-        if !status.success() {
-            return None;
+    /// Construct directly from parts (the unit-test constructor).
+    pub fn from_parts(
+        provider: Option<darkrun_vcs::Provider>,
+        coords: Option<darkrun_vcs::RepoCoords>,
+        cred: Option<darkrun_vcs::Credential>,
+        transport: Box<dyn HttpTransport>,
+    ) -> Self {
+        Self {
+            provider,
+            coords,
+            cred,
+            transport,
         }
-        let mut stdout = String::new();
-        child.stdout.take()?.read_to_string(&mut stdout).ok()?;
-        Some(stdout.trim().to_string())
+    }
+
+    /// The provider + coords + credential, present only when fully configured.
+    fn ready(
+        &self,
+    ) -> Option<(
+        darkrun_vcs::Provider,
+        &darkrun_vcs::RepoCoords,
+        &darkrun_vcs::Credential,
+    )> {
+        Some((self.provider?, self.coords.as_ref()?, self.cred.as_ref()?))
+    }
+
+    /// Resolve the GitLab numeric project id for the configured repo.
+    fn gitlab_project_id(&self) -> Option<u64> {
+        let (_p, coords, cred) = self.ready()?;
+        darkrun_vcs::gitlab_resolve_project(self.transport.as_ref(), cred, coords)
+            .ok()
+            .map(|p| p.id)
+    }
+
+    /// Fetch the poll-time view (state + draft) of `pr_ref`.
+    fn view(&self, pr_ref: &str) -> Option<darkrun_vcs::ChangeRequestView> {
+        let (provider, coords, cred) = self.ready()?;
+        let number = parse_ref_number(pr_ref)?;
+        let t = self.transport.as_ref();
+        match provider {
+            darkrun_vcs::Provider::GitHub => {
+                darkrun_vcs::github_pull_view(t, cred, coords, number).ok()
+            }
+            darkrun_vcs::Provider::GitLab => {
+                let pid = self.gitlab_project_id()?;
+                darkrun_vcs::gitlab_mr_view(t, cred, pid, number).ok()
+            }
+        }
     }
 }
 
-impl Hosting for CliHosting {
+/// Parse the change-request number out of a stored ref (the open-time web URL,
+/// e.g. `…/pull/42` or `…/merge_requests/42`, or a bare number).
+fn parse_ref_number(pr_ref: &str) -> Option<u64> {
+    pr_ref
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()?
+        .split(['?', '#'])
+        .next()?
+        .parse()
+        .ok()
+}
+
+impl Hosting for ApiHosting {
     fn available(&self) -> bool {
-        match self.provider {
-            Provider::GitHub => binary_on_path("gh"),
-            Provider::GitLab => binary_on_path("glab"),
-            Provider::None => false,
-        }
+        self.ready().is_some()
     }
 
     fn open_draft(&self, req: &OpenRequest) -> Option<String> {
-        match self.provider {
-            Provider::GitHub => self.run(
-                "gh",
-                &[
-                    "pr", "create", "--draft", "--head", &req.head, "--base", &req.base, "--title",
-                    &req.title, "--body", &req.body,
-                ],
-            ),
-            Provider::GitLab => self.run(
-                "glab",
-                &[
-                    "mr",
-                    "create",
-                    "--draft",
-                    "--source-branch",
-                    &req.head,
-                    "--target-branch",
-                    &req.base,
-                    "--title",
-                    &req.title,
-                    "--description",
-                    &req.body,
-                    "--yes",
-                ],
-            ),
-            Provider::None => None,
-        }
-    }
-
-    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
-    fn merge_state(&self, pr_ref: &str) -> MergeState {
-        match self.provider {
-            Provider::GitHub => {
-                // `gh pr view <ref> --json state` → {"state":"MERGED"|"OPEN"|"CLOSED"}.
-                let raw = self.run("gh", &["pr", "view", pr_ref, "--json", "state"]);
-                match raw {
-                    Some(json) => parse_github_state(&json),
-                    None => MergeState::Unknown,
-                }
+        let (provider, coords, cred) = self.ready()?;
+        let t = self.transport.as_ref();
+        let cr = match provider {
+            darkrun_vcs::Provider::GitHub => darkrun_vcs::github_create_pull_request_with(
+                t, cred, coords, &req.head, &req.base, &req.title, &req.body, true,
+            )
+            .ok()?,
+            darkrun_vcs::Provider::GitLab => {
+                let project = darkrun_vcs::gitlab_resolve_project(t, cred, coords).ok()?;
+                // GitLab marks a draft MR by a `Draft:` title prefix.
+                let title = if req.title.starts_with("Draft:") {
+                    req.title.clone()
+                } else {
+                    format!("Draft: {}", req.title)
+                };
+                darkrun_vcs::gitlab_create_merge_request(
+                    t, cred, project.id, &req.head, &req.base, &title, &req.body,
+                )
+                .ok()?
             }
-            Provider::GitLab => {
-                // `glab mr view <ref> -F json` → {"state":"merged"|"opened"|"closed"}.
-                let raw = self.run("glab", &["mr", "view", pr_ref, "-F", "json"]);
-                match raw {
-                    Some(json) => parse_gitlab_state(&json),
-                    None => MergeState::Unknown,
-                }
-            }
-            Provider::None => MergeState::Unknown,
-        }
-    }
-
-    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
-    fn is_draft(&self, pr_ref: &str) -> Option<bool> {
-        match self.provider {
-            Provider::GitHub => {
-                // `gh pr view <ref> --json isDraft` → {"isDraft": true|false}.
-                let raw = self.run("gh", &["pr", "view", pr_ref, "--json", "isDraft"])?;
-                parse_bool_field(&raw, "isDraft")
-            }
-            Provider::GitLab => {
-                // GitLab MRs carry a `draft` boolean in their JSON view.
-                let raw = self.run("glab", &["mr", "view", pr_ref, "-F", "json"])?;
-                parse_bool_field(&raw, "draft")
-            }
-            Provider::None => None,
-        }
-    }
-
-    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
-    fn comment(&self, pr_ref: &str, body: &str) -> bool {
-        match self.provider {
-            Provider::GitHub => self
-                .run("gh", &["pr", "comment", pr_ref, "--body", body])
-                .is_some(),
-            Provider::GitLab => self
-                .run("glab", &["mr", "note", pr_ref, "--message", body])
-                .is_some(),
-            Provider::None => false,
-        }
-    }
-
-    #[cfg(not(tarpaulin_include))] // shells out to gh/glab — irreducible network I/O
-    fn review_comments(&self, pr_ref: &str) -> Vec<ReviewComment> {
-        match self.provider {
-            Provider::GitHub => {
-                // `gh pr view <ref> --json comments,reviews` → issue comments +
-                // review verdicts (with `state`). Both carry a stable node `id`.
-                match self.run("gh", &["pr", "view", pr_ref, "--json", "comments,reviews"]) {
-                    Some(json) => parse_github_review_comments(&json),
-                    None => Vec::new(),
-                }
-            }
-            Provider::GitLab => {
-                // `glab mr view <ref> -F json` carries the MR's notes when the
-                // provider includes them; parse defensively (best-effort).
-                match self.run("glab", &["mr", "view", pr_ref, "-F", "json"]) {
-                    Some(json) => parse_gitlab_notes(&json),
-                    None => Vec::new(),
-                }
-            }
-            Provider::None => Vec::new(),
-        }
-    }
-}
-
-/// Render a JSON value's `id` field as a stable string (GitHub uses string node
-/// ids, GitLab uses integer note ids — accept either).
-fn json_id(v: &serde_json::Value) -> Option<String> {
-    match v.get("id")? {
-        serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
-        serde_json::Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    }
-}
-
-/// Parse `gh pr view --json comments,reviews` into review notes (C6).
-///
-/// Issue `comments[]` become plain comments (`c<id>`); `reviews[]` become notes
-/// keyed `r<id>`, with `CHANGES_REQUESTED` flagged as a change request and
-/// `APPROVED`/`DISMISSED`/`PENDING` reviews with an empty body skipped (no
-/// actionable content — an approval isn't work).
-fn parse_github_review_comments(json: &str) -> Vec<ReviewComment> {
-    let Ok(root) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-
-    if let Some(comments) = root.get("comments").and_then(|v| v.as_array()) {
-        for c in comments {
-            let (Some(id), Some(body)) = (json_id(c), c.get("body").and_then(|b| b.as_str()))
-            else {
-                continue;
-            };
-            if body.trim().is_empty() {
-                continue;
-            }
-            out.push(ReviewComment {
-                id: format!("c{id}"),
-                author: github_author(c),
-                body: body.to_string(),
-                change_request: false,
-            });
-        }
-    }
-
-    if let Some(reviews) = root.get("reviews").and_then(|v| v.as_array()) {
-        for r in reviews {
-            let Some(id) = json_id(r) else { continue };
-            let state = r
-                .get("state")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_ascii_uppercase();
-            let body = r.get("body").and_then(|b| b.as_str()).unwrap_or("");
-            let is_change = state == "CHANGES_REQUESTED";
-            // An approval / dismissal / empty comment carries no work — skip it.
-            // A change request with no body still files (the verdict IS the ask).
-            if body.trim().is_empty() && !is_change {
-                continue;
-            }
-            let text = if body.trim().is_empty() {
-                "Reviewer requested changes (no inline summary).".to_string()
-            } else {
-                body.to_string()
-            };
-            out.push(ReviewComment {
-                id: format!("r{id}"),
-                author: github_author(r),
-                body: text,
-                change_request: is_change,
-            });
-        }
-    }
-
-    out
-}
-
-/// Pull `author.login` from a GitHub comment/review object (default `unknown`).
-fn github_author(v: &serde_json::Value) -> String {
-    v.get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(|l| l.as_str())
-        .unwrap_or("unknown")
-        .to_string()
-}
-
-/// Parse GitLab MR notes out of `glab mr view -F json` (best-effort).
-///
-/// glab capitalizes struct fields (`Notes`); accept either case. System notes
-/// (state changes, label edits) carry `system: true` and are skipped — only a
-/// human's discussion becomes feedback. GitLab has no per-note "changes
-/// requested" verdict, so every human note files as a plain comment.
-fn parse_gitlab_notes(json: &str) -> Vec<ReviewComment> {
-    let Ok(root) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let notes = root
-        .get("Notes")
-        .or_else(|| root.get("notes"))
-        .and_then(|v| v.as_array());
-    let Some(notes) = notes else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for n in notes {
-        // Skip system notes (automated activity, not a human comment).
-        let system = n
-            .get("system")
-            .or_else(|| n.get("System"))
-            .and_then(|s| s.as_bool())
-            .unwrap_or(false);
-        if system {
-            continue;
-        }
-        let (Some(id), Some(body)) = (
-            json_id(n),
-            n.get("body")
-                .or_else(|| n.get("Body"))
-                .and_then(|b| b.as_str()),
-        ) else {
-            continue;
         };
-        if body.trim().is_empty() {
-            continue;
-        }
-        let author = n
-            .get("author")
-            .or_else(|| n.get("Author"))
-            .and_then(|a| a.get("username").or_else(|| a.get("Username")))
-            .and_then(|u| u.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        out.push(ReviewComment {
-            id: format!("c{id}"),
-            author,
-            body: body.to_string(),
-            change_request: false,
-        });
+        Some(cr.url)
     }
-    out
-}
 
-/// Extract a top-level boolean `field` from a flat JSON object body. `None` when
-/// the body doesn't parse or the field is absent/non-boolean.
-fn parse_bool_field(json: &str, field: &str) -> Option<bool> {
-    serde_json::from_str::<serde_json::Value>(json)
-        .ok()?
-        .get(field)?
-        .as_bool()
+    fn merge_state(&self, pr_ref: &str) -> MergeState {
+        match self.view(pr_ref).map(|v| v.state) {
+            Some(darkrun_vcs::ChangeRequestState::Open) => MergeState::Open,
+            Some(darkrun_vcs::ChangeRequestState::Merged) => MergeState::Merged,
+            Some(darkrun_vcs::ChangeRequestState::Closed) => MergeState::Closed,
+            None => MergeState::Unknown,
+        }
+    }
+
+    fn is_draft(&self, pr_ref: &str) -> Option<bool> {
+        self.view(pr_ref).map(|v| v.draft)
+    }
+
+    fn comment(&self, pr_ref: &str, body: &str) -> bool {
+        let Some((provider, coords, cred)) = self.ready() else {
+            return false;
+        };
+        let Some(number) = parse_ref_number(pr_ref) else {
+            return false;
+        };
+        let t = self.transport.as_ref();
+        match provider {
+            darkrun_vcs::Provider::GitHub => {
+                darkrun_vcs::github_create_comment(t, cred, coords, number, body).is_ok()
+            }
+            darkrun_vcs::Provider::GitLab => match self.gitlab_project_id() {
+                Some(pid) => darkrun_vcs::gitlab_create_note(t, cred, pid, number, body).is_ok(),
+                None => false,
+            },
+        }
+    }
+
+    fn review_comments(&self, pr_ref: &str) -> Vec<ReviewComment> {
+        let Some((provider, coords, cred)) = self.ready() else {
+            return Vec::new();
+        };
+        let Some(number) = parse_ref_number(pr_ref) else {
+            return Vec::new();
+        };
+        let t = self.transport.as_ref();
+        let notes = match provider {
+            darkrun_vcs::Provider::GitHub => {
+                darkrun_vcs::github_review_notes(t, cred, coords, number).unwrap_or_default()
+            }
+            darkrun_vcs::Provider::GitLab => match self.gitlab_project_id() {
+                Some(pid) => darkrun_vcs::gitlab_notes(t, cred, pid, number).unwrap_or_default(),
+                None => Vec::new(),
+            },
+        };
+        notes
+            .into_iter()
+            .map(|n| ReviewComment {
+                id: n.id,
+                author: n.author,
+                body: n.body,
+                change_request: n.change_request,
+            })
+            .collect()
+    }
 }
 
 /// Resolve the hosting provider for `repo_root` from `.darkrun/settings.yml`'s
@@ -480,44 +415,6 @@ fn resolve_provider(repo_root: &Path) -> Provider {
         Provider::GitLab
     } else {
         Provider::None
-    }
-}
-
-/// Whether a binary is resolvable on `PATH` (a cheap `--version` probe).
-#[cfg(not(tarpaulin_include))] // probes PATH by spawning the CLI — irreducible process I/O
-fn binary_on_path(bin: &str) -> bool {
-    Command::new(bin)
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Parse the merge state out of `gh pr view --json state` output.
-fn parse_github_state(json: &str) -> MergeState {
-    let lower = json.to_ascii_lowercase();
-    if lower.contains("\"merged\"") {
-        MergeState::Merged
-    } else if lower.contains("\"open\"") {
-        MergeState::Open
-    } else if lower.contains("\"closed\"") {
-        MergeState::Closed
-    } else {
-        MergeState::Unknown
-    }
-}
-
-/// Parse the merge state out of `glab mr view -F json` output.
-fn parse_gitlab_state(json: &str) -> MergeState {
-    let lower = json.to_ascii_lowercase();
-    if lower.contains("\"merged\"") {
-        MergeState::Merged
-    } else if lower.contains("\"opened\"") {
-        MergeState::Open
-    } else if lower.contains("\"closed\"") {
-        MergeState::Closed
-    } else {
-        MergeState::Unknown
     }
 }
 
@@ -695,80 +592,6 @@ mod tests {
         assert!(!is_non_fast_forward("permission denied"));
     }
 
-    #[test]
-    fn github_state_parses_merged() {
-        assert_eq!(parse_github_state(r#"{"state":"MERGED"}"#), MergeState::Merged);
-        assert_eq!(parse_github_state(r#"{"state":"OPEN"}"#), MergeState::Open);
-        assert_eq!(parse_github_state(r#"{"state":"CLOSED"}"#), MergeState::Closed);
-        assert_eq!(parse_github_state("garbage"), MergeState::Unknown);
-    }
-
-    #[test]
-    fn gitlab_state_parses_merged() {
-        assert_eq!(parse_gitlab_state(r#"{"state":"merged"}"#), MergeState::Merged);
-        assert_eq!(parse_gitlab_state(r#"{"state":"opened"}"#), MergeState::Open);
-        assert_eq!(parse_gitlab_state(r#"{"state":"closed"}"#), MergeState::Closed);
-    }
-
-    #[test]
-    fn github_review_comments_split_change_requests_from_comments() {
-        let json = r#"{
-            "comments": [
-                {"id": "IC_1", "author": {"login": "bob"}, "body": "nit: rename this"},
-                {"id": "IC_2", "author": {"login": "x"}, "body": "   "}
-            ],
-            "reviews": [
-                {"id": "PRR_9", "author": {"login": "alice"}, "body": "needs a metric", "state": "CHANGES_REQUESTED"},
-                {"id": "PRR_8", "author": {"login": "carol"}, "body": "", "state": "APPROVED"},
-                {"id": "PRR_7", "author": {"login": "dave"}, "body": "", "state": "CHANGES_REQUESTED"}
-            ]
-        }"#;
-        let got = parse_github_review_comments(json);
-        // The empty issue comment and the empty APPROVED review are dropped; the
-        // two change requests + the one real comment survive.
-        assert_eq!(got.len(), 3, "got {got:?}");
-        let cr = got.iter().find(|c| c.id == "rPRR_9").unwrap();
-        assert!(cr.change_request);
-        assert_eq!(cr.author, "alice");
-        assert_eq!(cr.body, "needs a metric");
-        // An empty-body change request still files, with a synthetic ask.
-        let empty_cr = got.iter().find(|c| c.id == "rPRR_7").unwrap();
-        assert!(empty_cr.change_request);
-        assert!(empty_cr.body.contains("requested changes"));
-        // The issue comment is keyed `c<id>` and not a change request.
-        let comment = got.iter().find(|c| c.id == "cIC_1").unwrap();
-        assert!(!comment.change_request);
-        // The APPROVED review with no body contributes nothing.
-        assert!(got.iter().all(|c| c.id != "rPRR_8"));
-    }
-
-    #[test]
-    fn github_review_comments_empty_on_garbage() {
-        assert!(parse_github_review_comments("not json").is_empty());
-        assert!(parse_github_review_comments("{}").is_empty());
-    }
-
-    #[test]
-    fn gitlab_notes_skip_system_and_capitalize_either_case() {
-        let json = r#"{
-            "Notes": [
-                {"id": 11, "system": true, "body": "changed the description", "author": {"username": "gitbot"}},
-                {"id": 12, "system": false, "body": "please add a test", "author": {"username": "erin"}},
-                {"id": 13, "system": false, "body": "  ", "author": {"username": "x"}}
-            ]
-        }"#;
-        let got = parse_gitlab_notes(json);
-        assert_eq!(got.len(), 1, "only the one human, non-empty note survives: {got:?}");
-        assert_eq!(got[0].id, "c12");
-        assert_eq!(got[0].author, "erin");
-        assert!(!got[0].change_request, "gitlab notes file as plain comments");
-    }
-
-    #[test]
-    fn gitlab_notes_empty_when_absent() {
-        assert!(parse_gitlab_notes(r#"{"state":"opened"}"#).is_empty());
-        assert!(parse_gitlab_notes("garbage").is_empty());
-    }
 
     #[test]
     fn provider_resolves_from_settings() {
@@ -788,125 +611,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // No settings, no git remote → None (the await-fallback case).
         assert_eq!(resolve_provider(dir.path()), Provider::None);
-    }
-
-    /// A `none`-provider CLI client is never available, so the manager takes the
-    /// await fallback rather than attempting a PR.
-    #[test]
-    fn none_provider_client_is_unavailable() {
-        let dir = tempfile::tempdir().unwrap();
-        let client = CliHosting::resolve(dir.path());
-        assert!(!client.available());
-        assert!(client
-            .open_draft(&OpenRequest {
-                head: "h".into(),
-                base: "b".into(),
-                title: "t".into(),
-                body: "b".into(),
-            })
-            .is_none());
-        assert_eq!(client.merge_state("1"), MergeState::Unknown);
-    }
-
-    /// Build a `CliHosting` whose provider is forced via a settings file, in a
-    /// throwaway non-git directory so every CLI call fails fast (no repo / no
-    /// auth) and returns its best-effort fallback — exercising the GitHub and
-    /// GitLab dispatch arms without a real `gh`/`glab` round-trip.
-    fn forced(provider: &str) -> (tempfile::TempDir, CliHosting) {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".darkrun")).unwrap();
-        std::fs::write(
-            dir.path().join(".darkrun").join("settings.yml"),
-            format!("hosting: {provider}\n"),
-        )
-        .unwrap();
-        let client = CliHosting::resolve(dir.path());
-        (dir, client)
-    }
-
-    /// Every provider dispatch arm runs and degrades gracefully to its fallback
-    /// when the CLI can't act (non-repo dir): `open_draft` -> None, `merge_state`
-    /// -> Unknown, `is_draft` -> None, `comment` -> false, `review_comments` ->
-    /// empty. Covers the GitHub + GitLab arms regardless of whether the binaries
-    /// are installed on the host.
-    #[test]
-    fn provider_arms_degrade_to_fallback_without_a_live_cli() {
-        let req = OpenRequest {
-            head: "darkrun/x/frame".into(),
-            base: "darkrun/x/main".into(),
-            title: "t".into(),
-            body: "b".into(),
-        };
-        for provider in ["github", "gitlab"] {
-            let (_d, client) = forced(provider);
-            // `available()` probes the CLI binary; either answer is fine, the arm runs.
-            let _ = client.available();
-            assert!(client.open_draft(&req).is_none(), "{provider} open_draft");
-            assert_eq!(client.merge_state("1"), MergeState::Unknown, "{provider} merge_state");
-            assert_eq!(client.is_draft("1"), None, "{provider} is_draft");
-            assert!(!client.comment("1", "hi"), "{provider} comment");
-            assert!(client.review_comments("1").is_empty(), "{provider} review_comments");
-        }
-    }
-
-    #[test]
-    fn json_id_accepts_strings_and_numbers_only() {
-        use serde_json::json;
-        assert_eq!(json_id(&json!({"id": "abc"})).as_deref(), Some("abc"));
-        assert_eq!(json_id(&json!({"id": 42})).as_deref(), Some("42"));
-        assert!(json_id(&json!({"id": ""})).is_none()); // empty string
-        assert!(json_id(&json!({"id": true})).is_none()); // a bool is not an id
-        assert!(json_id(&json!({"other": 1})).is_none()); // absent
-    }
-
-    #[test]
-    fn parse_bool_field_reads_or_rejects() {
-        assert_eq!(parse_bool_field(r#"{"isDraft":true}"#, "isDraft"), Some(true));
-        assert_eq!(parse_bool_field(r#"{"isDraft":false}"#, "isDraft"), Some(false));
-        assert_eq!(parse_bool_field(r#"{"x":1}"#, "isDraft"), None); // absent
-        assert_eq!(parse_bool_field(r#"{"isDraft":"yes"}"#, "isDraft"), None); // non-bool
-        assert_eq!(parse_bool_field("not json", "isDraft"), None); // unparseable
-    }
-
-    #[test]
-    fn gitlab_state_unknown_for_unrecognized() {
-        assert_eq!(parse_gitlab_state(r#"{"state":"locked"}"#), MergeState::Unknown);
-    }
-
-    #[test]
-    fn github_review_comments_skip_empty_and_keep_bodyless_change_requests() {
-        let json = r#"{
-            "comments": [
-                {"id": 1, "body": "real note", "author": {"login": "a"}},
-                {"id": 2, "body": "   ", "author": {"login": "b"}},
-                {"body": "no id", "author": {"login": "c"}}
-            ],
-            "reviews": [
-                {"id": 10, "state": "APPROVED", "body": "", "author": {"login": "d"}},
-                {"id": 11, "state": "CHANGES_REQUESTED", "body": "", "author": {"login": "e"}}
-            ]
-        }"#;
-        let got = parse_github_review_comments(json);
-        // The real comment + the bodyless change-request survive; empty/idless drop.
-        assert_eq!(got.len(), 2);
-        let cr = got.iter().find(|c| c.change_request).expect("a change request files");
-        assert!(cr.body.contains("requested changes"));
-        assert_eq!(cr.id, "r11");
-        assert_eq!(cr.author, "e");
-        assert!(got.iter().any(|c| c.id == "c1" && c.author == "a"));
-    }
-
-    #[test]
-    fn gitlab_notes_skip_idless_and_empty_bodies() {
-        let json = r#"{"notes":[
-            {"id": 5, "body": "keep me", "author": {"username": "u"}},
-            {"body": "no id"},
-            {"id": 6, "body": "  "}
-        ]}"#;
-        let got = parse_gitlab_notes(json);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].id, "c5");
-        assert_eq!(got[0].author, "u");
     }
 
     #[test]
@@ -1022,5 +726,173 @@ mod tests {
         assert_eq!(gl, Provider::GitLab);
         let (_other, other) = mk("https://example.com/o/r.git");
         assert_eq!(other, Provider::None);
+    }
+
+    // ── ApiHosting over a MockTransport (the REST flow + mapping) ──────────
+
+    use darkrun_vcs::{Credential, HttpResponse, Method as VcsMethod, MockTransport, RepoCoords};
+
+    fn gh_api(mock: MockTransport) -> ApiHosting {
+        ApiHosting::from_parts(
+            Some(darkrun_vcs::Provider::GitHub),
+            Some(RepoCoords::new("github.com", "o", "r")),
+            Some(Credential::new(darkrun_vcs::Provider::GitHub, "tok")),
+            Box::new(mock),
+        )
+    }
+    fn json_resp(status: u16, v: serde_json::Value) -> HttpResponse {
+        HttpResponse::new(status, serde_json::to_vec(&v).unwrap())
+    }
+    fn open_req() -> OpenRequest {
+        OpenRequest {
+            head: "darkrun/x/frame".into(),
+            base: "darkrun/x/main".into(),
+            title: "Frame".into(),
+            body: "body".into(),
+        }
+    }
+
+    #[test]
+    fn api_hosting_unconfigured_is_unavailable_and_safe() {
+        let h = ApiHosting::from_parts(None, None, None, Box::new(MockTransport::new()));
+        assert!(!h.available());
+        assert!(h.open_draft(&open_req()).is_none());
+        assert_eq!(h.merge_state("1"), MergeState::Unknown);
+        assert_eq!(h.is_draft("1"), None);
+        assert!(!h.comment("1", "hi"));
+        assert!(h.review_comments("1").is_empty());
+    }
+
+    #[test]
+    fn parse_ref_number_reads_urls_and_bare_numbers() {
+        assert_eq!(parse_ref_number("https://github.com/o/r/pull/42"), Some(42));
+        assert_eq!(
+            parse_ref_number("https://gitlab.com/o/r/-/merge_requests/7"),
+            Some(7)
+        );
+        assert_eq!(parse_ref_number("13"), Some(13));
+        assert_eq!(parse_ref_number(".../pull/9?foo=1"), Some(9));
+        assert_eq!(parse_ref_number("not-a-number"), None);
+    }
+
+    #[test]
+    fn github_open_draft_posts_a_draft_pr_and_returns_its_url() {
+        let mock = MockTransport::new();
+        mock.expect(
+            VcsMethod::Post,
+            "https://api.github.com/repos/o/r/pulls",
+            json_resp(
+                201,
+                serde_json::json!({"number": 7, "html_url": "https://github.com/o/r/pull/7"}),
+            ),
+        );
+        let h = gh_api(mock);
+        assert_eq!(
+            h.open_draft(&open_req()).as_deref(),
+            Some("https://github.com/o/r/pull/7")
+        );
+    }
+
+    #[test]
+    fn github_merge_state_maps_merged_open_closed() {
+        for (merged, state, want) in [
+            (true, "closed", MergeState::Merged),
+            (false, "open", MergeState::Open),
+            (false, "closed", MergeState::Closed),
+        ] {
+            let mock = MockTransport::new();
+            mock.expect(
+                VcsMethod::Get,
+                "https://api.github.com/repos/o/r/pulls/7",
+                json_resp(200, serde_json::json!({"merged": merged, "state": state})),
+            );
+            let h = gh_api(mock);
+            assert_eq!(h.merge_state("https://github.com/o/r/pull/7"), want);
+        }
+    }
+
+    #[test]
+    fn github_is_draft_reads_the_flag() {
+        let mock = MockTransport::new();
+        mock.expect(
+            VcsMethod::Get,
+            "https://api.github.com/repos/o/r/pulls/7",
+            json_resp(200, serde_json::json!({"state": "open", "draft": true})),
+        );
+        assert_eq!(gh_api(mock).is_draft("…/pull/7"), Some(true));
+    }
+
+    #[test]
+    fn github_comment_posts_and_confirms() {
+        let mock = MockTransport::new();
+        mock.expect(
+            VcsMethod::Post,
+            "https://api.github.com/repos/o/r/issues/7/comments",
+            json_resp(201, serde_json::json!({"id": 1})),
+        );
+        assert!(gh_api(mock).comment("…/pull/7", "proof attached"));
+    }
+
+    #[test]
+    fn github_review_comments_map_comments_and_change_requests() {
+        let mock = MockTransport::new();
+        mock.expect(
+            VcsMethod::Get,
+            "https://api.github.com/repos/o/r/issues/7/comments",
+            json_resp(
+                200,
+                serde_json::json!([
+                    {"id": 1, "user": {"login": "bob"}, "body": "nit"},
+                    {"id": 2, "user": {"login": "x"}, "body": ""}
+                ]),
+            ),
+        );
+        mock.expect(
+            VcsMethod::Get,
+            "https://api.github.com/repos/o/r/pulls/7/reviews",
+            json_resp(
+                200,
+                serde_json::json!([
+                    {"id": 9, "user": {"login": "alice"}, "body": "needs a metric", "state": "CHANGES_REQUESTED"},
+                    {"id": 8, "user": {"login": "carol"}, "body": "", "state": "APPROVED"}
+                ]),
+            ),
+        );
+        let got = gh_api(mock).review_comments("…/pull/7");
+        // The empty comment + bodyless APPROVED review drop; the nit + the
+        // change-request survive.
+        assert_eq!(got.len(), 2, "{got:?}");
+        let cr = got.iter().find(|c| c.change_request).unwrap();
+        assert_eq!(cr.id, "r9");
+        assert_eq!(cr.author, "alice");
+        assert!(got.iter().any(|c| c.id == "c1" && !c.change_request));
+    }
+
+    #[test]
+    fn gitlab_open_draft_resolves_project_then_creates_with_draft_prefix() {
+        let mock = MockTransport::new();
+        mock.expect(
+            VcsMethod::Get,
+            "https://gitlab.com/api/v4/projects/o%2Fr",
+            json_resp(200, serde_json::json!({"id": 55, "default_branch": "main"})),
+        );
+        mock.expect(
+            VcsMethod::Post,
+            "https://gitlab.com/api/v4/projects/55/merge_requests",
+            json_resp(
+                201,
+                serde_json::json!({"iid": 3, "web_url": "https://gitlab.com/o/r/-/merge_requests/3"}),
+            ),
+        );
+        let h = ApiHosting::from_parts(
+            Some(darkrun_vcs::Provider::GitLab),
+            Some(RepoCoords::new("gitlab.com", "o", "r")),
+            Some(Credential::new(darkrun_vcs::Provider::GitLab, "tok")),
+            Box::new(mock),
+        );
+        assert_eq!(
+            h.open_draft(&open_req()).as_deref(),
+            Some("https://gitlab.com/o/r/-/merge_requests/3")
+        );
     }
 }

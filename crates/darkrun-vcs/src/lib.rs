@@ -43,8 +43,11 @@ pub use oauth::{authorize_url, exchange_code, percent_encode};
 pub use provider::{Credential, Provider};
 pub use remote::{parse_remote_url, RepoCoords};
 pub use rest::{
-    create_change_request, github_create_pull_request, github_get_repo,
-    gitlab_create_merge_request, gitlab_resolve_project, ChangeRequest, RepoInfo,
+    create_change_request, github_create_comment, github_create_pull_request,
+    github_create_pull_request_with, github_get_repo, github_pull_view, github_review_notes,
+    gitlab_create_merge_request, gitlab_create_note, gitlab_mr_view, gitlab_notes,
+    gitlab_resolve_project, ChangeRequest, ChangeRequestState, ChangeRequestView, RemoteNote,
+    RepoInfo,
 };
 pub use store::CredentialStore;
 pub use transport::{HttpRequest, HttpResponse, HttpTransport, Method, MockTransport};

@@ -2012,7 +2012,7 @@ fn resolve_discrete_gate<H: crate::hosting::Hosting>(
 /// [`resolve_discrete_gate`] (the hosting PR open/merge) before the derive.
 pub fn run_tick(store: &StateStore, slug: &str) -> Result<TickResult> {
     let repo_root = cascade_repo_root(store);
-    let hosting = crate::hosting::CliHosting::resolve(&repo_root);
+    let hosting = crate::hosting::ApiHosting::resolve(&repo_root);
     run_tick_with_hosting(store, slug, &hosting)
 }
 
