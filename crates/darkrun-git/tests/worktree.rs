@@ -1997,3 +1997,56 @@ fn gix_commit_produces_a_git_identical_tree() {
         .args(["fsck", "--strict"]).output().unwrap();
     assert!(fsck.status.success(), "git fsck: {}", String::from_utf8_lossy(&fsck.stderr));
 }
+
+/// gix add_paths stages worktree content into the index exactly like `git add`,
+/// preserving the executable mode, and the staged tree round-trips through git.
+#[test]
+fn gix_add_paths_stages_like_git() {
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("foo.txt"), "foo\n").unwrap();
+    std::fs::write(root.join("README.md"), "# changed\n").unwrap(); // modify a tracked file
+    std::fs::write(root.join("run.sh"), "#!/bin/sh\n").unwrap();
+    let _ = std::process::Command::new("chmod").arg("+x").arg(root.join("run.sh")).status();
+
+    Git::open_gix(&root)
+        .unwrap()
+        .add_paths(&root, &["foo.txt".into(), "README.md".into(), "run.sh".into()])
+        .unwrap();
+
+    // All three are staged (in the index), not merely worktree-dirty.
+    let staged = git_out(&root, &["diff", "--cached", "--name-only"]);
+    for f in ["foo.txt", "README.md", "run.sh"] {
+        assert!(staged.contains(f), "{f} staged; got:\n{staged}");
+    }
+    // The index tree round-trips through git, and content/mode are correct.
+    assert!(!git_out(&root, &["write-tree"]).is_empty());
+    assert_eq!(git_out(&root, &["cat-file", "blob", ":foo.txt"]), "foo");
+    let staged_modes = git_out(&root, &["ls-files", "--stage"]);
+    assert!(staged_modes.contains("100755") && staged_modes.contains("run.sh"), "exec mode kept:\n{staged_modes}");
+}
+
+/// gix checkout_paths restores a path's content from a ref into both the
+/// worktree and the index (the engine-protected restore).
+#[test]
+fn gix_checkout_paths_restores_from_ref() {
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("state.md"), "v1\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "v1"]);
+
+    // Diverge the worktree (and stage the divergence).
+    std::fs::write(root.join("state.md"), "v2-local\n").unwrap();
+    git(&root, &["add", "-A"]);
+
+    // Restore the committed version.
+    Git::open_gix(&root)
+        .unwrap()
+        .checkout_paths(&root, "HEAD", &["state.md".into()])
+        .unwrap();
+
+    // Worktree file is back to v1...
+    assert_eq!(std::fs::read_to_string(root.join("state.md")).unwrap(), "v1\n");
+    // ...and the index now matches HEAD again (nothing staged).
+    let staged = git_out(&root, &["diff", "--cached", "--name-only"]);
+    assert!(staged.is_empty(), "index restored to HEAD; staged: {staged:?}");
+}

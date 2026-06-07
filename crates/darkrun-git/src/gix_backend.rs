@@ -115,6 +115,49 @@ fn write_tree_node(
     Ok(repo.write_object(&tree).map_err(gix_err)?.detach())
 }
 
+/// Whether a worktree file's mode has any execute bit set (regular files only).
+#[cfg(unix)]
+fn is_executable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o111 != 0
+}
+#[cfg(not(unix))]
+fn is_executable(_meta: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// Upsert `(path, blob)` entries into the worktree index at stage 0 with `mode`,
+/// then write the index back. Replaces any existing entries for those paths and
+/// re-sorts to keep the index canonical. A no-op for an empty batch.
+fn upsert_index_entries(
+    repo: &gix::Repository,
+    entries: &[(Vec<u8>, gix::ObjectId)],
+    mode: gix::index::entry::Mode,
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    use gix::index::entry::{Flags, Stat};
+    let mut index = repo.open_index().map_err(gix_err)?;
+    let paths: std::collections::HashSet<&[u8]> =
+        entries.iter().map(|(p, _)| p.as_slice()).collect();
+    index.remove_entries(|_, p, _| paths.contains(p.as_ref() as &[u8]));
+    for (path, oid) in entries {
+        index.dangerously_push_entry(
+            Stat::default(),
+            *oid,
+            Flags::empty(),
+            mode,
+            gix::bstr::BStr::new(path),
+        );
+    }
+    index.sort_entries();
+    index
+        .write(gix::index::write::Options::default())
+        .map_err(gix_err)?;
+    Ok(())
+}
+
 /// Assemble and write the tree for the (stage-0) index — our `git write-tree`.
 fn write_index_tree(repo: &gix::Repository, index: &gix::index::State) -> Result<gix::ObjectId> {
     let mut root = std::collections::BTreeMap::new();
@@ -323,12 +366,81 @@ impl GitBackend for GixBackend {
         Ok(repo.git_dir().join("MERGE_HEAD").exists())
     }
 
-    fn checkout_paths(&self, _worktree_path: &Path, _from_ref: &str, _paths: &[String]) -> Result<()> {
-        Err(GitError::Unsupported("checkout_paths"))
+    fn checkout_paths(&self, worktree_path: &Path, from_ref: &str, paths: &[String]) -> Result<()> {
+        // Restore each path's content from `from_ref` into the worktree AND the
+        // index (the engine-protected restore: `git checkout <ref> -- <paths>`).
+        // The engine only restores its own regular state files, so mode is FILE.
+        use gix::index::entry::Mode;
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let mut staged: Vec<(Vec<u8>, gix::ObjectId)> = Vec::new();
+        for rel in paths {
+            // `<ref>:<path>` resolves the blob at that path; skip if absent there.
+            let Ok(id) = repo.rev_parse_single(format!("{from_ref}:{rel}").as_str()) else {
+                continue;
+            };
+            let oid = id.detach();
+            let data = repo.find_object(oid).map_err(gix_err)?.data.clone();
+            let abs = worktree_path.join(rel);
+            if let Some(parent) = abs.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| GitError::Io {
+                    path: parent.to_path_buf(),
+                    source: e,
+                })?;
+            }
+            std::fs::write(&abs, &data).map_err(|e| GitError::Io {
+                path: abs.clone(),
+                source: e,
+            })?;
+            staged.push((rel.as_bytes().to_vec(), oid));
+        }
+        upsert_index_entries(&repo, &staged, Mode::FILE)?;
+        Ok(())
     }
 
-    fn add_paths(&self, _worktree_path: &Path, _paths: &[String]) -> Result<()> {
-        Err(GitError::Unsupported("add_paths"))
+    fn add_paths(&self, worktree_path: &Path, paths: &[String]) -> Result<()> {
+        // Stage each path's current worktree content into the index
+        // (`git add -- <paths>`). Writes a blob per file, then upserts the index.
+        use gix::index::entry::Mode;
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        // Group by mode so each upsert batch shares one mode (engine state files
+        // are regular; executables/symlinks handled in their own batches).
+        let mut regular: Vec<(Vec<u8>, gix::ObjectId)> = Vec::new();
+        let mut exec: Vec<(Vec<u8>, gix::ObjectId)> = Vec::new();
+        let mut links: Vec<(Vec<u8>, gix::ObjectId)> = Vec::new();
+        for rel in paths {
+            let abs = worktree_path.join(rel);
+            let meta = std::fs::symlink_metadata(&abs).map_err(|e| GitError::Io {
+                path: abs.clone(),
+                source: e,
+            })?;
+            let key = rel.as_bytes().to_vec();
+            if meta.file_type().is_symlink() {
+                let target = std::fs::read_link(&abs).map_err(|e| GitError::Io {
+                    path: abs.clone(),
+                    source: e,
+                })?;
+                let oid = repo
+                    .write_blob(target.to_string_lossy().as_bytes())
+                    .map_err(gix_err)?
+                    .detach();
+                links.push((key, oid));
+            } else {
+                let bytes = std::fs::read(&abs).map_err(|e| GitError::Io {
+                    path: abs.clone(),
+                    source: e,
+                })?;
+                let oid = repo.write_blob(&bytes).map_err(gix_err)?.detach();
+                if is_executable(&meta) {
+                    exec.push((key, oid));
+                } else {
+                    regular.push((key, oid));
+                }
+            }
+        }
+        upsert_index_entries(&repo, &regular, Mode::FILE)?;
+        upsert_index_entries(&repo, &exec, Mode::FILE_EXECUTABLE)?;
+        upsert_index_entries(&repo, &links, Mode::SYMLINK)?;
+        Ok(())
     }
 
     fn commit(&self, worktree_path: &Path, message: &str) -> Result<()> {
