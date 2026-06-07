@@ -28,7 +28,7 @@ pub trait RepoFacts {
     fn current_branch(&self) -> Result<Option<String>, Box<dyn std::error::Error>>;
 }
 
-/// `RepoFacts` backed by shelling out to the `git` CLI at a repo root.
+/// `RepoFacts` read in-process via the pure-Rust git backend at a repo root.
 pub struct GitCliFacts {
     repo_root: std::path::PathBuf,
     remote: String,
@@ -36,7 +36,6 @@ pub struct GitCliFacts {
 
 impl GitCliFacts {
     /// Facts for `repo_root`, reading the named remote (typically `origin`).
-    #[cfg(not(tarpaulin_include))] // the git-CLI facts source — only the network PR path builds it
     pub fn new(repo_root: impl Into<std::path::PathBuf>, remote: impl Into<String>) -> Self {
         Self {
             repo_root: repo_root.into(),
@@ -44,39 +43,24 @@ impl GitCliFacts {
         }
     }
 
-    #[cfg(not(tarpaulin_include))] // shells out to git — irreducible process I/O
-    fn git(&self, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&self.repo_root)
-            .args(args)
-            .output()?;
-        if !out.status.success() {
-            return Err(format!(
-                "git {} failed: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            )
-            .into());
-        }
-        Ok(String::from_utf8(out.stdout)?.trim().to_string())
+    /// Open the repo with the pure-Rust git backend (no `git` CLI).
+    fn open(&self) -> Result<darkrun_git::Git, Box<dyn std::error::Error>> {
+        Ok(darkrun_git::Git::open(&self.repo_root)?)
     }
 }
 
 impl RepoFacts for GitCliFacts {
-    #[cfg(not(tarpaulin_include))] // git remote read — irreducible process I/O
     fn remote_url(&self) -> Result<String, Box<dyn std::error::Error>> {
-        self.git(&["remote", "get-url", &self.remote])
+        use darkrun_git::GitBackend;
+        self.open()?
+            .remote_url(&self.remote)?
+            .ok_or_else(|| format!("remote '{}' is not configured", self.remote).into())
     }
 
-    #[cfg(not(tarpaulin_include))] // git branch read — irreducible process I/O
     fn current_branch(&self) -> Result<Option<String>, Box<dyn std::error::Error>> {
-        let branch = self.git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
-        if branch.is_empty() || branch == "HEAD" {
-            Ok(None)
-        } else {
-            Ok(Some(branch))
-        }
+        use darkrun_git::GitBackend;
+        // A detached HEAD reports no branch (mirrors `rev-parse --abbrev-ref`).
+        Ok(self.open()?.current_branch()?)
     }
 }
 

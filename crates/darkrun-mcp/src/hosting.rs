@@ -467,14 +467,12 @@ fn resolve_provider(repo_root: &Path) -> Provider {
         }
     }
     // 2. Fall back to the git remote URL.
-    let remote = Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(["remote", "get-url", "origin"])
-        .output()
+    let remote = darkrun_git::Git::open(repo_root)
         .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .and_then(|g| {
+            use darkrun_git::GitBackend;
+            g.remote_url("origin").ok().flatten()
+        })
         .unwrap_or_default();
     if remote.contains("github.com") {
         Provider::GitHub
@@ -630,6 +628,14 @@ mod tests {
         fn ls_tree(&self, _: &Path, _: &str, _: &str) -> darkrun_git::Result<Vec<String>> { unimplemented!() }
         fn unresolved_paths(&self, _: &Path) -> darkrun_git::Result<Vec<String>> { unimplemented!() }
         fn refs_have_identical_trees(&self, _: &str, _: &str) -> darkrun_git::Result<bool> { unimplemented!() }
+        fn create_worktree_detached(&self, _: &str, _: &Path, _: &str) -> darkrun_git::Result<darkrun_git::WorktreeInfo> { unimplemented!() }
+        fn head_oid(&self, _: &Path) -> darkrun_git::Result<String> { unimplemented!() }
+        fn set_branch_to(&self, _: &str, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
+        fn delete_branch(&self, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
+        fn remote_url(&self, _: &str) -> darkrun_git::Result<Option<String>> { unimplemented!() }
+        fn default_branch(&self) -> darkrun_git::Result<Option<String>> { unimplemented!() }
+        fn diff_stat(&self, _: &str) -> darkrun_git::Result<String> { unimplemented!() }
+        fn diff(&self, _: &str) -> darkrun_git::Result<String> { unimplemented!() }
     }
 
     #[test]

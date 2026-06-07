@@ -85,16 +85,9 @@ fn web_base() -> String {
 /// Parse the repo's `origin` remote into `(host, owner, repo)` for browse
 /// links. `None` for local-only repos — the slug then renders unlinked.
 fn origin_coords(root: &Path) -> Option<(String, String, String)> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    parse_git_url(String::from_utf8(out.stdout).ok()?.trim())
+    use darkrun_git::GitBackend;
+    let url = darkrun_git::Git::open(root).ok()?.remote_url("origin").ok()??;
+    parse_git_url(url.trim())
 }
 
 /// Pull `(host, owner, repo)` out of an scp-like or URL git remote. `repo` may

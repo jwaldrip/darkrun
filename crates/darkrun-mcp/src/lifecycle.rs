@@ -488,7 +488,7 @@ fn land_child(
         // nothing to land. Retire any leftover worktree, then no-op.
         let _ = git.remove_worktree(wt_name, true);
         let _ = std::fs::remove_dir_all(wt_path);
-        let _ = delete_branch(root, branch);
+        let _ = git.delete_branch(branch);
         return LifecycleOutcome::noop(format!("{branch} already in {parent}; nothing to land"));
     }
 
@@ -503,7 +503,7 @@ fn land_child(
     let _ = std::fs::remove_dir_all(wt_path);
 
     if outcome.performed || git.is_ancestor(branch, parent).unwrap_or(false) {
-        let _ = delete_branch(root, branch);
+        let _ = git.delete_branch(branch);
     }
     outcome
 }
@@ -565,10 +565,7 @@ fn merge_site(git: &Git, root: &Path, target: &str, slug: &str) -> MergeSite {
         .ok()
         .and_then(|ws| ws.into_iter().find(|w| w.branch.as_deref() == Some(target)));
     if let Some(wt) = existing {
-        let dirty = git_at(&wt.path, &["status", "--porcelain"])
-            .map(|o| !o.trim().is_empty())
-            .unwrap_or(true);
-        if dirty {
+        if worktree_is_dirty(&wt.path) {
             return MergeSite::Refused {
                 note: format!(
                     "branch '{target}' is checked out at '{}' with uncommitted or untracked \
@@ -622,13 +619,16 @@ fn merge_into_branch(
             merge_result_outcome(result, source, target)
         }
         MergeSite::Temp { path: merge_wt } => {
-            let merge_wt_str = merge_wt.to_string_lossy().to_string();
             if let Some(parent) = merge_wt.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
+            let wt_name = worktree_name_of(&merge_wt);
             // Detached worktree at the target's commit — works even when the
             // target branch is checked out elsewhere.
-            if git_at(root, &["worktree", "add", "--detach", &merge_wt_str, target]).is_err() {
+            if git
+                .create_worktree_detached(&wt_name, &merge_wt, target)
+                .is_err()
+            {
                 return LifecycleOutcome::noop(format!(
                     "could not create merge worktree for {target}"
                 ));
@@ -643,9 +643,9 @@ fn merge_into_branch(
             let outcome = match &result {
                 Ok(o) if o.ok && o.performed => {
                     // Advance the target branch ref to the merge commit.
-                    match git_at(&merge_wt, &["rev-parse", "HEAD"]) {
+                    match git.head_oid(&merge_wt) {
                         Ok(head) => {
-                            let _ = git_at(root, &["branch", "-f", target, head.trim()]);
+                            let _ = git.set_branch_to(target, &head);
                             LifecycleOutcome::done(format!("merged {source} -> {target}"))
                         }
                         Err(e) => LifecycleOutcome::noop(format!(
@@ -658,7 +658,7 @@ fn merge_into_branch(
 
             if !conflicted {
                 // Tear down the temp worktree only on a clean / no-op outcome.
-                let _ = git_at(root, &["worktree", "remove", "--force", &merge_wt_str]);
+                let _ = git.remove_worktree(&wt_name, true);
                 let _ = std::fs::remove_dir_all(&merge_wt);
             }
             outcome
@@ -714,11 +714,8 @@ pub fn with_worktree_on_branch<T>(
         .ok()
         .and_then(|ws| ws.into_iter().find(|w| w.branch.as_deref() == Some(branch)));
     if let Some(wt) = existing {
-        // Inspect that specific worktree's cleanliness via status in its dir.
-        let dirty = git_at(&wt.path, &["status", "--porcelain"])
-            .map(|o| !o.trim().is_empty())
-            .unwrap_or(true);
-        if dirty {
+        // Inspect that specific worktree's cleanliness in its own dir.
+        if worktree_is_dirty(&wt.path) {
             return Err(format!(
                 "branch '{branch}' is checked out at '{}' with uncommitted or untracked \
                  changes — commit or stash them (and add or clean untracked files) so the \
@@ -735,15 +732,15 @@ pub fn with_worktree_on_branch<T>(
         .join("worktrees")
         .join(slug)
         .join(format!("_wt-{}", sanitize(branch)));
-    let temp_str = temp.to_string_lossy().to_string();
     if let Some(parent) = temp.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if git_at(root, &["worktree", "add", "--detach", &temp_str, branch]).is_err() {
+    let wt_name = worktree_name_of(&temp);
+    if git.create_worktree_detached(&wt_name, &temp, branch).is_err() {
         return Err(format!("could not create a worktree on '{branch}'"));
     }
     let out = f(&temp);
-    let _ = git_at(root, &["worktree", "remove", "--force", &temp_str]);
+    let _ = git.remove_worktree(&wt_name, true);
     let _ = std::fs::remove_dir_all(&temp);
     Ok(out)
 }
@@ -833,31 +830,22 @@ pub fn sync_branch_downstream(store: &StateStore, slug: &str, station: &str) -> 
     }
 }
 
-/// Run `git -C <dir> <args>`, returning trimmed stdout on success. Used for the
-/// handful of merge-worktree plumbing commands not on the GitBackend trait.
-fn git_at(dir: &Path, args: &[&str]) -> std::io::Result<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()?;
-    if !output.status.success() {
-        return Err(std::io::Error::other(
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+/// Whether the worktree checked out at `path` has uncommitted or untracked
+/// changes. Opens the worktree in-process (pure-Rust gix); any error is treated
+/// as dirty so the engine never merges into a tree it couldn't inspect.
+fn worktree_is_dirty(path: &Path) -> bool {
+    Git::open(path)
+        .and_then(|g| g.is_clean())
+        .map(|clean| !clean)
+        .unwrap_or(true)
 }
 
-/// Delete a local branch via the shell (no GitBackend primitive for it; the
-/// merge worktree on `target` already holds the merged result).
-fn delete_branch(root: &Path, branch: &str) -> std::io::Result<()> {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["branch", "-D", branch])
-        .output()
-        .map(|_| ())
+/// The worktree admin name for a path — its final component, matching how
+/// `git worktree add <path>` derives the name. Used to pair create + remove.
+fn worktree_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Make a branch name filesystem-safe for a worktree directory component.

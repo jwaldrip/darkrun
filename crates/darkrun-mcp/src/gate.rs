@@ -2,11 +2,12 @@
 //!
 //! Computes the current diff and hands back review instructions so the agent
 //! can run a deliberate code review before a station's checkpoint locks. The
-//! manager stays a pure read; this shells `git` to read the working tree.
+//! manager stays a pure read; the diff is read in-process via the pure-Rust
+//! git backend (no `git` CLI).
 
 use std::path::Path;
-use std::process::Command;
 
+use darkrun_git::{Git, GitBackend};
 use serde::Serialize;
 
 /// The diff to review and the instructions for reviewing it.
@@ -25,20 +26,18 @@ pub struct GateReview {
 /// The largest diff we inline before truncating (keeps the tool result bounded).
 const MAX_DIFF: usize = 60_000;
 
-/// Run `git <args>` in `root`, returning stdout (empty on failure).
-fn git(root: &Path, args: &[&str]) -> String {
-    Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
-}
-
 /// Compute the gate review for the working tree at `repo_root`.
 pub fn gate_review(repo_root: &Path) -> GateReview {
-    let stat = git(repo_root, &["diff", "--stat", "HEAD"]);
-    let full = git(repo_root, &["diff", "HEAD"]);
+    // Read the diff in-process; an unopenable repo yields an empty review.
+    let git = Git::open(repo_root).ok();
+    let stat = git
+        .as_ref()
+        .and_then(|g| g.diff_stat("HEAD").ok())
+        .unwrap_or_default();
+    let full = git
+        .as_ref()
+        .and_then(|g| g.diff("HEAD").ok())
+        .unwrap_or_default();
     let truncated = full.len() > MAX_DIFF;
     let diff = if truncated {
         let mut d: String = full.chars().take(MAX_DIFF).collect();

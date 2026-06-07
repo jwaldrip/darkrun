@@ -246,23 +246,12 @@ const MERGE_IN_PROGRESS_MARKERS: &[&str] = &[
 /// conflicted engine files to resolve any in-flight merge — schema validation
 /// stays on regardless. Falls back to `false` (not merging) outside a git repo.
 pub fn is_merge_in_progress(cwd: &Path) -> bool {
-    let git_dir = std::process::Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(["rev-parse", "--git-dir"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty());
-    let Some(git_dir) = git_dir else {
+    // Resolve the git dir in-process (handles linked worktrees, whose markers
+    // live under `.git/worktrees/<name>/`). Outside a repo → not merging.
+    let Ok(repo) = gix::discover(cwd) else {
         return false;
     };
-    let abs = if Path::new(&git_dir).is_absolute() {
-        PathBuf::from(&git_dir)
-    } else {
-        cwd.join(&git_dir)
-    };
+    let abs = repo.git_dir();
     MERGE_IN_PROGRESS_MARKERS
         .iter()
         .any(|m| abs.join(m).exists())

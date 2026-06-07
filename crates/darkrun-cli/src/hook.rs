@@ -482,6 +482,9 @@ mod tests {
     #[test]
     fn run_handles_all_eight_hooks_without_panicking() {
         let tmp = TempDir::new().unwrap();
+        // Restore the process CWD before `tmp` drops — leaving it on a deleted
+        // dir breaks any parallel test whose in-process git resolves the CWD.
+        let prev = std::env::current_dir().ok();
         std::env::set_current_dir(tmp.path()).unwrap();
         for name in [
             "redirect-plan-mode",
@@ -496,6 +499,9 @@ mod tests {
         ] {
             // Should not panic; empty stdin parses to Null and no-ops.
             run(name);
+        }
+        if let Some(prev) = prev {
+            let _ = std::env::set_current_dir(prev);
         }
     }
 

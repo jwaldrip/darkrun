@@ -4,8 +4,8 @@
 //! applying; this tool detects always and writes only when asked.
 
 use std::path::Path;
-use std::process::Command;
 
+use darkrun_git::{Git, GitBackend};
 use serde::Serialize;
 
 /// The detected project environment.
@@ -21,15 +21,6 @@ pub struct Settings {
     pub default_branch: String,
     /// Whether `.darkrun/settings.yml` was written this call.
     pub written: bool,
-}
-
-fn git(root: &Path, args: &[&str]) -> String {
-    Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
 }
 
 fn hosting_from_remote(remote: &str) -> &'static str {
@@ -58,7 +49,12 @@ pub fn setup(repo_root: &Path, apply: bool) -> std::io::Result<Settings> {
     } else {
         "none"
     };
-    let remote = git(repo_root, &["remote", "get-url", "origin"]);
+    // Read remote + branch state in-process via the pure-Rust git backend.
+    let git = Git::open(repo_root).ok();
+    let remote = git
+        .as_ref()
+        .and_then(|g| g.remote_url("origin").ok().flatten())
+        .unwrap_or_default();
     let hosting = hosting_from_remote(&remote);
     let ci = if repo_root.join(".github/workflows").is_dir() {
         "github-actions"
@@ -70,16 +66,11 @@ pub fn setup(repo_root: &Path, apply: bool) -> std::io::Result<Settings> {
         "none"
     };
     // origin/HEAD → default branch; fall back to the current branch, then main.
-    let head_ref = git(repo_root, &["symbolic-ref", "refs/remotes/origin/HEAD"]);
-    let default_branch = head_ref
-        .rsplit('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            let cur = git(repo_root, &["branch", "--show-current"]);
-            if cur.is_empty() { "main".to_string() } else { cur }
-        });
+    let default_branch = git
+        .as_ref()
+        .and_then(|g| g.default_branch().ok().flatten())
+        .or_else(|| git.as_ref().and_then(|g| g.current_branch().ok().flatten()))
+        .unwrap_or_else(|| "main".to_string());
 
     let mut written = false;
     if apply {

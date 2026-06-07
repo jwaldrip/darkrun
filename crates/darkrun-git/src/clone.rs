@@ -2,34 +2,34 @@
 //!
 //! The rest of this crate is deliberately network-free — worktree and status
 //! queries against a repo that already exists locally. Cloning is the one
-//! operation that reaches the network, and it shells out to the `git`
-//! executable rather than driving libgit2: the workspace builds `git2` with
-//! `default-features = false`, which omits the bundled https/ssh transport, so
-//! libgit2 can't fetch from a remote here. Shelling out also means clone
-//! inherits the user's existing git auth (credential helpers, ssh agent, host
-//! config) exactly as `git clone` on the command line would — no separate
-//! credential plumbing to maintain.
+//! operation that reaches the network, driven in-process by gitoxide's
+//! pure-Rust clone (reqwest + rustls for HTTPS) — no `git` CLI, no C.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::sync::atomic::AtomicBool;
 
 use crate::error::{GitError, Result};
 use crate::Git;
 
+/// Map any gix error into our crate error.
+fn gix_err(e: impl std::fmt::Display) -> GitError {
+    GitError::Gix(e.to_string())
+}
+
 /// Clone `url` into `dest`, returning a [`Git`] facade open on the clone.
 ///
 /// `dest` is the working-tree directory to create (e.g. `~/darkrun/<repo>`); it
-/// must not already exist as a non-empty directory (git refuses to clone into
-/// one), and its parent is created if missing. On success the destination holds
-/// the checked-out repo and the returned [`Git`] is opened against it.
+/// must not already exist as a non-empty directory, and its parent is created
+/// if missing. On success the destination holds the checked-out repo and the
+/// returned [`Git`] is opened against it.
 ///
-/// Surfaces a [`GitError::Command`] carrying git's stderr when the clone fails
+/// Surfaces a [`GitError::Gix`] carrying gitoxide's message when the clone fails
 /// (bad URL, auth failure, network down), so callers can show the operator the
 /// real reason instead of a generic error.
 #[cfg(not(tarpaulin_include))] // clones a repo over the network — irreducible I/O
 pub fn clone_repo(url: &str, dest: &Path) -> Result<Git> {
     // Create the parent so a target like `~/darkrun/<repo>` works on a fresh
-    // machine where `~/darkrun` doesn't exist yet. git creates `dest` itself.
+    // machine where `~/darkrun` doesn't exist yet. gix creates `dest` itself.
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|source| GitError::Io {
             path: parent.to_path_buf(),
@@ -37,19 +37,16 @@ pub fn clone_repo(url: &str, dest: &Path) -> Result<Git> {
         })?;
     }
 
-    let dest_str = dest.to_string_lossy().to_string();
-    let args = ["clone", url, dest_str.as_str()];
-    let output = Command::new("git")
-        .args(args)
-        .output()
-        .map_err(GitError::BareIo)?;
-    if !output.status.success() {
-        return Err(GitError::Command {
-            args: args.iter().map(|s| s.to_string()).collect(),
-            status: output.status,
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
+    // Fetch into a fresh repo at `dest`, then check out its main worktree. Under
+    // `blocking-network-client` these are synchronous (maybe_async-stripped).
+    let interrupt = AtomicBool::new(false);
+    let mut fetch = gix::prepare_clone(url, dest).map_err(gix_err)?;
+    let (mut checkout, _) = fetch
+        .fetch_then_checkout(gix::progress::Discard, &interrupt)
+        .map_err(gix_err)?;
+    checkout
+        .main_worktree(gix::progress::Discard, &interrupt)
+        .map_err(gix_err)?;
 
     // Open the freshly-cloned tree so the caller gets a ready-to-use facade.
     Git::open(dest)
@@ -138,12 +135,12 @@ mod tests {
     }
 
     #[test]
-    fn clone_bad_url_surfaces_command_error() {
+    fn clone_bad_url_surfaces_an_error() {
         let work = TempDir::new().unwrap();
         let dest = work.path().join("nope");
         match clone_repo("/this/path/does/not/exist.git", &dest) {
-            Err(GitError::Command { .. }) => {}
-            Err(other) => panic!("expected a command error, got {other:?}"),
+            Err(GitError::Gix(_)) => {}
+            Err(other) => panic!("expected a gix error, got {other:?}"),
             Ok(_) => panic!("clone of a nonexistent source should fail"),
         }
     }
