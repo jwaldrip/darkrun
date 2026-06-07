@@ -22,7 +22,7 @@ terraform {
   # TF_TOKEN_app_terraform_io token in CI. Confirm the org slug matches your TFC
   # organization before the first `terraform init` (init migrates state here).
   cloud {
-    organization = "darkrun"
+    organization = "darkrun-ai"
     workspaces {
       name = "darkrun-infra"
     }

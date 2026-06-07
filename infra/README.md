@@ -77,17 +77,17 @@ terraform apply
 
 ### HCP Terraform workspace
 
-The `cloud {}` block in `versions.tf` points at organization `darkrun`, workspace
-`darkrun-infra` (override via `TF_CLOUD_ORGANIZATION` / `TF_WORKSPACE`). For
-**remote** execution, set these as **workspace variables** in TFC:
+The `cloud {}` block in `versions.tf` points at organization `darkrun-ai`,
+workspace `darkrun-infra` (override via `TF_CLOUD_ORGANIZATION` / `TF_WORKSPACE`).
+Runs execute **remotely** on TFC, so set these as **workspace variables** in the
+`darkrun-infra` workspace:
 
-- Environment: `SENTRY_AUTH_TOKEN` (sensitive), plus GCP credentials — either
-  GCP **dynamic provider credentials** (recommended; no key) or
-  `GOOGLE_CREDENTIALS` (a SA key, sensitive).
+- Environment: `SENTRY_AUTH_TOKEN` (sensitive), plus GCP credentials — use GCP
+  **dynamic provider credentials** (recommended; no static key — TFC's workload
+  identity federates into GCP), or `GOOGLE_CREDENTIALS` (a SA key, sensitive).
 - Terraform: `sentry_organization`, `sentry_team` (or keep them in tfvars).
 
-For **local** execution (TFC stores state only, runs on your machine), GCP auth
-is your ADC and you can keep org/team in tfvars.
+The first `terraform init` creates/binds the workspace and migrates state into it.
 
 > Not ready for Sentry? `enable_sentry = false` ships Cloud Run first; the DSN
 > secret is skipped and the server no-ops without a DSN.
