@@ -53,10 +53,6 @@ pub enum GitError {
         secs: u64,
     },
 
-    /// An error surfaced from libgit2.
-    #[error("libgit2 error: {0}")]
-    Git2(#[from] git2::Error),
-
     /// An error surfaced from the pure-Rust gitoxide backend.
     #[error("gix error: {0}")]
     Gix(String),

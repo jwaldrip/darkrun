@@ -5,10 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "darkrun git worktree management — libgit2-backed with a shell-out fallback"
+description = "darkrun git worktree management — pure-Rust gitoxide backend (no C, no git CLI)"
 
 [dependencies]
-git2 = { version = "0.20", default-features = false }
 # Pure-Rust git (gitoxide), C-free end to end: default features avoid the
 # zlib-ng/`max-performance` C path; `merge` is the three-way tree/blob merge;
 # the network transport uses reqwest + rustls (pure Rust, no curl/openssl C).
@@ -23,7 +22,6 @@ gix = { version = "0.84", features = [
 # `gix::odb::pack::data::output` lights up. Pure Rust (gix-traverse/-diff).
 gix-pack = { version = "0.71", default-features = false, features = ["generate"] }
 thiserror.workspace = true
-wait-timeout.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

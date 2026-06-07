@@ -5,8 +5,9 @@
 //! (`current_branch`, `is_clean`) and a listing (`list_worktrees`). These tests
 //! drive the public [`Git`] facade against throwaway repositories built in a
 //! `TempDir`, exercising branch reporting, detached-HEAD handling, and the many
-//! edge cases of dirty-file detection. Every scenario runs against both the
-//! libgit2 and shell-out backends so the two implementations stay in lock-step.
+//! edge cases of dirty-file detection. Every scenario runs against the pure-Rust
+//! gix backend, anchored to the real `git` binary (the `git`/`git_out` helpers)
+//! as the conformance oracle.
 //!
 //! NOTE on remote parsing: the public API of this crate does not expose a remote
 //! reader or a host/owner/repo URL parser. Rather than weaken these tests by
@@ -90,12 +91,10 @@ fn sibling(root: &Path, label: &str) -> PathBuf {
 /// A named backend constructor: a label and a function opening a repo root.
 type NamedBackend = (&'static str, fn(&Path) -> darkrun_git::Result<Git>);
 
-/// The two backends under test, as named constructors over a repo root.
+/// The sole backend under test: the pure-Rust gix backend, driven against the
+/// real-`git` oracle (the `git`/`git_out` helpers) for every conformance check.
 fn backends() -> Vec<NamedBackend> {
-    vec![
-        ("libgit2", |p| Git::open_libgit2(p)),
-        ("shell", |p| Git::open_shell(p)),
-    ]
+    vec![("gix", |p| Git::open_gix(p))]
 }
 
 /// Find the worktree entry matching `path` regardless of symlink normalisation.
@@ -939,89 +938,108 @@ fn list_lock_then_unlock_toggles_flag() {
 // ===========================================================================
 
 #[test]
-fn backends_agree_current_branch_on_main() {
+fn gix_current_branch_on_main_matches_real_git() {
     let (_d, root) = init_repo();
     let a = Git::open(&root).unwrap().current_branch().unwrap();
-    let b = Git::open_shell(&root).unwrap().current_branch().unwrap();
-    assert_eq!(a, b, "backends agree on branch (main)");
+    assert_eq!(a.as_deref(), Some(git_out(&root, &["branch", "--show-current"]).as_str()));
+    assert_eq!(a.as_deref(), Some("main"));
 }
 
 #[test]
-fn backends_agree_current_branch_on_feature() {
+fn gix_current_branch_on_feature_matches_real_git() {
     let (_d, root) = init_repo();
     git(&root, &["checkout", "-q", "-b", "feature/agreement"]);
     let a = Git::open(&root).unwrap().current_branch().unwrap();
-    let b = Git::open_shell(&root).unwrap().current_branch().unwrap();
-    assert_eq!(a, b, "backends agree on feature branch");
+    assert_eq!(a.as_deref(), Some(git_out(&root, &["branch", "--show-current"]).as_str()));
     assert_eq!(a.as_deref(), Some("feature/agreement"));
 }
 
 #[test]
-fn backends_agree_current_branch_detached() {
+fn gix_current_branch_detached_matches_real_git() {
     let (_d, root) = init_repo();
     let head = git_out(&root, &["rev-parse", "HEAD"]);
     git(&root, &["checkout", "-q", &head]);
     let a = Git::open(&root).unwrap().current_branch().unwrap();
-    let b = Git::open_shell(&root).unwrap().current_branch().unwrap();
-    assert_eq!(a, b, "backends agree HEAD is detached (both None)");
+    // Detached: `git branch --show-current` is empty, mapping to None.
+    assert_eq!(git_out(&root, &["branch", "--show-current"]), "");
     assert_eq!(a, None);
 }
 
 #[test]
-fn backends_agree_is_clean_fresh() {
+fn gix_is_clean_fresh_matches_real_git() {
     let (_d, root) = init_repo();
     let a = Git::open(&root).unwrap().is_clean().unwrap();
-    let b = Git::open_shell(&root).unwrap().is_clean().unwrap();
-    assert_eq!(a, b, "backends agree clean repo is clean");
+    assert_eq!(a, git_out(&root, &["status", "--porcelain"]).is_empty());
     assert!(a);
 }
 
 #[test]
-fn backends_agree_is_clean_untracked() {
+fn gix_is_clean_untracked_matches_real_git() {
     let (_d, root) = init_repo();
     std::fs::write(root.join("x.txt"), "x").unwrap();
     let a = Git::open(&root).unwrap().is_clean().unwrap();
-    let b = Git::open_shell(&root).unwrap().is_clean().unwrap();
-    assert_eq!(a, b, "backends agree untracked => dirty");
+    assert_eq!(a, git_out(&root, &["status", "--porcelain"]).is_empty());
     assert!(!a);
 }
 
 #[test]
-fn backends_agree_is_clean_modified() {
+fn gix_is_clean_modified_matches_real_git() {
     let (_d, root) = init_repo();
     std::fs::write(root.join("README.md"), "# fixture\nmod\n").unwrap();
     let a = Git::open(&root).unwrap().is_clean().unwrap();
-    let b = Git::open_shell(&root).unwrap().is_clean().unwrap();
-    assert_eq!(a, b, "backends agree modified => dirty");
+    assert_eq!(a, git_out(&root, &["status", "--porcelain"]).is_empty());
     assert!(!a);
 }
 
 #[test]
-fn backends_agree_is_clean_staged() {
+fn gix_is_clean_staged_matches_real_git() {
     let (_d, root) = init_repo();
     std::fs::write(root.join("s.txt"), "s").unwrap();
     git(&root, &["add", "s.txt"]);
     let a = Git::open(&root).unwrap().is_clean().unwrap();
-    let b = Git::open_shell(&root).unwrap().is_clean().unwrap();
-    assert_eq!(a, b, "backends agree staged => dirty");
+    assert_eq!(a, git_out(&root, &["status", "--porcelain"]).is_empty());
     assert!(!a);
 }
 
 #[test]
-fn backends_agree_is_clean_ignored() {
+fn gix_is_clean_ignored_matches_real_git() {
     let (_d, root) = init_repo();
     std::fs::write(root.join(".gitignore"), "*.log\n").unwrap();
     git(&root, &["add", ".gitignore"]);
     git(&root, &["commit", "-qm", "ig"]);
     std::fs::write(root.join("z.log"), "z").unwrap();
     let a = Git::open(&root).unwrap().is_clean().unwrap();
-    let b = Git::open_shell(&root).unwrap().is_clean().unwrap();
-    assert_eq!(a, b, "backends agree ignored => clean");
-    assert!(a);
+    assert_eq!(a, git_out(&root, &["status", "--porcelain"]).is_empty());
+    assert!(a, "ignored => clean");
+}
+
+/// Parse `git worktree list --porcelain` into the sorted set of branch names
+/// (with detached entries as None) — the real-git oracle for branch-set checks.
+fn oracle_branch_set(root: &Path) -> Vec<Option<String>> {
+    let porcelain = git_out(root, &["worktree", "list", "--porcelain"]);
+    let mut set: Vec<Option<String>> = Vec::new();
+    let mut current: Option<String> = None;
+    let mut started = false;
+    for line in porcelain.lines() {
+        if line.starts_with("worktree ") {
+            if started {
+                set.push(current.take());
+            }
+            current = None;
+            started = true;
+        } else if let Some(r) = line.strip_prefix("branch ") {
+            current = Some(r.trim_start_matches("refs/heads/").to_string());
+        }
+    }
+    if started {
+        set.push(current);
+    }
+    set.sort();
+    set
 }
 
 #[test]
-fn backends_agree_on_branch_set() {
+fn gix_branch_set_matches_real_git() {
     let (_d, root) = init_repo();
     let setup = Git::open(&root).unwrap();
     let path = sibling(&root, "bset");
@@ -1038,21 +1056,14 @@ fn backends_agree_on_branch_set() {
         .into_iter()
         .map(|w| w.branch)
         .collect();
-    let mut b: Vec<Option<String>> = Git::open_shell(&root)
-        .unwrap()
-        .list_worktrees()
-        .unwrap()
-        .into_iter()
-        .map(|w| w.branch)
-        .collect();
     a.sort();
-    b.sort();
-    assert_eq!(a, b, "both backends report the same branch set");
+    assert_eq!(a, oracle_branch_set(&root), "gix branch set matches real git");
+    assert!(a.contains(&Some("agree-set".to_string())));
     git(&root, &["worktree", "remove", "--force", &path.to_string_lossy()]);
 }
 
 #[test]
-fn backends_agree_branch_set_with_detached_worktree() {
+fn gix_branch_set_with_detached_worktree_matches_real_git() {
     let (_d, root) = init_repo();
     let head = git_out(&root, &["rev-parse", "HEAD"]);
     let path = sibling(&root, "detset");
@@ -1065,23 +1076,15 @@ fn backends_agree_branch_set_with_detached_worktree() {
         .into_iter()
         .map(|w| w.branch)
         .collect();
-    let mut b: Vec<Option<String>> = Git::open_shell(&root)
-        .unwrap()
-        .list_worktrees()
-        .unwrap()
-        .into_iter()
-        .map(|w| w.branch)
-        .collect();
     a.sort();
-    b.sort();
-    assert_eq!(a, b, "branch sets match incl. the detached (None) worktree");
+    assert_eq!(a, oracle_branch_set(&root), "branch set matches incl. detached");
     // Exactly one detached entry (None) is expected across the set.
     assert!(a.iter().any(|x| x.is_none()), "a detached entry exists");
     git(&root, &["worktree", "remove", "--force", &path.to_string_lossy()]);
 }
 
 #[test]
-fn backends_agree_locked_count() {
+fn gix_locked_count_matches_real_git() {
     let (_d, root) = init_repo();
     let g = Git::open(&root).unwrap();
     let path = sibling(&root, "lkcnt");
@@ -1092,10 +1095,19 @@ fn backends_agree_locked_count() {
     let info = g.create_worktree("lkcnt", &path, &opts).unwrap();
     git(&root, &["worktree", "lock", &info.path.to_string_lossy()]);
 
-    let count = |g: &Git| g.list_worktrees().unwrap().iter().filter(|w| w.locked).count();
-    let a = count(&Git::open(&root).unwrap());
-    let b = count(&Git::open_shell(&root).unwrap());
-    assert_eq!(a, b, "backends agree on locked count");
+    let a = Git::open(&root)
+        .unwrap()
+        .list_worktrees()
+        .unwrap()
+        .iter()
+        .filter(|w| w.locked)
+        .count();
+    // Oracle: count `locked` lines in git's porcelain worktree listing.
+    let oracle_locked = git_out(&root, &["worktree", "list", "--porcelain"])
+        .lines()
+        .filter(|l| *l == "locked" || l.starts_with("locked "))
+        .count();
+    assert_eq!(a, oracle_locked, "gix locked count matches real git");
     assert_eq!(a, 1, "exactly one locked worktree");
 
     git(&root, &["worktree", "unlock", &info.path.to_string_lossy()]);
@@ -1365,7 +1377,7 @@ fn open_rejects_empty_dir() {
 }
 
 #[test]
-fn libgit2_discovers_from_subdirectory() {
+fn gix_discovers_from_subdirectory() {
     let (_d, root) = init_repo();
     let nested = root.join("a").join("b");
     std::fs::create_dir_all(&nested).unwrap();
@@ -1431,8 +1443,8 @@ fn worktree_not_found_error_displays_name() {
 }
 
 #[test]
-fn create_duplicate_worktree_name_errors_libgit2() {
-    // libgit2 rejects creating a second worktree with an existing name.
+fn create_duplicate_worktree_name_errors_gix() {
+    // gix rejects creating a second worktree with an existing name.
     let (_d, root) = init_repo();
     let g = Git::open(&root).unwrap();
     let p1 = sibling(&root, "dup1");
@@ -1939,24 +1951,9 @@ fn detached_then_branch_status_clean_throughout() {
     }
 }
 
-#[test]
-fn empty_repo_libgit2_unborn_head_is_none() {
-    // A repo with zero commits has an unborn HEAD. The in-process libgit2 backend
-    // peels HEAD, finds no commit, and reports None rather than erroring.
-    let dir = TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    git(&root, &["init", "-q", "-b", "main"]);
-    let g = Git::open_libgit2(&root).unwrap();
-    assert_eq!(
-        g.current_branch().unwrap(),
-        None,
-        "libgit2 reports an unborn branch as None"
-    );
-}
-
-/// The pure-Rust gitoxide default reports an unborn HEAD's branch by NAME (like
-/// `git branch --show-current`), not None — the more faithful behavior, and a
-/// deliberate divergence from libgit2's peel-to-None above.
+/// The pure-Rust gitoxide backend reports an unborn HEAD's branch by NAME (like
+/// `git branch --show-current` does), not None — the faithful behavior matching
+/// the real-git oracle on a commit-less repository.
 #[test]
 fn empty_repo_gix_unborn_head_is_the_branch_name() {
     let dir = TempDir::new().unwrap();
@@ -1964,21 +1961,8 @@ fn empty_repo_gix_unborn_head_is_the_branch_name() {
     git(&root, &["init", "-q", "-b", "main"]);
     let g = Git::open(&root).unwrap();
     assert_eq!(g.current_branch().unwrap().as_deref(), Some("main"));
-}
-
-#[test]
-fn empty_repo_shell_unborn_head_errors() {
-    // The shell backend maps to `git rev-parse --abbrev-ref HEAD`, which fails on
-    // an unborn HEAD — surfacing as a Command error. This documents the real
-    // divergence between the two backends on a commit-less repository.
-    let dir = TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    git(&root, &["init", "-q", "-b", "main"]);
-    let g = Git::open_shell(&root).unwrap();
-    match g.current_branch() {
-        Err(GitError::Command { .. }) => {}
-        other => panic!("expected Command error on unborn HEAD, got {other:?}"),
-    }
+    // The oracle agrees: real git reports the unborn branch by name too.
+    assert_eq!(git_out(&root, &["branch", "--show-current"]), "main");
 }
 
 #[test]

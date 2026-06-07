@@ -3,7 +3,7 @@
 //! A darkrun run does its work on a branch (conventionally `darkrun/<slug>`).
 //! A run is considered *mine* when the current git identity authored at least
 //! one commit on that branch beyond the base it forked from. These helpers
-//! answer that question against a repository, using libgit2 in-process so the
+//! answer that question against a repository, using gitoxide in-process so the
 //! engine never shells out.
 //!
 //! The predicate is deliberately a cheap-but-correct proxy:
@@ -24,23 +24,26 @@
 
 use std::path::Path;
 
-use git2::{Oid, Repository, Sort};
+use gix::bstr::ByteSlice;
 
 use crate::error::{GitError, Result};
+
+/// Open the repository discovered from `repo_root` (walks up like git).
+fn discover(repo_root: &Path) -> Result<gix::Repository> {
+    gix::discover(repo_root).map_err(|_| GitError::NotARepo(repo_root.to_path_buf()))
+}
 
 /// The effective committer/author email for the repository at `repo_root` —
 /// the `user.email` `git commit` would stamp. `None` when no identity is
 /// configured (config is missing the key at every level).
 pub fn current_identity_email(repo_root: impl AsRef<Path>) -> Result<Option<String>> {
-    let repo = Repository::discover(repo_root.as_ref())
-        .map_err(|_| GitError::NotARepo(repo_root.as_ref().to_path_buf()))?;
-    // `repo.config()` includes the local file plus the global/system snapshots,
-    // matching git's own precedence for resolving an identity.
-    let cfg = repo.config()?;
-    Ok(cfg
-        .get_string("user.email")
-        .ok()
-        .map(|s| s.trim().to_string())
+    let repo = discover(repo_root.as_ref())?;
+    // The config snapshot merges local + global/system, matching git's own
+    // precedence for resolving an identity.
+    Ok(repo
+        .config_snapshot()
+        .string("user.email")
+        .map(|s| s.to_str_lossy().trim().to_string())
         .filter(|s| !s.is_empty()))
 }
 
@@ -61,8 +64,7 @@ pub fn branch_authored_by(
     head: &str,
     email: &str,
 ) -> Result<bool> {
-    let repo = Repository::discover(repo_root.as_ref())
-        .map_err(|_| GitError::NotARepo(repo_root.as_ref().to_path_buf()))?;
+    let repo = discover(repo_root.as_ref())?;
 
     // No head → no branch → no work to claim.
     let Some(head_oid) = resolve(&repo, head) else {
@@ -74,27 +76,13 @@ pub fn branch_authored_by(
         return Ok(false);
     }
 
-    let mut walk = repo.revwalk()?;
-    // Walk in commit-time order; we stop at the first match so ordering only
-    // affects which match we find first, not correctness.
-    walk.set_sorting(Sort::TIME)?;
-    walk.push(head_oid)?;
-    // Exclude the base history so we only consider the run's own commits. A
-    // missing base just means we consider everything reachable from head.
-    if let Some(base_oid) = resolve(&repo, base) {
-        walk.hide(base_oid)?;
-    }
-
-    for oid in walk {
-        let oid = oid?;
-        let commit = repo.find_commit(oid)?;
-        // Bind the author signature: its borrowed `email()` outlives a chained
-        // temporary, so hold the `Signature` for the comparison.
-        let author = commit.author();
-        if let Some(author_email) = author.email() {
-            if author_email.trim().eq_ignore_ascii_case(&want) {
-                return Ok(true);
-            }
+    // Walk `base..head` (the run's own commits); a missing base widens it to all
+    // of head's history. We stop at the first author match, so order is moot.
+    for oid in commits_in(&repo, head_oid, resolve(&repo, base))? {
+        let commit = repo.find_commit(oid).map_err(gix_err)?;
+        let author = commit.author().map_err(gix_err)?;
+        if author.email.trim().eq_ignore_ascii_case(want.as_bytes()) {
+            return Ok(true);
         }
     }
     Ok(false)
@@ -108,25 +96,16 @@ pub fn branch_author(
     base: &str,
     head: &str,
 ) -> Result<Option<String>> {
-    let repo = Repository::discover(repo_root.as_ref())
-        .map_err(|_| GitError::NotARepo(repo_root.as_ref().to_path_buf()))?;
+    let repo = discover(repo_root.as_ref())?;
     let Some(head_oid) = resolve(&repo, head) else {
         return Ok(None);
     };
-    let mut walk = repo.revwalk()?;
-    walk.set_sorting(Sort::TIME)?;
-    walk.push(head_oid)?;
-    if let Some(base_oid) = resolve(&repo, base) {
-        walk.hide(base_oid)?;
-    }
-    for oid in walk {
-        let commit = repo.find_commit(oid?)?;
-        let author = commit.author();
-        if let Some(name) = author.name() {
-            let n = name.trim();
-            if !n.is_empty() {
-                return Ok(Some(n.to_string()));
-            }
+    for oid in commits_in(&repo, head_oid, resolve(&repo, base))? {
+        let commit = repo.find_commit(oid).map_err(gix_err)?;
+        let name = commit.author().map_err(gix_err)?.name.to_str_lossy();
+        let name = name.trim();
+        if !name.is_empty() {
+            return Ok(Some(name.to_string()));
         }
     }
     Ok(None)
@@ -153,9 +132,36 @@ pub fn run_authored_by_me(
 
 /// Resolve a revision string (branch, tag, or oid) to a commit oid, or `None`
 /// when it does not exist in the repository.
-fn resolve(repo: &Repository, rev: &str) -> Option<Oid> {
-    let object = repo.revparse_single(rev).ok()?;
-    object.peel_to_commit().ok().map(|c| c.id())
+fn resolve(repo: &gix::Repository, rev: &str) -> Option<gix::ObjectId> {
+    Some(
+        repo.rev_parse_single(rev)
+            .ok()?
+            .object()
+            .ok()?
+            .peel_to_commit()
+            .ok()?
+            .id,
+    )
+}
+
+/// The commits reachable from `head` but not from `hidden` (the run's own
+/// contribution), oldest-irrelevant since callers stop at the first match.
+fn commits_in(
+    repo: &gix::Repository,
+    head: gix::ObjectId,
+    hidden: Option<gix::ObjectId>,
+) -> Result<Vec<gix::ObjectId>> {
+    repo.rev_walk([head])
+        .with_hidden(hidden)
+        .all()
+        .map_err(gix_err)?
+        .map(|i| i.map(|i| i.id).map_err(gix_err))
+        .collect()
+}
+
+/// Map any gix error into our crate error.
+fn gix_err(e: impl std::fmt::Display) -> GitError {
+    GitError::Gix(e.to_string())
 }
 
 #[cfg(test)]

@@ -187,13 +187,8 @@ mod tests {
     }
 
     #[test]
-    fn libgit2_refs_identical_trees() {
+    fn gix_refs_identical_trees() {
         refs_identical_trees(|p| Git::open(p));
-    }
-
-    #[test]
-    fn shell_refs_identical_trees() {
-        refs_identical_trees(|p| Git::open_shell(p));
     }
 
     /// `has_no_merge_debt` is true for identical trees, true for an ancestor,

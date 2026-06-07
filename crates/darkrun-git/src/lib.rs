@@ -17,21 +17,17 @@
 //! primitives backing that hierarchy are on the [`GitBackend`] trait alongside
 //! the worktree ops.
 //!
-//! Operations go through the [`GitBackend`] trait. The default
-//! [`Libgit2Backend`] drives libgit2 in-process; [`ShellBackend`] is the
-//! shell-out fallback that maps each operation to the matching `git` command.
-//! [`Git`] is a thin facade that prefers libgit2 and is the recommended entry
-//! point.
+//! Operations go through the [`GitBackend`] trait, implemented by the pure-Rust
+//! [`GixBackend`] (gitoxide, in-process — no C dependency, no `git` CLI). [`Git`]
+//! is a thin facade over it and is the recommended entry point.
 
 mod authorship;
 mod backend;
 mod clone;
 mod error;
 mod gix_backend;
-mod libgit2;
 pub mod merge;
 mod push;
-mod shell;
 
 use std::path::{Path, PathBuf};
 
@@ -42,16 +38,13 @@ pub use backend::{CreateOptions, GitBackend, MergeOutcome, WorktreeInfo};
 pub use clone::{clone_repo, default_clone_dest, repo_name_from_url};
 pub use error::{GitError, Result};
 pub use gix_backend::GixBackend;
-pub use libgit2::Libgit2Backend;
 pub use merge::{engine_protected_merge, is_engine_owned_state_path, ENGINE_STATE_PREFIX};
 // `has_no_merge_debt` + `is_merge_in_progress` are defined below in this module.
-pub use shell::ShellBackend;
 
 /// The recommended entry point: a [`GitBackend`] facade over a repository.
 ///
-/// `Git` wraps the pure-Rust gitoxide backend (no C, no `git` CLI). The
-/// libgit2 and shell backends remain available as conformance oracles via
-/// [`Git::open_libgit2`] / [`Git::open_shell`].
+/// `Git` wraps the pure-Rust gitoxide backend ([`GixBackend`]) — no C, no
+/// `git` CLI. The conformance suite validates it against the real `git` binary.
 pub struct Git {
     inner: Box<dyn GitBackend + Send + Sync>,
     repo_root: PathBuf,
@@ -63,30 +56,11 @@ impl Git {
         Self::open_gix(repo_root)
     }
 
-    /// Open `repo_root` forcing the libgit2 backend (a conformance oracle).
-    pub fn open_libgit2(repo_root: impl AsRef<Path>) -> Result<Self> {
-        let root = repo_root.as_ref().to_path_buf();
-        let inner = Libgit2Backend::open(&root)?;
-        Ok(Self {
-            inner: Box::new(inner),
-            repo_root: root,
-        })
-    }
-
-    /// Open `repo_root` forcing the shell-out (`git` CLI) backend.
-    pub fn open_shell(repo_root: impl AsRef<Path>) -> Result<Self> {
-        let root = repo_root.as_ref().to_path_buf();
-        let inner = ShellBackend::open(&root)?;
-        Ok(Self {
-            inner: Box::new(inner),
-            repo_root: root,
-        })
-    }
-
-    /// Open `repo_root` forcing the pure-Rust gitoxide backend (in-process, no
-    /// C, no `git` CLI). Implements the full [`GitBackend`] surface, including
-    /// the operations gitoxide has no high-level API for (push/rebase/merge/
-    /// worktree-create), each built over its plumbing and conformance-tested.
+    /// Open `repo_root` with the pure-Rust gitoxide backend (in-process, no C,
+    /// no `git` CLI) — the sole backend. Implements the full [`GitBackend`]
+    /// surface, including the operations gitoxide has no high-level API for
+    /// (push/rebase/merge/worktree-create), each built over its plumbing and
+    /// conformance-tested against real `git`. Alias of [`Git::open`].
     pub fn open_gix(repo_root: impl AsRef<Path>) -> Result<Self> {
         let root = repo_root.as_ref().to_path_buf();
         let inner = GixBackend::open(&root)?;
@@ -360,13 +334,8 @@ mod tests {
     }
 
     #[test]
-    fn libgit2_backend_roundtrip() {
+    fn gix_backend_roundtrip() {
         smoke(|p| Git::open(p));
-    }
-
-    #[test]
-    fn shell_backend_roundtrip() {
-        smoke(|p| Git::open_shell(p));
     }
 
     /// Run a git command in an arbitrary directory, asserting success.
@@ -402,13 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn libgit2_branch_primitives() {
+    fn gix_branch_primitives() {
         branch_primitives(|p| Git::open(p));
-    }
-
-    #[test]
-    fn shell_branch_primitives() {
-        branch_primitives(|p| Git::open_shell(p));
     }
 
     /// The engine-protected merge lands a station's agent content onto run-main
@@ -472,13 +436,8 @@ mod tests {
     }
 
     #[test]
-    fn libgit2_engine_protected_merge() {
+    fn gix_engine_protected_merge() {
         engine_protected_merge_round_trip(|p| Git::open(p));
-    }
-
-    #[test]
-    fn shell_engine_protected_merge() {
-        engine_protected_merge_round_trip(|p| Git::open_shell(p));
     }
 
     /// An up-to-date merge (source already in target) is a clean no-op.
@@ -500,10 +459,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         assert!(matches!(
             Git::open(dir.path()),
-            Err(GitError::NotARepo(_))
-        ));
-        assert!(matches!(
-            Git::open_shell(dir.path()),
             Err(GitError::NotARepo(_))
         ));
     }

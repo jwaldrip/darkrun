@@ -395,6 +395,20 @@ impl GitBackend for GixBackend {
             std::env::current_dir()?.join(path)
         };
 
+        // Like `git worktree add`: refuse a pre-existing NON-empty target so the
+        // checkout never clobbers files already on disk. An empty dir is fine.
+        if abs_path.exists() {
+            let occupied = std::fs::read_dir(&abs_path)
+                .map(|mut d| d.next().is_some())
+                .unwrap_or(true);
+            if occupied {
+                return Err(GitError::Gix(format!(
+                    "'{}' already exists and is not empty",
+                    abs_path.display()
+                )));
+            }
+        }
+
         // Admin files.
         std::fs::create_dir_all(&admin)?;
         std::fs::write(admin.join("HEAD"), &head_content)?;

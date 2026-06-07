@@ -1,12 +1,10 @@
 //! The [`GitBackend`] abstraction.
 //!
-//! darkrun talks to git through a trait so the implementation can be swapped:
-//! the default [`Libgit2Backend`](crate::libgit2::Libgit2Backend) drives
-//! everything in-process via libgit2, while the
-//! [`ShellBackend`](crate::shell::ShellBackend) shells out to the `git`
-//! executable. The shell backend exists as a fallback for the handful of
-//! worktree operations libgit2 historically handles awkwardly across versions,
-//! and as an escape hatch in environments where linking libgit2 is undesirable.
+//! darkrun talks to git through a trait, implemented by the pure-Rust
+//! [`GixBackend`](crate::gix_backend::GixBackend) — gitoxide-backed, in-process,
+//! with no C dependency and no `git`/`gh`/`glab` CLI shell-out. The trait
+//! boundary keeps the engine decoupled from the git implementation and is the
+//! seam the conformance suite drives against real `git`.
 
 use std::path::{Path, PathBuf};
 
