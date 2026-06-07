@@ -31,8 +31,11 @@ resource "google_secret_manager_secret" "sentry_dsn" {
   }
 }
 
+# Gated on the static enable_sentry only — the DSN value isn't known until apply
+# (it's read from the freshly-created Sentry project), so it can't drive `count`.
+# When Sentry is enabled the DSN is always populated, so this is safe.
 resource "google_secret_manager_secret_version" "sentry_dsn" {
-  count       = var.enable_sentry && trimspace(var.sentry_dsn) != "" ? 1 : 0
+  count       = var.enable_sentry ? 1 : 0
   secret      = google_secret_manager_secret.sentry_dsn[0].id
   secret_data = var.sentry_dsn
 }
