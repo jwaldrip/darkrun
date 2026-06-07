@@ -1302,6 +1302,33 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
         kills: def.kills.clone(),
     };
 
+    // Second quality-gate enforcement point (#12): once a station is PAST Audit
+    // (its post-execute reviewers have signed, so the phase has advanced to
+    // Reflect/Checkpoint), RE-verify every completed unit's declared quality
+    // gates before it may proceed. A fix applied during the review pass that
+    // regressed a gate is caught here — the predecessor's post-review
+    // `quality_gates` approval role. The FIRST point is the Manufacture→Audit
+    // hold above; this is the distinct second tick after the reviewers.
+    if matches!(phase, StationPhase::Reflect | StationPhase::Checkpoint) {
+        let gated: Vec<String> = su
+            .iter()
+            .filter(|u| matches!(u.status(), Status::Completed))
+            .filter(|u| !u.gates_satisfied())
+            .map(|u| u.slug.clone())
+            .collect();
+        if !gated.is_empty() {
+            return Ok(Position {
+                track: Track::Run,
+                action: Some(RunAction::UnitsInvalid {
+                    run: slug.to_string(),
+                    station: station.clone(),
+                    problem: "gates_unmet".to_string(),
+                    units: gated,
+                }),
+            });
+        }
+    }
+
     let action = match phase {
         StationPhase::Spec => spec_action(),
         StationPhase::Review => RunAction::Review {
@@ -3383,6 +3410,77 @@ mod tests {
             }
             other => panic!("expected gates_unmet hold, got {other:?}"),
         }
+    }
+
+    /// Gap #12: the SECOND quality-gate enforcement point. A unit whose
+    /// post-execute reviewers have all signed (so the phase has advanced PAST
+    /// Audit) is STILL held if a declared gate isn't satisfied — a regression
+    /// during the review pass is caught here, not only at the pre-Audit point.
+    #[test]
+    fn quality_gates_are_re_enforced_after_the_audit_reviewers_sign() {
+        use darkrun_core::domain::{
+            GateResult, GateStatus, IterationResult, QualityGate, Stamp, Status, Unit,
+            UnitFrontmatter, UnitIteration,
+        };
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        let factory = crate::factory::resolve_factory("software").unwrap();
+        let def = factory.station("frame").unwrap();
+        let stamp = || Some(Stamp { at: "2026-01-01T00:00:00Z".into() });
+
+        // A fully-signed unit: every review + approval role stamped and the Pass
+        // loop done on the terminal worker → the phase derives PAST Audit. But it
+        // declares a quality gate with no passing result.
+        let mut fm = UnitFrontmatter {
+            status: Status::Completed,
+            station: Some("frame".into()),
+            ..Default::default()
+        };
+        for r in &def.reviewers {
+            fm.reviews.insert(r.clone(), stamp());
+            fm.approvals.insert(r.clone(), stamp());
+        }
+        fm.approvals.insert("user".into(), stamp());
+        fm.iterations.push(UnitIteration {
+            worker: def.workers.last().cloned().unwrap_or_default(),
+            result: Some(IterationResult::Advance),
+            ..Default::default()
+        });
+        fm.quality_gates = vec![QualityGate {
+            name: "tests".into(),
+            command: "cargo test".into(),
+        }];
+        let mut unit = Unit {
+            slug: "frame-u".into(),
+            frontmatter: fm,
+            title: "u".into(),
+            body: String::new(),
+        };
+        store.write_unit("r", &unit).unwrap();
+
+        // Past the Audit reviewers, the unmet gate STILL holds the station.
+        match derive_position(&store, "r").expect("derive").action {
+            Some(RunAction::UnitsInvalid { ref problem, ref units, .. }) => {
+                assert_eq!(problem, "gates_unmet", "the post-review gate re-fires");
+                assert_eq!(units, &vec!["frame-u".to_string()]);
+            }
+            other => panic!("expected a post-review gates_unmet hold, got {other:?}"),
+        }
+
+        // Record a passing result → the station proceeds past Audit.
+        unit.frontmatter.gate_results = vec![GateResult {
+            name: "tests".into(),
+            status: GateStatus::Pass,
+            at: None,
+            attempts: 1,
+            detail: None,
+        }];
+        store.write_unit("r", &unit).unwrap();
+        let action = derive_position(&store, "r").expect("derive").action;
+        assert!(
+            !matches!(action, Some(RunAction::UnitsInvalid { ref problem, .. }) if problem == "gates_unmet"),
+            "a satisfied gate no longer holds the station: {action:?}"
+        );
     }
 
     #[test]
