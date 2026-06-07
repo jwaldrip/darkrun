@@ -21,6 +21,15 @@ State plainly what this station must achieve to kill **{{ kills }}**: the intent
 
 Dispatch **all** explorers{% if explorers %} ({% for e in explorers %}`{{ e }}`{% if not loop.last %}, {% endif %}{% endfor %}){% endif %} **at once, in parallel** — one subagent each, fanned out concurrently, never one-after-another. Explorers don't build — they surface unknowns, constraints, prior art, and traps. They run alongside your framing; neither blocks the other.
 
+{% if knowledge %}
+**Project knowledge (priors from earlier runs)** — build on these, don't re-discover them:
+{% for k in knowledge %}
+- **{{ k.topic }}** — {{ k.body }}
+{% endfor %}
+{% endif %}
+
+When discovery surfaces a durable project fact worth carrying into **future** runs — a constraint, prior art, a convention, a trap — persist it with **`darkrun_knowledge_record`** (`topic` + `body`). That's the project's shared memory; re-recording a topic updates it. Keep it project-level (cross-run truths), not this run's transient details.
+
 ## decompose — once elaboration + discovery have both landed
 
 Turn the framed, explored problem into the smallest set of independently completable **Units** that, together, kill the risk above. For each Unit write:

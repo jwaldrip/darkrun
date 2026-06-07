@@ -539,6 +539,51 @@ impl StateStore {
         io(&path, fs::write(&path, content))
     }
 
+    /// The PROJECT-level knowledge directory — `.darkrun/knowledge/`, a sibling
+    /// of the run dirs, NOT scoped to any one run. Explorers persist durable
+    /// project knowledge here (constraints, prior art, traps) so it carries
+    /// across runs as shared memory the next run's Spec reads as priors.
+    pub fn knowledge_dir(&self) -> PathBuf {
+        self.root.join("knowledge")
+    }
+
+    /// Read every project knowledge document, keyed by topic id (sorted).
+    pub fn read_knowledge_raw(&self) -> Result<BTreeMap<String, String>> {
+        let dir = self.knowledge_dir();
+        let mut out = BTreeMap::new();
+        if !dir.exists() {
+            return Ok(out);
+        }
+        for entry in io(&dir, fs::read_dir(&dir))? {
+            let path = io(&dir, entry)?.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let raw = io(&path, fs::read_to_string(&path))?;
+                    out.insert(stem.to_string(), raw);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Read one project knowledge document by topic id, or `None` when absent.
+    pub fn read_knowledge_entry(&self, topic: &str) -> Result<Option<String>> {
+        let path = self.knowledge_dir().join(format!("{topic}.md"));
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(io(&path, fs::read_to_string(&path))?))
+    }
+
+    /// Write a project knowledge document (`<topic>.md`), overwriting in place
+    /// so re-recording a topic updates the shared prior rather than duplicating.
+    pub fn write_knowledge_raw(&self, topic: &str, content: &str) -> Result<()> {
+        let dir = self.knowledge_dir();
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = dir.join(format!("{topic}.md"));
+        io(&path, fs::write(&path, content))
+    }
+
     /// The `briefs/` directory for a run — where each station's pre-execution
     /// brief (`<station>-pre.md`, "what I'm going to do", before the review
     /// gate) and closing outcome (`<station>-post.md`, "what the station

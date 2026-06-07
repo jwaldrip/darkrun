@@ -28,7 +28,7 @@ use darkrun_http::SessionRegistry;
 use crate::factory::{list_factories, resolve_factory};
 use crate::position::{checkpoint_decide, run_start, run_tick};
 use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
-use crate::{brief, feedback, human_write, proof, reflection, runs, units};
+use crate::{brief, feedback, human_write, knowledge, proof, reflection, runs, units};
 
 /// The darkrun MCP server: a manager bound to a repo root, holding the shared
 /// in-memory [`SessionRegistry`] that the in-process HTTP/WS server also serves
@@ -527,6 +527,24 @@ pub struct ReflectionListInput {
     /// The run slug.
     pub slug: String,
 }
+
+/// Input for `darkrun_knowledge_record` — persist a durable project knowledge
+/// topic (cross-run shared memory the explorer maintains).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct KnowledgeRecordInput {
+    /// The topic slug (the knowledge entry's stable key). Re-recording the same
+    /// topic updates it in place.
+    pub topic: String,
+    /// The knowledge prose — a durable project fact, constraint, prior art, or
+    /// trap worth carrying into future runs.
+    pub body: String,
+}
+
+/// Input for `darkrun_knowledge_list` — read the project's knowledge store.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct KnowledgeListInput {}
 
 /// Input for `darkrun_brief_record` — persist a station's pre-execution brief
 /// or closing outcome (the durable narrative surfaced at the operator gates).
@@ -1692,6 +1710,42 @@ impl DarkrunServer {
         let store = self.store();
         match brief::record(&store, &input.slug, &input.station, phase, &input.body) {
             Ok(b) => ok_json(&b),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Persist a durable PROJECT knowledge topic — cross-run shared memory the
+    /// discovery explorer maintains; a later run's Spec reads it as a prior.
+    #[tool(
+        name = "darkrun_knowledge_record",
+        description = "Persist a durable PROJECT knowledge topic (a constraint, prior art, convention, or trap) into the cross-run shared-memory store. Re-recording a topic updates it in place. The discovery explorer records what's worth carrying into future runs; Spec reads it as priors."
+    )]
+    pub fn darkrun_knowledge_record(
+        &self,
+        Parameters(input): Parameters<KnowledgeRecordInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        if input.topic.trim().is_empty() {
+            return Ok(err_text("knowledge topic must not be empty"));
+        }
+        let store = self.store();
+        match knowledge::record(&store, &input.topic, &input.body) {
+            Ok(k) => ok_json(&k),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// List the project's knowledge store (cross-run priors).
+    #[tool(
+        name = "darkrun_knowledge_list",
+        description = "List the project's durable knowledge store — the cross-run priors the explorer has accumulated."
+    )]
+    pub fn darkrun_knowledge_list(
+        &self,
+        Parameters(_input): Parameters<KnowledgeListInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match knowledge::list(&store) {
+            Ok(ks) => ok_json(&ks),
             Err(e) => Ok(err_text(e)),
         }
     }

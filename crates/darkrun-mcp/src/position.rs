@@ -251,6 +251,15 @@ pub struct Handoff {
     pub note: String,
 }
 
+/// A project knowledge prior surfaced into the Spec prompt.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct KnowledgePrior {
+    /// The topic slug.
+    pub topic: String,
+    /// The knowledge prose.
+    pub body: String,
+}
+
 /// One wave unit's isolation worktree (B9), surfaced into the Manufacture
 /// dispatch so the worker runs that unit's beat in its own checkout — keeping
 /// each unit's diff isolated until it lands back onto the station branch.
@@ -359,6 +368,11 @@ pub struct PromptContext {
     /// elaboration framing (discovery + elaboration in parallel).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub explorers: Vec<String>,
+    /// PROJECT knowledge priors — durable cross-run facts the explorer has
+    /// accumulated, surfaced in Spec so the station builds on what's known
+    /// rather than re-discovering it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub knowledge: Vec<KnowledgePrior>,
     /// The station's Workers, in Pass-loop order.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub workers: Vec<String>,
@@ -1797,6 +1811,14 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                     ctx.needs_collaboration = !elaborated;
                 }
             }
+            // Surface the project knowledge store as priors so discovery builds
+            // on what's already known across runs (#10). Best-effort.
+            ctx.knowledge = crate::knowledge::list(store)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|k| !k.body.is_empty())
+                .map(|k| KnowledgePrior { topic: k.topic, body: k.body })
+                .collect();
         }
         RunAction::Checkpoint { kind, .. } => {
             ctx.kind = Some(*kind);
@@ -2930,6 +2952,21 @@ mod tests {
         let units2 = vec![c];
         let su2: Vec<&Unit> = units2.iter().collect();
         assert!(validate_units(&units2, &su2).is_none());
+    }
+
+    /// Gap #10: the Spec prompt surfaces the PROJECT knowledge store as priors,
+    /// so a new run builds on what earlier runs' explorers recorded.
+    #[test]
+    fn spec_prompt_surfaces_project_knowledge_priors() {
+        let (_d, store) = store();
+        // A prior recorded by an earlier run's explorer (project-scoped).
+        crate::knowledge::record(&store, "auth-store", "tokens live in the CredentialStore").unwrap();
+        run_start(&store, "r", "software", None, "continuous").expect("start");
+        let t = run_tick(&store, "r").expect("tick");
+        assert!(matches!(t.action, RunAction::Spec { .. }), "first action is Spec");
+        let prompt = t.prompt.expect("spec renders a prompt");
+        assert!(prompt.contains("auth-store"), "the knowledge topic appears: {prompt}");
+        assert!(prompt.contains("CredentialStore"), "the knowledge body appears");
     }
 
     /// Gap #7: every rendered prompt is persisted under

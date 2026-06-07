@@ -62,6 +62,7 @@ pub mod feedback;
 pub mod gate;
 pub mod hosting;
 pub mod human_write;
+pub mod knowledge;
 pub mod lifecycle;
 pub mod meta;
 pub mod position;
