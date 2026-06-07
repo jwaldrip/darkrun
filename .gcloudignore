@@ -1,0 +1,14 @@
+# Build-context excludes for `gcloud builds submit`. Keep the upload small — the
+# Docker build only needs source, not build artifacts or VCS history.
+.git/
+target/
+**/target/
+*.profraw
+dist/
+web/site/dist/
+node_modules/
+**/node_modules/
+.terraform/
+**/.terraform/
+*.tfstate*
+.claude/

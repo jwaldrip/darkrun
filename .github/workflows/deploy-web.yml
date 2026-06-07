@@ -1,30 +1,22 @@
-name: deploy-web
+name: build-web-image
 
-# Build the darkrun-web container (OAuth broker + static site), push it to
-# Artifact Registry, then roll it onto Cloud Run via an HCP Terraform (Terraform
-# Cloud) run.
+# Build the darkrun-web container (OAuth broker + static site) and push it to
+# Artifact Registry. That's CI's ONLY job here — the `darkrun-infra` HCP Terraform
+# workspace is VCS-driven, so Terraform plans/applies run on TFC when you push to
+# this repo, not from CI. CI just supplies the image the Cloud Run service runs.
 #
-# Two auth boundaries:
-#   - GitHub Actions -> GCP (build + push the image): Workload Identity Federation.
-#       secrets.GCP_WORKLOAD_IDENTITY_PROVIDER, secrets.GCP_DEPLOY_SA
-#   - GitHub Actions -> HCP Terraform (apply): an API token.
-#       secrets.TF_API_TOKEN   (used as TF_TOKEN_app_terraform_io)
-#   - HCP Terraform -> GCP (the run itself applies): configured IN the TFC
-#       workspace (GCP dynamic provider credentials, or a SA key variable), plus
-#       SENTRY_AUTH_TOKEN + the sentry_* vars as workspace variables.
+# Auth (GitHub Actions -> GCP) is Workload Identity Federation, no static key.
+# Enable it by setting these repo secrets (see infra/bootstrap-gha.sh):
+#   secrets.GCP_WORKLOAD_IDENTITY_PROVIDER
+#   secrets.GCP_BUILD_SA
+# Until those exist this workflow is manual-only (workflow_dispatch). Add the
+# `push:` trigger below once the secrets are configured.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "web/**"
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Dockerfile"
-      - "infra/**"
-      - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   paths: ["web/**", "crates/**", "Cargo.toml", "Cargo.lock", "Dockerfile"]
 
 permissions:
   contents: read
@@ -37,7 +29,7 @@ env:
   IMAGE: darkrun-web
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +38,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+          service_account: ${{ secrets.GCP_BUILD_SA }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -67,19 +59,3 @@ jobs:
           docker build -t "${{ steps.tag.outputs.image }}" -t "${{ steps.tag.outputs.latest }}" .
           docker push "${{ steps.tag.outputs.image }}"
           docker push "${{ steps.tag.outputs.latest }}"
-
-      - name: Set up Terraform (HCP Terraform CLI)
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.8"
-          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-
-      # init connects to the TFC workspace; apply triggers a remote run that
-      # applies with the freshly-pushed image. Sentry org/team/token and the GCP
-      # run credentials are configured as TFC workspace variables (not here).
-      - name: Terraform apply (remote run)
-        working-directory: infra
-        run: |
-          terraform init -input=false
-          terraform apply -input=false -auto-approve \
-            -var="web_image=${{ steps.tag.outputs.image }}"
