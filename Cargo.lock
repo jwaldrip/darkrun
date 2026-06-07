@@ -1228,6 +1228,7 @@ version = "0.1.0"
 dependencies = [
  "git2",
  "gix",
+ "gix-pack",
  "tempfile",
  "thiserror 2.0.18",
  "wait-timeout",
@@ -3293,6 +3294,7 @@ checksum = "e43626f2a27d1033674ec1a196b845614231e6bbd949d5e21c133045ff56b174"
 dependencies = [
  "clru",
  "gix-chunk",
+ "gix-diff",
  "gix-error",
  "gix-features",
  "gix-hash",
@@ -3300,6 +3302,7 @@ dependencies = [
  "gix-object",
  "gix-path",
  "gix-tempfile",
+ "gix-traverse",
  "memmap2",
  "parking_lot",
  "smallvec",

@@ -30,6 +30,7 @@ mod error;
 mod gix_backend;
 mod libgit2;
 pub mod merge;
+mod push;
 mod shell;
 
 use std::path::{Path, PathBuf};

@@ -316,17 +316,20 @@ impl GitBackend for GixBackend {
         // / libgit2) treats UNTRACKED non-ignored files as dirty too. Drive the
         // full status with untracked files included and stop at the first change.
         let repo = self.repo()?;
-        let iter = repo
+        let mut iter = repo
             .status(gix::progress::Discard)
             .map_err(gix_err)?
             .untracked_files(gix::status::UntrackedFiles::Files)
             .into_iter(None)
             .map_err(gix_err)?;
-        for item in iter {
-            item.map_err(gix_err)?;
-            return Ok(false);
+        // Dirty as soon as the status iterator yields a single change.
+        match iter.next() {
+            Some(item) => {
+                item.map_err(gix_err)?;
+                Ok(false)
+            }
+            None => Ok(true),
         }
-        Ok(true)
     }
 
     fn branch_exists(&self, name: &str) -> Result<bool> {
@@ -775,8 +778,21 @@ impl GitBackend for GixBackend {
         }
     }
 
-    fn push(&self, _worktree_path: &Path, _branch: &str) -> Result<()> {
-        Err(GitError::Unsupported("push"))
+    fn push(&self, worktree_path: &Path, branch: &str) -> Result<()> {
+        // Pure-Rust send-pack: resolve origin's push URL + the worktree's HEAD,
+        // then drive the receive-pack exchange in `push::send_pack`. HTTPS auth
+        // (a token) is read from the environment the engine already exports for
+        // its shell pushes, so both backends authenticate the same way.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let new_oid = repo.head_commit().map_err(gix_err)?.id;
+        let url = repo
+            .find_remote("origin")
+            .map_err(gix_err)?
+            .url(gix::remote::Direction::Push)
+            .ok_or_else(|| GitError::Gix("origin has no push URL".into()))?
+            .to_owned();
+        let account = crate::push::credentials_for(&url);
+        crate::push::send_pack(&repo, url, account, branch, new_oid)
     }
 
     fn fetch(&self, worktree_path: &Path, branch: &str) -> Result<()> {

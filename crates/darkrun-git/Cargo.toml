@@ -17,6 +17,11 @@ gix = { version = "0.84", features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest-rust-tls",
 ] }
+# gitoxide ships no high-level `git push`, so we build send-pack ourselves over
+# its transport. `generate` turns on gix-pack's packfile *writer* (the `output`
+# module) — Cargo unifies this into the gix-pack instance gix already uses, so
+# `gix::odb::pack::data::output` lights up. Pure Rust (gix-traverse/-diff).
+gix-pack = { version = "0.71", default-features = false, features = ["generate"] }
 thiserror.workspace = true
 wait-timeout.workspace = true
 

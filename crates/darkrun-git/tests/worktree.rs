@@ -2204,6 +2204,105 @@ fn gix_fetch_advances_remote_tracking_ref() {
     assert_eq!(got, want, "gix fetch advanced origin/main to the pushed commit");
 }
 
+/// gix push: send-pack to a bare remote advances the remote ref to the local
+/// HEAD, and the remote can read the pushed commit back — validating the whole
+/// receive-pack exchange (commands + packfile + report-status) end to end.
+#[test]
+fn gix_push_advances_a_bare_remote_ref() {
+    let bare = TempDir::new().unwrap();
+    git(bare.path(), &["init", "-q", "--bare"]);
+    let (_d, root) = init_repo();
+    std::fs::write(root.join("p.txt"), "p\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "payload"]);
+    git(&root, &["remote", "add", "origin", &bare.path().to_string_lossy()]);
+    let want = git_out(&root, &["rev-parse", "HEAD"]);
+
+    Git::open_gix(&root).unwrap().push(&root, "main").unwrap();
+
+    // The remote's branch now points at our commit, and its objects are intact.
+    let got = git_out(bare.path(), &["rev-parse", "refs/heads/main"]);
+    assert_eq!(got, want, "gix push advanced origin/main to local HEAD");
+    assert_eq!(git_out(bare.path(), &["cat-file", "-t", &want]), "commit");
+    assert_eq!(
+        git_out(bare.path(), &["log", "-1", "--pretty=%s", "main"]),
+        "payload"
+    );
+}
+
+/// A second gix push of new commits sends only the increment and fast-forwards
+/// the remote — exercising the advertised-tips exclusion in pack generation.
+#[test]
+fn gix_push_incremental_fast_forwards_the_remote() {
+    let bare = TempDir::new().unwrap();
+    git(bare.path(), &["init", "-q", "--bare"]);
+    let (_d, root) = init_repo();
+    git(&root, &["remote", "add", "origin", &bare.path().to_string_lossy()]);
+    let g = Git::open_gix(&root).unwrap();
+    g.push(&root, "main").unwrap();
+
+    // A follow-up commit, then a second push.
+    std::fs::write(root.join("more.txt"), "more\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "more"]);
+    let want = git_out(&root, &["rev-parse", "HEAD"]);
+    g.push(&root, "main").unwrap();
+
+    assert_eq!(git_out(bare.path(), &["rev-parse", "refs/heads/main"]), want);
+    // The bare remote's object store is consistent (no missing bases).
+    let fsck = Command::new("git")
+        .arg("-C").arg(bare.path()).args(["fsck", "--strict"]).output().unwrap();
+    assert!(fsck.status.success(), "remote fsck: {}", String::from_utf8_lossy(&fsck.stderr));
+}
+
+/// A non-fast-forward push is rejected with a reason the engine's recovery can
+/// match (`is_non_fast_forward`), and the remote ref is left untouched.
+#[test]
+fn gix_push_non_fast_forward_is_rejected_with_a_matchable_reason() {
+    let bare = TempDir::new().unwrap();
+    git(bare.path(), &["init", "-q", "--bare"]);
+    // A local bare repo allows non-fast-forward by default; real hosts reject it.
+    // Opt into that rejection so this exercises the engine's recovery trigger.
+    git(bare.path(), &["config", "receive.denyNonFastForwards", "true"]);
+    let (_d, root) = init_repo();
+    git(&root, &["remote", "add", "origin", &bare.path().to_string_lossy()]);
+    let g = Git::open_gix(&root).unwrap();
+    g.push(&root, "main").unwrap();
+
+    // The remote advances independently (another clone pushes ahead).
+    let cdir = TempDir::new().unwrap();
+    let c = cdir.path().join("c");
+    assert!(Command::new("git")
+        .args(["clone", "-q", &bare.path().to_string_lossy(), c.to_str().unwrap()])
+        .status().unwrap().success());
+    git(&c, &["config", "user.email", "t@d.local"]);
+    git(&c, &["config", "user.name", "t"]);
+    std::fs::write(c.join("ahead.txt"), "ahead\n").unwrap();
+    git(&c, &["add", "-A"]);
+    git(&c, &["commit", "-qm", "ahead"]);
+    git(&c, &["push", "-q", "origin", "main"]);
+    let remote_before = git_out(bare.path(), &["rev-parse", "refs/heads/main"]);
+
+    // Our local diverges and pushes → must be rejected as non-fast-forward.
+    std::fs::write(root.join("local.txt"), "local\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "local"]);
+    let err = g.push(&root, "main").unwrap_err();
+    assert!(
+        darkrun_mcp_is_nff(&err.to_string()),
+        "rejection reason is a matchable NFF: {err}"
+    );
+    // The remote ref is unchanged by the rejected push.
+    assert_eq!(git_out(bare.path(), &["rev-parse", "refs/heads/main"]), remote_before);
+}
+
+/// Mirror of `darkrun_mcp::hosting::is_non_fast_forward`'s phrasings, kept local
+/// so this crate's test doesn't depend on the mcp crate.
+fn darkrun_mcp_is_nff(s: &str) -> bool {
+    let l = s.to_ascii_lowercase();
+    l.contains("non-fast-forward") || l.contains("fetch first") || l.contains("behind the remote")
+}
+
 /// Build the divergent setup `git rebase` is tested against: `main` and a `feat`
 /// branch each add a non-conflicting file on top of a shared base. Returns the
 /// repo (kept alive) and root, left checked out on `feat`.
