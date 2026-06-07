@@ -539,6 +539,41 @@ impl StateStore {
         io(&path, fs::write(&path, content))
     }
 
+    /// The `briefs/` directory for a run — where each station's pre-execution
+    /// brief (`<station>-pre.md`, "what I'm going to do", before the review
+    /// gate) and closing outcome (`<station>-post.md`, "what the station
+    /// produced", before the checkpoint) are persisted.
+    pub fn briefs_dir(&self, run: &str) -> PathBuf {
+        self.run_dir(run).join("briefs")
+    }
+
+    /// Read every brief/outcome document for a run, keyed by id (sorted).
+    pub fn read_briefs_raw(&self, run: &str) -> Result<BTreeMap<String, String>> {
+        let dir = self.briefs_dir(run);
+        let mut out = BTreeMap::new();
+        if !dir.exists() {
+            return Ok(out);
+        }
+        for entry in io(&dir, fs::read_dir(&dir))? {
+            let path = io(&dir, entry)?.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let raw = io(&path, fs::read_to_string(&path))?;
+                    out.insert(stem.to_string(), raw);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Write a raw brief/outcome document (`<id>.md`).
+    pub fn write_brief_raw(&self, run: &str, id: &str, content: &str) -> Result<()> {
+        let dir = self.briefs_dir(run);
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = dir.join(format!("{id}.md"));
+        io(&path, fs::write(&path, content))
+    }
+
     /// The `prompts/` directory for a run — where every rendered engine prompt
     /// is persisted for inspection / replay (a durable record of exactly what
     /// the engine handed the agent at each step).

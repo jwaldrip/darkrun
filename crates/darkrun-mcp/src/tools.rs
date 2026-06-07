@@ -28,7 +28,7 @@ use darkrun_http::SessionRegistry;
 use crate::factory::{list_factories, resolve_factory};
 use crate::position::{checkpoint_decide, run_start, run_tick};
 use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
-use crate::{feedback, human_write, proof, reflection, runs, units};
+use crate::{brief, feedback, human_write, proof, reflection, runs, units};
 
 /// The darkrun MCP server: a manager bound to a repo root, holding the shared
 /// in-memory [`SessionRegistry`] that the in-process HTTP/WS server also serves
@@ -522,6 +522,22 @@ pub struct ReflectionRecordInput {
 pub struct ReflectionListInput {
     /// The run slug.
     pub slug: String,
+}
+
+/// Input for `darkrun_brief_record` — persist a station's pre-execution brief
+/// or closing outcome (the durable narrative surfaced at the operator gates).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct BriefRecordInput {
+    /// The run slug.
+    pub slug: String,
+    /// The station this brief/outcome belongs to.
+    pub station: String,
+    /// `pre` (the brief: "what I'm going to do", before the review gate) or
+    /// `post` (the outcome: "what the station produced", before the checkpoint).
+    pub phase: String,
+    /// The narrative prose.
+    pub body: String,
 }
 
 /// Input for `darkrun_drift_accept` — accept an intentional change to a locked
@@ -1649,6 +1665,29 @@ impl DarkrunServer {
         let store = self.store();
         match reflection::list(&store, &input.slug) {
             Ok(rs) => ok_json(&rs),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Persist a station's pre-execution brief (`phase: pre`) or closing outcome
+    /// (`phase: post`) — the durable narrative the operator gates surface.
+    #[tool(
+        name = "darkrun_brief_record",
+        description = "Persist a station's pre-execution brief (phase: pre — what I'm going to do) or closing outcome (phase: post — what the station produced). Surfaced to the operator at the review and checkpoint gates."
+    )]
+    pub fn darkrun_brief_record(
+        &self,
+        Parameters(input): Parameters<BriefRecordInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let Some(phase) = brief::BriefPhase::parse(&input.phase) else {
+            return Ok(err_text(format!(
+                "invalid phase '{}': expected 'pre' (brief) or 'post' (outcome)",
+                input.phase
+            )));
+        };
+        let store = self.store();
+        match brief::record(&store, &input.slug, &input.station, phase, &input.body) {
+            Ok(b) => ok_json(&b),
             Err(e) => Ok(err_text(e)),
         }
     }

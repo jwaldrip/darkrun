@@ -17,6 +17,8 @@ Write the tight closing brief for whoever holds the decision. It is the durable 
 - Any concerns reviewers raised and how they were resolved.
 - The retrospective learnings reflect surfaced, if they bear on the lock.
 
+Persist it as the station's **outcome**: call `darkrun_brief_record` with `slug: {{ run }}`, `station: {{ station }}`, `phase: post`, and the closing brief as `body`. This is the durable "what the station produced" record the checkpoint surfaces — write it before clearing the gate.
+
 {% if checkpoint_options %}
 ## This station offers a choice of gate paths
 

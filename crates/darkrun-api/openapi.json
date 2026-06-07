@@ -1442,7 +1442,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-station user-facing briefs, keyed by station name.",
+            "description": "Per-station user-facing PRE-execution briefs (\"what I'm going to do\"), keyed by station name.",
             "type": "object"
           },
           "station_elaborations": {
@@ -1467,6 +1467,13 @@
               "type": "string"
             },
             "description": "Per-station worker observations, keyed by station name.",
+            "type": "object"
+          },
+          "station_outcomes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-station closing OUTCOMES (\"what the station actually produced\"), keyed by station name.",
             "type": "object"
           },
           "station_states": {
@@ -2079,7 +2086,7 @@
                 "additionalProperties": {
                   "type": "string"
                 },
-                "description": "Per-station user-facing briefs, keyed by station name.",
+                "description": "Per-station user-facing PRE-execution briefs (\"what I'm going to do\"), keyed by station name.",
                 "type": "object"
               },
               "station_elaborations": {
@@ -2104,6 +2111,13 @@
                   "type": "string"
                 },
                 "description": "Per-station worker observations, keyed by station name.",
+                "type": "object"
+              },
+              "station_outcomes": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Per-station closing OUTCOMES (\"what the station actually produced\"), keyed by station name.",
                 "type": "object"
               },
               "station_states": {

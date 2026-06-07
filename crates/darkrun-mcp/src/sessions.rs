@@ -104,6 +104,26 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
         None => (Vec::new(), None),
     };
 
+    // Per-station narrative artifacts: the pre-execution briefs ("what I'm going
+    // to do", surfaced before the review gate) and the closing outcomes ("what
+    // the station produced", surfaced before the checkpoint) the agent persisted
+    // via `darkrun_brief_record`. Split by phase into the two payload maps.
+    let mut station_briefs: std::collections::BTreeMap<String, String> = Default::default();
+    let mut station_outcomes: std::collections::BTreeMap<String, String> = Default::default();
+    for b in crate::brief::list(store, slug).unwrap_or_default() {
+        if b.station.is_empty() || b.body.is_empty() {
+            continue;
+        }
+        match b.phase {
+            crate::brief::BriefPhase::Pre => {
+                station_briefs.insert(b.station, b.body);
+            }
+            crate::brief::BriefPhase::Post => {
+                station_outcomes.insert(b.station, b.body);
+            }
+        }
+    }
+
     let build = |session_id: &str| {
         SessionPayload::Review(ReviewSessionPayload {
             session_id: session_id.to_string(),
@@ -113,6 +133,8 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
             units: unit_jsons.clone(),
             station_states: station_states.clone(),
             current_state: current_state.clone(),
+            station_briefs: station_briefs.clone(),
+            station_outcomes: station_outcomes.clone(),
             ..Default::default()
         })
     };
@@ -999,6 +1021,25 @@ mod tests {
         assert!(reg.get("q-02").is_some());
         assert!(reg.get("d-01").is_some());
         assert!(reg.get("p-01").is_some());
+    }
+
+    /// Gaps #14/#15: persisted station briefs (pre) and outcomes (post) surface
+    /// in the review payload — no longer dead, test-only wiring.
+    #[test]
+    fn create_show_surfaces_persisted_briefs_and_outcomes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        crate::position::run_start(&store, "r", "software", None, "continuous").unwrap();
+        crate::brief::record(&store, "r", "frame", crate::brief::BriefPhase::Pre, "framing the problem").unwrap();
+        crate::brief::record(&store, "r", "frame", crate::brief::BriefPhase::Post, "frame.md locked").unwrap();
+
+        let reg = registry();
+        create_show(&reg, &store, "r").unwrap();
+        let SessionPayload::Review(payload) = reg.get("r").unwrap() else {
+            panic!("expected a review payload");
+        };
+        assert_eq!(payload.station_briefs.get("frame").map(String::as_str), Some("framing the problem"));
+        assert_eq!(payload.station_outcomes.get("frame").map(String::as_str), Some("frame.md locked"));
     }
 
     #[test]

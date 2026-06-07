@@ -50,6 +50,8 @@ If a reviewer blocks, fix the spec and re-review — do not advance a spec a rev
 
 Produce a tight brief of the review: which lenses signed off, which filed concerns, and how each concern was resolved (or why it was deferred). This is the record manufacture inherits — it should make the spec's verdict obvious without re-reading every reviewer's notes.
 
+Persist it: call `darkrun_brief_record` with `slug: {{ run }}`, `station: {{ station }}`, `phase: pre`, and the brief as `body`. This is the pre-execution brief the operator's review gate surfaces — a durable artifact, not inline prose.
+
 ## Done when
 
-Every reviewer has signed off or filed addressable concerns and the brief is recorded. Then call `darkrun_tick` — the manager opens the operator's pre-execution gate on the next tick. Do not surface the decision inline; the gate does that.
+Every reviewer has signed off or filed addressable concerns and the brief is recorded with `darkrun_brief_record`. Then call `darkrun_tick` — the manager opens the operator's pre-execution gate on the next tick. Do not surface the decision inline; the gate does that.

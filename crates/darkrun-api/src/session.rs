@@ -364,9 +364,14 @@ pub struct ReviewSessionPayload {
     /// Per-station definition summaries, keyed by station name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub station_summaries: BTreeMap<String, String>,
-    /// Per-station user-facing briefs, keyed by station name.
+    /// Per-station user-facing PRE-execution briefs ("what I'm going to do"),
+    /// keyed by station name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub station_briefs: BTreeMap<String, String>,
+    /// Per-station closing OUTCOMES ("what the station actually produced"),
+    /// keyed by station name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub station_outcomes: BTreeMap<String, String>,
     /// Per-station worker observations, keyed by station name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub station_observations: BTreeMap<String, String>,

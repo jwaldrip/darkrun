@@ -50,6 +50,7 @@
 
 pub mod annotation;
 pub mod backlog;
+pub mod brief;
 pub mod change;
 pub mod deadlock;
 pub mod debug;
