@@ -17,7 +17,8 @@
         { "type": "json", "path": "npm/darwin-x64/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "npm/linux-x64/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "npm/linux-arm64/package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "npm/win32-x64/package.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "npm/win32-x64/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "crates/darkrun-api/openapi.json", "jsonpath": "$.info.version" }
       ]
     }
   }
