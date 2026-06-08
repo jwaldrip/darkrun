@@ -55,7 +55,9 @@ fn FactoryTile(slug: String) -> Element {
             rsx! {
                 Link {
                     to: Route::FactoryDetail { slug: slug.clone() },
-                    style: "text-decoration:none;display:block;",
+                    // `display:grid;height:100%` lets the `.dr-grid` stretch reach the
+                    // Card so every tile in a row matches the tallest one's height.
+                    style: "text-decoration:none;display:grid;height:100%;",
                     Card {
                         div {
                             style: format!(

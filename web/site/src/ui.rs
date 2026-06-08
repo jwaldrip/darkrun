@@ -78,6 +78,8 @@ a { color: inherit; }
 .dr-prose th, .dr-prose td { border: 1px solid var(--dr-border); padding: 8px 12px; text-align: left; }
 .dr-prose th { background: var(--dr-surface-raised); color: var(--dr-text); }
 .dr-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.dr-theme-seg { appearance: none; border: 0; cursor: pointer; font-family: var(--dr-font-mono); font-size: 11px; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 999px; line-height: 1; white-space: nowrap; font-weight: 400; color: var(--dr-text); background-color: transparent; transition: background-color .15s ease, color .15s ease; }
+.dr-theme-seg[aria-pressed="true"] { font-weight: 600; color: var(--dr-on-accent); background-color: var(--dr-accent); }
 "#;
 
 /// A page section header: an eyebrow kicker, a title, and an optional lead.
