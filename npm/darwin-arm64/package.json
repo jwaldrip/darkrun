@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "darkrun native binary for macOS (Apple Silicon).",
   "license": "FSL-1.1-ALv2",
-  "repository": "https://github.com/jwaldrip/darkrun",
+  "repository": "https://github.com/darkrun-ai/darkrun",
   "os": [
     "darwin"
   ],

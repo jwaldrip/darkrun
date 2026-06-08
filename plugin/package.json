@@ -5,7 +5,7 @@
   "homepage": "https://darkrun.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jwaldrip/darkrun.git",
+    "url": "git+https://github.com/darkrun-ai/darkrun.git",
     "directory": "plugin"
   },
   "license": "FSL-1.1-ALv2",
