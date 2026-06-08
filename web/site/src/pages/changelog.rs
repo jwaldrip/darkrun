@@ -16,10 +16,19 @@ struct Release {
 
 const RELEASES: &[Release] = &[
     Release {
+        version: "0.2.0",
+        date: "2026-06-08",
+        notes: &[
+            "The factory-orchestration engine, design system, website, and Claude Code plugin.",
+            "Pure-Rust gitoxide backend — worktrees, three-way merge, native fetch, C-free.",
+            "Surface-routed objective verification, visual-question / design-direction sessions.",
+        ],
+    },
+    Release {
         version: "0.1.0",
         date: "2026-05-30",
         notes: &[
-            "First public cut of the software factory: Frame -> Specify -> Shape -> Build -> Prove -> Harden.",
+            "First cut of the software factory: Frame -> Specify -> Shape -> Build -> Prove -> Harden.",
             "The six-phase station machine: spec -> review -> manufacture -> audit -> tests -> checkpoint.",
             "Embedded factory corpus, the local engine, and the desktop review app.",
         ],

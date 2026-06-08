@@ -211,10 +211,10 @@ pub const THEME_CSS: &str = r#":root{
   --dr-wm-dark-stroke:var(--dr-accent);
   --dr-wm-dark-stroke-width:1.5px;
   --dr-wm-run:var(--dr-text);
-  /* "run" gets the SAME outline treatment as "dark" (white stroke over a base
-     fill at the matching width) so the two words read at the same visual weight. */
-  --dr-wm-run-fill:var(--dr-surface-base);
-  --dr-wm-run-stroke:var(--dr-text);
+  /* "run" is SOLID WHITE (text fill) with a cyan outline matching "dark", so it
+     reads filled — not hollow — against the dark canvas. */
+  --dr-wm-run-fill:var(--dr-text);
+  --dr-wm-run-stroke:var(--dr-accent);
   --dr-wm-run-stroke-width:1.5px;
   color-scheme:dark;
 }
@@ -250,6 +250,10 @@ pub const THEME_CSS: &str = r#":root{
     --dr-wm-dark-stroke:transparent;
     --dr-wm-dark-stroke-width:0;
     --dr-wm-run:var(--dr-accent);
+    /* "run" is solid teal in light (matches the manual [data-theme=light]). */
+    --dr-wm-run-fill:var(--dr-accent);
+    --dr-wm-run-stroke:transparent;
+    --dr-wm-run-stroke-width:0;
     color-scheme:light;
   }
 }
@@ -282,10 +286,10 @@ pub const THEME_CSS: &str = r#":root{
   --dr-wm-dark-stroke:var(--dr-accent);
   --dr-wm-dark-stroke-width:1.5px;
   --dr-wm-run:var(--dr-text);
-  /* "run" gets the SAME outline treatment as "dark" (white stroke over a base
-     fill at the matching width) so the two words read at the same visual weight. */
-  --dr-wm-run-fill:var(--dr-surface-base);
-  --dr-wm-run-stroke:var(--dr-text);
+  /* "run" is SOLID WHITE (text fill) with a cyan outline matching "dark", so it
+     reads filled — not hollow — against the dark canvas. */
+  --dr-wm-run-fill:var(--dr-text);
+  --dr-wm-run-stroke:var(--dr-accent);
   --dr-wm-run-stroke-width:1.5px;
   color-scheme:dark;
 }
