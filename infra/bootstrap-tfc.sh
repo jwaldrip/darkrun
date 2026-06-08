@@ -55,7 +55,8 @@ for ROLE in \
   roles/secretmanager.admin \
   roles/iam.serviceAccountAdmin \
   roles/iam.serviceAccountUser \
-  roles/serviceusage.serviceUsageAdmin ; do
+  roles/serviceusage.serviceUsageAdmin \
+  roles/dns.admin ; do
   gcloud projects add-iam-policy-binding "$PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" --role="$ROLE" \
     --condition=None --quiet >/dev/null
