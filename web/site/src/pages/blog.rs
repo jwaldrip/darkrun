@@ -28,6 +28,12 @@ pub fn Blog() -> Element {
                             style: format!("font-family:{};font-size:17px;font-weight:700;color:{};", tokens::FONT_SANS, theme::TEXT),
                             "{post.title}"
                         }
+                        if !post.date.is_empty() {
+                            span {
+                                style: format!("font-family:{};font-size:12px;color:{};margin-left:8px;", tokens::FONT_MONO, theme::TEXT_MUTED),
+                                "{post.date}"
+                            }
+                        }
                         p {
                             style: format!("font-family:{};font-size:14px;color:{};margin:6px 0 0;", tokens::FONT_SANS, theme::TEXT_MUTED),
                             "{post.summary}"
@@ -50,6 +56,12 @@ pub fn Post(slug: String) -> Element {
                         style: format!("font-family:{};font-size:13px;color:{};", tokens::FONT_MONO, theme::ACCENT),
                         "\u{2190} all posts"
                     }
+                }
+            }
+            if !post.date.is_empty() {
+                div {
+                    style: format!("font-family:{};font-size:12px;color:{};margin-bottom:4px;", tokens::FONT_MONO, theme::TEXT_MUTED),
+                    "{post.date}"
                 }
             }
             Prose { doc: *post }

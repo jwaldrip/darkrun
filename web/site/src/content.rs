@@ -20,6 +20,8 @@ pub struct Doc {
     pub title: &'static str,
     /// One-line summary for cards and meta descriptions.
     pub summary: &'static str,
+    /// Publication date (`YYYY-MM-DD`) for blog posts; empty for non-post docs.
+    pub date: &'static str,
     /// Raw markdown source.
     pub markdown: &'static str,
 }
@@ -50,24 +52,28 @@ pub const DOCS: &[Doc] = &[
         slug: "getting-started",
         title: "Getting started",
         summary: "Install darkrun and open your first run.",
+        date: "",
         markdown: include_str!("../content/docs/getting-started.md"),
     },
     Doc {
         slug: "stations",
         title: "Stations and phases",
         summary: "The six-phase machine every station runs.",
+        date: "",
         markdown: include_str!("../content/docs/stations.md"),
     },
     Doc {
         slug: "review",
         title: "Review and feedback",
         summary: "Drive a run from its checkpoints.",
+        date: "",
         markdown: include_str!("../content/docs/review.md"),
     },
     Doc {
         slug: "other-harnesses",
         title: "Other harnesses",
         summary: "Run darkrun in Cursor, Gemini, Codex, and more.",
+        date: "",
         markdown: include_str!("../content/docs/other-harnesses.md"),
     },
 ];
@@ -78,18 +84,21 @@ pub const CONCEPTS: &[Doc] = &[
         slug: "methodology",
         title: "The methodology",
         summary: "Why the line is ordered by the cost of late discovery.",
+        date: "",
         markdown: include_str!("../content/concepts/methodology.md"),
     },
     Doc {
         slug: "glossary",
         title: "Glossary",
         summary: "darkrun's vocabulary, in one place.",
+        date: "",
         markdown: include_str!("../content/concepts/glossary.md"),
     },
     Doc {
         slug: "lifecycles",
         title: "Lifecycles",
         summary: "The path work travels through a factory.",
+        date: "",
         markdown: include_str!("../content/concepts/lifecycles.md"),
     },
 ];
@@ -101,30 +110,35 @@ pub const GUIDES: &[Doc] = &[
         slug: "start-here",
         title: "Start here",
         summary: "Install darkrun and run your first line, end to end.",
+        date: "",
         markdown: include_str!("../content/guides/start-here.md"),
     },
     Doc {
         slug: "how-it-works",
         title: "How it works",
         summary: "The engine model: Factory > Station > Unit > Pass, the run loop, and the gates.",
+        date: "",
         markdown: include_str!("../content/guides/how-it-works.md"),
     },
     Doc {
         slug: "big-picture",
         title: "The big picture",
         summary: "The dark factory, autonomous agents gated by humans, and where it's heading.",
+        date: "",
         markdown: include_str!("../content/guides/big-picture.md"),
     },
     Doc {
         slug: "workflows",
         title: "Workflows",
         summary: "A practical catalog of the common darkrun workflows and commands.",
+        date: "",
         markdown: include_str!("../content/guides/workflows.md"),
     },
     Doc {
         slug: "about",
         title: "About",
         summary: "What darkrun is, the philosophy, and the FSL-1.1-ALv2 license.",
+        date: "",
         markdown: include_str!("../content/guides/about.md"),
     },
 ];
@@ -132,16 +146,39 @@ pub const GUIDES: &[Doc] = &[
 /// Blog posts, newest first.
 pub const POSTS: &[Doc] = &[
     Doc {
+        slug: "darkrun-is-a-harness",
+        title: "darkrun is a harness",
+        summary: "Map darkrun onto Anthropic's harness design, one part at a time.",
+        date: "2026-06-08",
+        markdown: include_str!("../content/blog/darkrun-is-a-harness.md"),
+    },
+    Doc {
+        slug: "pure-rust-c-free",
+        title: "Pure Rust, no C",
+        summary: "End-to-end Rust, git through gix, one reproducible binary.",
+        date: "2026-06-06",
+        markdown: include_str!("../content/blog/pure-rust-c-free.md"),
+    },
+    Doc {
+        slug: "team-solo-dark",
+        title: "Team, solo, dark",
+        summary: "One global dial sets where you sit relative to the run.",
+        date: "2026-06-04",
+        markdown: include_str!("../content/blog/team-solo-dark.md"),
+    },
+    Doc {
+        slug: "the-dark-factory",
+        title: "The dark factory",
+        summary: "Lights-out manufacturing as the model for a run.",
+        date: "2026-06-02",
+        markdown: include_str!("../content/blog/the-dark-factory.md"),
+    },
+    Doc {
         slug: "checkpoints-not-babysitting",
         title: "Checkpoints, not babysitting",
         summary: "Spend a human's attention where it changes the outcome.",
+        date: "2026-06-01",
         markdown: include_str!("../content/blog/checkpoints-not-babysitting.md"),
-    },
-    Doc {
-        slug: "the-assembly-line",
-        title: "The assembly line for software",
-        summary: "Order the line by the cost of late discovery.",
-        markdown: include_str!("../content/blog/the-assembly-line.md"),
     },
 ];
 
