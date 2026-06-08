@@ -2,6 +2,13 @@
 
 All notable changes to darkrun are recorded here. Versions follow semver.
 
+## [0.2.1](https://github.com/darkrun-ai/darkrun/compare/v0.2.0...v0.2.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* propagate the 0.2.0 release bump (unblock all open PRs) ([#20](https://github.com/darkrun-ai/darkrun/issues/20)) ([ae45020](https://github.com/darkrun-ai/darkrun/commit/ae4502037ebb67513017416143c6830a2f77489b))
+
 ## [0.2.0](https://github.com/darkrun-ai/darkrun/compare/v0.1.0...v0.2.0) (2026-06-08)
 
 

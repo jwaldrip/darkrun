@@ -11,7 +11,7 @@
           "open_feedback_count": {
             "description": "Number of pending / fixing / addressed feedback items on the station at the time of the call. Zero means the user slots were stamped.",
             "format": "uint32",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           },
           "stamped_user_slots": {
@@ -432,7 +432,7 @@
           "visit": {
             "description": "Station-visit counter at creation time.",
             "format": "uint32",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -454,7 +454,7 @@
           "count": {
             "description": "Number of items returned.",
             "format": "uint",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           },
           "items": {
@@ -524,7 +524,7 @@
           "reply_index": {
             "description": "Zero-based index of the appended reply.",
             "format": "uint",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           },
           "status": {
@@ -639,7 +639,7 @@
           "comments": {
             "description": "Number of comments recorded.",
             "format": "uint",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           },
           "feedback_id": {
@@ -653,7 +653,7 @@
           "pins": {
             "description": "Number of pins recorded.",
             "format": "uint",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -1236,7 +1236,7 @@
           "await_count": {
             "description": "Cumulative number of awaits that have run on this session.",
             "format": "uint32",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": [
               "integer",
               "null"
@@ -1570,7 +1570,7 @@
           "progress_index": {
             "description": "Index of the active (first not-done) milestone.",
             "format": "uint32",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": [
               "integer",
               "null"
@@ -1579,7 +1579,7 @@
           "progress_total": {
             "description": "Total milestone count.",
             "format": "uint32",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": [
               "integer",
               "null"
@@ -1694,7 +1694,7 @@
           "count": {
             "description": "Convenience count of `runs`.",
             "format": "uint",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": "integer"
           },
           "runs": {
@@ -1874,7 +1874,7 @@
               "await_count": {
                 "description": "Cumulative number of awaits that have run on this session.",
                 "format": "uint32",
-                "minimum": 0.0,
+                "minimum": 0,
                 "type": [
                   "integer",
                   "null"
@@ -2429,7 +2429,7 @@
               "boot_port": {
                 "description": "Boot-mode dev-server port.",
                 "format": "uint16",
-                "minimum": 0.0,
+                "minimum": 0,
                 "type": [
                   "integer",
                   "null"
@@ -2684,7 +2684,7 @@
           "boot_port": {
             "description": "Boot-mode dev-server port.",
             "format": "uint16",
-            "minimum": 0.0,
+            "minimum": 0,
             "type": [
               "integer",
               "null"
@@ -2828,7 +2828,7 @@
   "info": {
     "description": "The darkrun software-factory HTTP + WebSocket wire contract.",
     "title": "darkrun API",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "openapi": "3.1.0",
   "paths": {
