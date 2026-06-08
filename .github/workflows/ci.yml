@@ -22,6 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Reclaim disk before building. This job compiles the whole workspace TWICE
+      # (release + debug test artifacts) over a heavy dep graph (dioxus + the full
+      # `image`/AVIF codec set + native webview), which overruns the runner's ~14 GB
+      # and fails with "No space left on device". Dropping the preinstalled .NET /
+      # Android / GHC / CodeQL toolchains frees ~25 GB.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /usr/local/lib/android /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          df -h /
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
