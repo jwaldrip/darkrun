@@ -305,13 +305,14 @@ mod tests {
     }
 
     #[test]
-    fn libdev_narrows_surfaces_to_library_and_api() {
-        let f = resolve_factory("libdev").unwrap();
+    fn software_offers_the_full_surface_set() {
+        let f = resolve_factory("software").unwrap();
+        // software is the one factory that offers every delivery surface,
+        // including the library/api surfaces a library run classifies into.
         assert!(f.offers_surface("library"));
         assert!(f.offers_surface("api"));
-        // A library has no UI — it cannot classify as a visual surface.
-        assert!(!f.offers_surface("web_ui"));
-        assert!(!f.offers_surface("desktop"));
+        assert!(f.offers_surface("web_ui"));
+        assert!(f.offers_surface("desktop"));
     }
 
     #[test]

@@ -54,7 +54,7 @@ fn body(res: &CallToolResult) -> Value {
 }
 
 /// The `software` entry from a `darkrun_factory_list` body. The catalog now
-/// ships multiple factories (legal, libdev, software) sorted by slug, so tests
+/// ships multiple factories (legal, software) sorted by slug, so tests
 /// that assert software's specific orientation must select it by name rather
 /// than by list position.
 fn software_entry(list: &Value) -> Value {
@@ -3689,7 +3689,7 @@ fn factory_list_lists_the_shipped_catalog() {
         .map(|f| f["name"].as_str().unwrap())
         .collect();
     assert!(names.contains(&"software"), "software shipped");
-    assert!(names.contains(&"libdev"), "libdev shipped");
+    assert!(names.contains(&"legal"), "legal shipped");
 }
 
 // ── Batch 5: more error/validation edges ───────────────────────────────────

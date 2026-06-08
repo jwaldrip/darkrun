@@ -49,7 +49,7 @@ pub struct FactoryFrontmatter {
     /// `web_ui`, `library`, `cli`). The Shape station classifies the run into
     /// **one** of these, which routes how Prove/Audit verify it. A factory that
     /// declares none offers no surface classification. Per-factory data, not a
-    /// fixed enum — `software` offers the full set, `libdev` only `library`/`api`.
+    /// fixed enum — `software` offers the full set, including `library`/`api`.
     #[serde(default)]
     pub surfaces: Vec<String>,
 }

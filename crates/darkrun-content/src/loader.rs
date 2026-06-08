@@ -373,44 +373,6 @@ mod tests {
     }
 
     #[test]
-    fn libdev_inherits_software_and_overrides_only_shape() {
-        // The shipped libdev factory is the real proof of inherits: a minimal
-        // FACTORY.md (inherits: software) plus one station override.
-        let f = load_validated("libdev").expect("libdev loads and validates");
-        assert_eq!(f.name(), "libdev");
-
-        // The six-station spine resolves through the parent.
-        let names: Vec<&str> = f.stations.iter().map(Station::name).collect();
-        assert_eq!(names, vec!["frame", "specify", "shape", "build", "prove", "harden"]);
-
-        // Shape is the override: the visual_designer beat is dropped.
-        let shape_workers: Vec<&str> =
-            f.station("shape").unwrap().workers.iter().map(Role::name).collect();
-        assert_eq!(shape_workers, vec!["designer", "spiker", "pressure_tester", "resolver"]);
-        assert!(!shape_workers.contains(&"visual_designer"));
-
-        // Every un-overridden station's roster comes from software unchanged.
-        let software = load_factory("software").unwrap();
-        fn build_workers(fac: &Factory) -> Vec<String> {
-            fac.station("build").unwrap().workers.iter().map(|r| r.name().to_string()).collect()
-        }
-        assert_eq!(build_workers(&f), build_workers(&software));
-
-        // The run-level manifest is inherited wholesale — libdev declares none.
-        let run_reviewers: Vec<&str> = f.run_reviewers.iter().map(Role::name).collect();
-        assert_eq!(
-            run_reviewers,
-            software.run_reviewers.iter().map(Role::name).collect::<Vec<_>>()
-        );
-        assert!(!f.reflections.is_empty(), "reflections inherited from software");
-        // The default model falls through the chain too.
-        assert_eq!(f.frontmatter.default_model, software.frontmatter.default_model);
-        // Surfaces are declared per-factory: libdev narrows to library/api.
-        assert_eq!(f.frontmatter.surfaces, vec!["library", "api"]);
-        assert_eq!(software.frontmatter.surfaces.len(), 8, "software offers the full set");
-    }
-
-    #[test]
     fn legal_is_a_cross_domain_factory_on_the_same_spine() {
         // The legal factory is orientation-only content — no engine changes — and
         // it walks the identical FSSBPH spine with legal labels and no surface.

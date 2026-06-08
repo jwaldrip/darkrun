@@ -46,22 +46,13 @@ fn every_listed_factory_loads_and_validates() {
 }
 
 #[test]
-fn the_libdev_factory_is_listed_and_inherits_software() {
-    // libdev is the second catalog entry; its detail page renders the same six
-    // stations under the software spine via inherits.
-    let slugs = darkrun_content::list_factories();
-    assert!(slugs.contains(&"libdev".to_string()));
-    let f = darkrun_content::load_validated("libdev").unwrap();
-    assert_eq!(f.stations.len(), 6);
-}
-
-#[test]
 fn factory_detail_surfaces_panel_reads_declared_surfaces() {
     // The detail page renders a surface badge per declared surface.
     let software = darkrun_content::load_validated("software").unwrap();
     assert_eq!(software.frontmatter.surfaces.len(), 8);
-    let libdev = darkrun_content::load_validated("libdev").unwrap();
-    assert_eq!(libdev.frontmatter.surfaces, vec!["library", "api"]);
+    // software offers the library/api surfaces a library run classifies into.
+    assert!(software.frontmatter.surfaces.iter().any(|s| s == "library"));
+    assert!(software.frontmatter.surfaces.iter().any(|s| s == "api"));
 }
 
 #[test]

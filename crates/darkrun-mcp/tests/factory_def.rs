@@ -138,10 +138,10 @@ fn list_factories_is_non_empty() {
 }
 
 #[test]
-fn list_factories_contains_software_and_libdev() {
+fn list_factories_contains_software_and_legal() {
     let names: Vec<String> = list_factories().iter().map(|f| f.name.clone()).collect();
     assert!(names.iter().any(|n| n == "software"), "software factory shipped");
-    assert!(names.iter().any(|n| n == "libdev"), "libdev factory shipped");
+    assert!(names.iter().any(|n| n == "legal"), "legal factory shipped");
 }
 
 #[test]
