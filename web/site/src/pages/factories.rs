@@ -55,7 +55,9 @@ fn FactoryTile(slug: String) -> Element {
             rsx! {
                 Link {
                     to: Route::FactoryDetail { slug: slug.clone() },
-                    style: "text-decoration:none;display:block;",
+                    // `display:grid;height:100%` lets the `.dr-grid` stretch reach the
+                    // Card so every tile in a row matches the tallest one's height.
+                    style: "text-decoration:none;display:grid;height:100%;",
                     Card {
                         div {
                             style: format!(
@@ -249,6 +251,7 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
                     index: i,
                     factory: slug.clone(),
                     station: station.name().to_string(),
+                    label: humanize(station.label()),
                     description: station.frontmatter.description.clone(),
                     explorers: station.explorers.iter().map(|r| humanize(r.name())).collect(),
                     workers: station.workers.iter().map(|r| humanize(r.name())).collect(),
@@ -266,7 +269,10 @@ fn FactoryBody(slug: String, factory: ReadSignal<Factory>) -> Element {
 fn StationCard(
     index: usize,
     factory: String,
+    /// The fixed position slug — keys the route/URL.
     station: String,
+    /// The domain-facing display label (already humanized).
+    label: String,
     description: String,
     explorers: Vec<String>,
     workers: Vec<String>,
@@ -289,7 +295,7 @@ fn StationCard(
                             "font-size:17px;font-weight:700;color:{};text-transform:capitalize;",
                             theme::TEXT,
                         ),
-                        "{index + 1}. {humanize(&station)}"
+                        "{index + 1}. {label}"
                     }
                 }
                 if !description.is_empty() {
@@ -351,12 +357,16 @@ fn StationBody(
     let inputs = fm.inputs.clone();
     let body_html = render_markdown(&station.body);
 
-    // Prev/next stations along the pipeline.
+    // Prev/next stations along the pipeline. Each carries the routing slug plus
+    // the domain-facing display label (humanized) shown on the nav button.
     let prev = idx
         .checked_sub(1)
         .and_then(|i| factory_data.stations.get(i))
-        .map(|s| s.name().to_string());
-    let next = factory_data.stations.get(idx + 1).map(|s| s.name().to_string());
+        .map(|s| (s.name().to_string(), humanize(s.label())));
+    let next = factory_data
+        .stations
+        .get(idx + 1)
+        .map(|s| (s.name().to_string(), humanize(s.label())));
 
     // Role view-models, rendered with the site markdown renderer.
     let explorers: Vec<_> = station.explorers.iter().map(|r| role_view(r, render_markdown)).collect();
@@ -374,7 +384,7 @@ fn StationBody(
         }
         SectionHead {
             kicker: format!("station {} / {}", idx + 1, factory_data.stations.len()),
-            title: humanize(station.name()),
+            title: humanize(station.label()),
             lead: Some(fm.description.clone()),
         }
 
@@ -388,7 +398,7 @@ fn StationBody(
             div { style: "margin-bottom:12px;",
                 ArtifactCard {
                     name: locked_artifact.clone(),
-                    description: Some(format!("locked by {}", humanize(station.name()))),
+                    description: Some(format!("locked by {}", humanize(station.label()))),
                 }
             }
         }
@@ -449,16 +459,16 @@ fn StationBody(
 
         // Prev/next pipeline nav.
         div { style: format!("margin-top:32px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid {};padding-top:16px;", theme::BORDER),
-            if let Some(prev) = prev {
-                Link { to: Route::StationDetail { factory: factory.clone(), station: prev.clone() },
-                    Button { variant: ButtonVariant::Secondary, "\u{2190} {humanize(&prev)}" }
+            if let Some((prev_slug, prev_label)) = prev {
+                Link { to: Route::StationDetail { factory: factory.clone(), station: prev_slug.clone() },
+                    Button { variant: ButtonVariant::Secondary, "\u{2190} {prev_label}" }
                 }
             } else {
                 span {}
             }
-            if let Some(next) = next {
-                Link { to: Route::StationDetail { factory: factory.clone(), station: next.clone() },
-                    Button { variant: ButtonVariant::Secondary, "{humanize(&next)} \u{2192}" }
+            if let Some((next_slug, next_label)) = next {
+                Link { to: Route::StationDetail { factory: factory.clone(), station: next_slug.clone() },
+                    Button { variant: ButtonVariant::Secondary, "{next_label} \u{2192}" }
                 }
             } else {
                 span {}

@@ -2716,10 +2716,10 @@ mod tests {
             .expect("software factory listed");
         // Every factory — software included — opens on the fixed FSSBPH spine.
         assert_eq!(software["stations"][0]["name"], "frame");
-        // libdev (inherits: software) appears as a distinct catalog entry.
+        // The legal factory appears as a distinct catalog entry.
         assert!(
-            items.iter().any(|i| i["name"] == "libdev"),
-            "libdev factory listed"
+            items.iter().any(|i| i["name"] == "legal"),
+            "legal factory listed"
         );
     }
 

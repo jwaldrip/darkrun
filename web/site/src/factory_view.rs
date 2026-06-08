@@ -130,8 +130,10 @@ fn clean_risk_phrase(raw: &str) -> String {
 /// dark) — so the static catalog passes a placeholder kind and renders the strip
 /// with `show_checkpoints: false`. The placeholder is never displayed.
 pub fn flow_station(station: &Station) -> FlowStation {
+    // The slug stays the fixed position name (routing/on_select keys off it);
+    // only the DISPLAYED label uses the domain-facing `station.label()`.
     let mut fs = FlowStation::new(station.name().to_string(), UiCheckpoint::Auto)
-        .with_label(humanize(station.name()));
+        .with_label(humanize(station.label()));
     if let Some(risk) = risk_from_body(&station.body) {
         fs = fs.with_risk(risk);
     }

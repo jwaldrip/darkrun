@@ -49,7 +49,7 @@ pub struct FactoryFrontmatter {
     /// `web_ui`, `library`, `cli`). The Shape station classifies the run into
     /// **one** of these, which routes how Prove/Audit verify it. A factory that
     /// declares none offers no surface classification. Per-factory data, not a
-    /// fixed enum — `software` offers the full set, `libdev` only `library`/`api`.
+    /// fixed enum — `software` offers the full set, including `library`/`api`.
     #[serde(default)]
     pub surfaces: Vec<String>,
 }
@@ -201,9 +201,16 @@ pub struct Station {
 }
 
 impl Station {
-    /// The station's slug.
+    /// The station's slug — the fixed FSSBPH position, used for routing/URLs.
     pub fn name(&self) -> &str {
         &self.frontmatter.name
+    }
+
+    /// The station's domain-facing display name (e.g. legal → `Intake`),
+    /// falling back to the position slug when no `label` is declared.
+    /// Display-only; never use this for routing or lookup.
+    pub fn label(&self) -> &str {
+        self.frontmatter.label.as_deref().unwrap_or(self.name())
     }
 }
 
