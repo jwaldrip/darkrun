@@ -34,10 +34,12 @@ you accept at exactly one moment, and it lets you drive fast the rest of the tim
 A chaperone is friction at every moment, and it means you never really left the
 parking lot. Per-tool approval is a chaperone. The checkpoint is a seatbelt.
 
+:::callout
 So the model is simple to say and hard to earn: **checkpoints, not babysitting.**
 The agent runs; you gate. Your attention is the scarcest input in the whole
 system, and darkrun spends it like it is scarce — at the gates, on the locked
 artifacts, where your judgment is the thing that moves the needle.
+:::
 
 ## One method, many lines
 
@@ -63,6 +65,12 @@ annotations carry **severity** — must, should, nit. That severity steers the g
 a must blocks the checkpoint, a should is expected, a nit is advice. The feedback
 routes back to the fix-workers as **drift**, scheduled ahead of new work, repaired
 without restarting the station.
+
+:::keypoints title="Severity steers the gate"
+- **must** — blocks the checkpoint until it is resolved.
+- **should** — expected before lock, but not blocking.
+- **nit** — advisory; routed as drift, never gating.
+:::
 
 You are not commenting into a void. You are programming the line with your
 judgment, one annotation at a time, and the manager schedules against it.

@@ -4,6 +4,12 @@ darkrun has one dial that decides how much it stops to talk to you. It's global,
 
 The dial controls where you sit relative to the run. In the loop with your team. In the loop alone. On the loop.
 
+:::keypoints title="The three modes"
+- **team** — in the loop with your team; each gate opens a PR they review and merge.
+- **solo** — in the loop alone; each gate asks for local review in the desktop app.
+- **dark** — on the loop; the run advances, pausing only on external/await gates and real ambiguity.
+:::
+
 ## The three modes
 
 | Mode | You are... | Each station's gate |

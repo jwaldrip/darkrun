@@ -78,6 +78,60 @@ a { color: inherit; }
 .dr-prose th, .dr-prose td { border: 1px solid var(--dr-border); padding: 8px 12px; text-align: left; }
 .dr-prose th { background: var(--dr-surface-raised); color: var(--dr-text); }
 .dr-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+/* Markdown directive shortcodes (see content::preprocess_directives). */
+.dr-md-callout {
+  margin: 16px 0; padding: 12px 16px;
+  background: var(--dr-surface-raised);
+  border: 1px solid var(--dr-border);
+  border-left: 3px solid var(--dr-accent);
+  border-radius: 8px;
+}
+.dr-md-callout > :first-child { margin-top: 0; }
+.dr-md-callout > :last-child { margin-bottom: 0; }
+.dr-md-callout-info { border-left-color: var(--dr-accent); }
+.dr-md-callout-warn {
+  border-left-color: var(--dr-status-warn);
+  background: color-mix(in srgb, var(--dr-status-warn) 7%, var(--dr-surface-raised));
+}
+.dr-md-callout-ok {
+  border-left-color: var(--dr-status-ok);
+  background: color-mix(in srgb, var(--dr-status-ok) 7%, var(--dr-surface-raised));
+}
+.dr-md-callout-danger {
+  border-left-color: var(--dr-status-danger);
+  background: color-mix(in srgb, var(--dr-status-danger) 7%, var(--dr-surface-raised));
+}
+.dr-md-keypoints {
+  margin: 16px 0; padding: 14px 18px;
+  background: var(--dr-surface-overlay);
+  border: 1px solid var(--dr-border);
+  border-radius: 8px;
+}
+.dr-md-keypoints-title {
+  font-family: var(--dr-font-mono); font-size: 12px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dr-accent); margin-bottom: 8px;
+}
+.dr-md-keypoints ul { margin: 0; }
+.dr-md-keypoints li { margin: 2px 0; }
+.dr-md-keypoints > :last-child { margin-bottom: 0; }
+.dr-md-columns, .dr-md-grid {
+  display: grid; gap: 12px 24px; margin: 16px 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.dr-md-columns ul, .dr-md-grid ul { margin: 0; padding-left: 0; list-style: none; }
+.dr-md-columns li, .dr-md-grid li { margin: 0; }
+.dr-md-steps { margin: 16px 0; padding-left: 0; list-style: none; counter-reset: dr-step; }
+.dr-md-steps ol { margin: 0; padding-left: 0; list-style: none; counter-reset: dr-step; }
+.dr-md-steps li { counter-increment: dr-step; position: relative; padding-left: 32px; margin: 8px 0; }
+.dr-md-steps li::before {
+  content: counter(dr-step); position: absolute; left: 0; top: 0;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--dr-surface-raised); border: 1px solid var(--dr-border);
+  color: var(--dr-accent); font-family: var(--dr-font-mono); font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 "#;
 
 /// A page section header: an eyebrow kicker, a title, and an optional lead.

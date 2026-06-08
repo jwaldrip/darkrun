@@ -7,6 +7,7 @@ and the gate types, and you can predict exactly what the manager will do next.
 
 Work nests four levels deep, and every level has a job.
 
+:::columns
 - **Factory** — a methodology: an ordered set of stations that take work from
   intent to shipped. The software factory's line is Frame → Specify → Shape →
   Build → Prove → Harden. The top of the hierarchy.
@@ -19,6 +20,7 @@ Work nests four levels deep, and every level has a job.
 - **Pass** — one Make → Challenge → Resolve cycle a worker runs inside a Unit.
   Produce a candidate, attack it for its weakest seam, fix what the attack
   surfaced.
+:::
 
 A **Run** walks a factory's stations against a real task. That is the whole
 vocabulary.
@@ -83,9 +85,11 @@ attention a station earns:
 | **external** | A sign-off that happens elsewhere — a PR review, a release approval. |
 | **await**    | A long-running task the manager waits on before it can advance.   |
 
+:::callout warn
 You set the **mode** once for the whole Run — `team`, `solo`, or `dark`. In
 `dark` mode the line runs unattended (gates resolve `auto`); in `team`/`solo` it
 holds for review at every station.
+:::
 
 ## The three-track priority
 
