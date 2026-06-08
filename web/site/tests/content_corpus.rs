@@ -34,7 +34,16 @@ fn concepts_carry_the_expected_slugs_in_order() {
 #[test]
 fn posts_carry_the_expected_slugs_newest_first() {
     let slugs: Vec<&str> = POSTS.iter().map(|d| d.slug).collect();
-    assert_eq!(slugs, vec!["checkpoints-not-babysitting", "the-assembly-line"]);
+    assert_eq!(
+        slugs,
+        vec![
+            "darkrun-is-a-harness",
+            "pure-rust-c-free",
+            "team-solo-dark",
+            "the-dark-factory",
+            "checkpoints-not-babysitting",
+        ]
+    );
 }
 
 #[test]
@@ -103,7 +112,7 @@ fn find_resolves_known_concept_slugs() {
 
 #[test]
 fn find_resolves_known_post_slugs() {
-    assert!(find(POSTS, "the-assembly-line").is_some());
+    assert!(find(POSTS, "the-dark-factory").is_some());
     assert!(find(POSTS, "checkpoints-not-babysitting").is_some());
 }
 
@@ -117,7 +126,7 @@ fn find_returns_none_for_unknown_slug() {
 #[test]
 fn find_is_corpus_scoped() {
     // A post slug must not resolve inside the docs corpus and vice versa.
-    assert!(find(DOCS, "the-assembly-line").is_none());
+    assert!(find(DOCS, "the-dark-factory").is_none());
     assert!(find(POSTS, "getting-started").is_none());
     assert!(find(CONCEPTS, "getting-started").is_none());
 }
