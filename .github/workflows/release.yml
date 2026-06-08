@@ -162,6 +162,11 @@ jobs:
   github-release:
     needs: [version, build]
     runs-on: ubuntu-latest
+    # Best-effort: the repo uses IMMUTABLE releases, so assets can't be added once
+    # release-please has published the release. npm is the real distribution
+    # channel; the tarballs are a bonus. Don't fail the workflow if the attach is
+    # rejected as immutable.
+    continue-on-error: true
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -222,8 +227,10 @@ jobs:
         shell: bash
         run: |
           for plat in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
-            npm publish "npm/${plat}" --access public
+            # `./` prefix is required: npm reads a bare `npm/darwin-arm64` as a
+            # GitHub `owner/repo` shorthand and tries to git-clone it.
+            npm publish "./npm/${plat}" --access public
           done
 
       - name: Publish main darkrun package (plugin)
-        run: npm publish plugin --access public
+        run: npm publish ./plugin --access public
