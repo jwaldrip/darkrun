@@ -33,6 +33,6 @@ locals {
   # public DSN per surface (empty map when disabled).
   dsns = {
     for k, keys in data.sentry_all_keys.surface :
-    k => try(keys.keys[0].dsn_public, "")
+    k => try(keys.keys[0].dsn["public"], "")
   }
 }

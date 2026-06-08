@@ -11,15 +11,15 @@
 # apply, so it can't drive count.
 
 resource "github_actions_secret" "cli_dsn" {
-  count           = var.enable ? 1 : 0
-  repository      = var.repository
-  secret_name     = "DARKRUN_CLI_SENTRY_DSN"
-  plaintext_value = var.cli_dsn
+  count       = var.enable ? 1 : 0
+  repository  = var.repository
+  secret_name = "DARKRUN_CLI_SENTRY_DSN"
+  value       = var.cli_dsn
 }
 
 resource "github_actions_secret" "desktop_dsn" {
-  count           = var.enable ? 1 : 0
-  repository      = var.repository
-  secret_name     = "DARKRUN_DESKTOP_SENTRY_DSN"
-  plaintext_value = var.desktop_dsn
+  count       = var.enable ? 1 : 0
+  repository  = var.repository
+  secret_name = "DARKRUN_DESKTOP_SENTRY_DSN"
+  value       = var.desktop_dsn
 }
