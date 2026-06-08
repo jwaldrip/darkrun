@@ -1,12 +1,18 @@
 {
   "name": "@darkrun/darwin-arm64",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "darkrun native binary for macOS (Apple Silicon).",
   "license": "FSL-1.1-ALv2",
   "repository": "https://github.com/jwaldrip/darkrun",
-  "os": ["darwin"],
-  "cpu": ["arm64"],
-  "files": ["bin"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin"
+  ],
   "publishConfig": {
     "access": "public"
   }
