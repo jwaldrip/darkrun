@@ -29,13 +29,14 @@
 //! concurrent visual sessions without clobbering each other.
 
 
+use darkrun_api::common::GateType;
 use darkrun_api::session::{
-    DirectionArchetype, DirectionSessionPayload, PickerKind, PickerOption, PickerSessionPayload,
-    QuestionOption, QuestionSessionPayload, ReviewSessionPayload, RunCurrentState, RunPhase,
-    SessionPayload, StationStateInfo,
+    ApproveAction, ApproveActionKind, DirectionArchetype, DirectionSessionPayload, PickerKind,
+    PickerOption, PickerSessionPayload, QuestionOption, QuestionSessionPayload, ReviewSessionPayload,
+    RunCurrentState, RunPhase, SessionPayload, StationStateInfo,
 };
 use darkrun_api::SessionStatus;
-use darkrun_core::domain::StationPhase;
+use darkrun_core::domain::{CheckpointKind, StationPhase};
 use darkrun_core::StateStore;
 use serde::Serialize;
 
@@ -68,7 +69,7 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
         .map(|f| f.station_names())
         .unwrap_or_default();
 
-    let (station_states, current_state) = match state {
+    let (station_states, current_state, gate) = match state {
         Some(state) => {
             // An ORDERED list (factory station order from station_status_summary),
             // not a map — the desktop renders the strip in this order, so it must
@@ -99,9 +100,55 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
                 phase: Some(run_phase(state.active_phase())),
                 ..Default::default()
             };
-            (station_states, Some(current))
+            // The approval gate: when the active station sits at its Checkpoint
+            // phase under an interactive mode (ask/external, not auto) and the
+            // checkpoint hasn't been decided yet, surface the Approve /
+            // Request-changes bar to the desktop. The gate kind is the run's
+            // global mode gate — there are no per-station overrides.
+            let gate = if matches!(state.active_phase(), StationPhase::Checkpoint) {
+                let decided = state
+                    .stations
+                    .get(&state.active_station)
+                    .and_then(|s| s.checkpoint.as_ref())
+                    .and_then(|c| c.outcome.as_ref())
+                    .is_some();
+                match (decided, run.frontmatter.mode.gate()) {
+                    (false, CheckpointKind::Ask) => {
+                        Some((GateType::Ask, state.active_station.clone()))
+                    }
+                    (false, CheckpointKind::External) => {
+                        Some((GateType::External, state.active_station.clone()))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            (station_states, Some(current), gate)
         }
-        None => (Vec::new(), None),
+        None => (Vec::new(), None, None),
+    };
+
+    // Expand the gate into the review payload's approval fields. The desktop
+    // renders the checkpoint bar only when `await_active` is set.
+    let (gate_type, gate_station, approve_action, await_active) = match gate {
+        Some((gt, station)) => {
+            let mut chars = station.chars();
+            let cap = chars
+                .next()
+                .map(|f| f.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default();
+            (
+                Some(gt),
+                Some(station),
+                Some(ApproveAction {
+                    label: format!("Complete {cap} station"),
+                    kind: ApproveActionKind::CompleteStation,
+                }),
+                Some(true),
+            )
+        }
+        None => (None, None, None, None),
     };
 
     // Per-station narrative artifacts: the pre-execution briefs ("what I'm going
@@ -135,6 +182,10 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
             current_state: current_state.clone(),
             station_briefs: station_briefs.clone(),
             station_outcomes: station_outcomes.clone(),
+            gate_type,
+            station: gate_station.clone(),
+            approve_action: approve_action.clone(),
+            await_active,
             ..Default::default()
         })
     };
@@ -756,6 +807,80 @@ mod tests {
             image_url_light: None,
             description: None,
         }
+    }
+
+    #[test]
+    fn create_show_surfaces_the_approval_gate_at_an_undecided_checkpoint() {
+        use darkrun_core::domain::{Station, StationPhase, Status};
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        crate::position::run_start(&store, "r", "software", None, Mode::Solo, "full").unwrap();
+
+        // The active station sits at its Checkpoint phase, not yet decided.
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.active_station = "frame".into();
+        state.stations.insert(
+            "frame".into(),
+            Station {
+                station: "frame".into(),
+                status: Status::InProgress,
+                phase: StationPhase::Checkpoint,
+                elaborated: false,
+                checkpoint: None,
+                branch: None,
+                pr_ref: None,
+                pr_status: None,
+                pr_ready_at: None,
+                pr_merged_at: None,
+                verifier_nonce: None,
+                started_at: Some("2026-06-01T00:00:00Z".into()),
+                completed_at: None,
+            },
+        );
+        store.write_state("r", &state).unwrap();
+
+        let reg = registry();
+        create_show(&reg, &store, "r").expect("show");
+        let SessionPayload::Review(rev) = reg.get("r").expect("session present") else {
+            panic!("expected a review session");
+        };
+
+        // Solo mode → ask gate; undecided checkpoint → the bar is active.
+        assert_eq!(rev.await_active, Some(true));
+        assert_eq!(rev.gate_type, Some(GateType::Ask));
+        assert_eq!(rev.station.as_deref(), Some("frame"));
+        assert!(rev.approve_action.is_some());
+
+        // A dark-mode run at the same checkpoint advances on its own — no bar.
+        crate::position::run_start(&store, "d", "software", None, Mode::Dark, "full").unwrap();
+        let mut dstate = store.read_state("d").unwrap().unwrap();
+        dstate.active_station = "frame".into();
+        dstate.stations.insert(
+            "frame".into(),
+            Station {
+                station: "frame".into(),
+                status: Status::InProgress,
+                phase: StationPhase::Checkpoint,
+                elaborated: false,
+                checkpoint: None,
+                branch: None,
+                pr_ref: None,
+                pr_status: None,
+                pr_ready_at: None,
+                pr_merged_at: None,
+                verifier_nonce: None,
+                started_at: Some("2026-06-01T00:00:00Z".into()),
+                completed_at: None,
+            },
+        );
+        store.write_state("d", &dstate).unwrap();
+        create_show(&reg, &store, "d").expect("show");
+        let SessionPayload::Review(drev) = reg.get("d").expect("session present") else {
+            panic!("expected a review session");
+        };
+        assert_eq!(drev.await_active, None);
+        assert!(drev.approve_action.is_none());
     }
 
     // ── question ─────────────────────────────────────────────────────────

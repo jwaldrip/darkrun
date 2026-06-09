@@ -2,7 +2,9 @@
 
 The fastest way to waste a person is to make them watch an agent type. Attention is the scarce resource in any run. Every minute spent reading keystrokes is a minute not spent on the one decision that actually changes the outcome.
 
+:::callout
 darkrun is built to spend your attention in exactly one place: the checkpoint.
+:::
 
 ## A checkpoint is a station boundary
 
@@ -35,7 +37,15 @@ station finishes ─▶ checkpoint ─▶ gate
               ambiguity / risk ────┴──▶ stop, ask you
 ```
 
-The decisions that matter stop and ask. A design trade-off the frame didn't settle. A release the run won't sign off on its own. An ambiguity it can't resolve without you. Those hit the gate and wait.
+The decisions that matter stop and ask.
+
+:::keypoints title="The decisions that matter stop and ask"
+- A design trade-off the frame didn't settle.
+- A release the run won't sign off on its own.
+- An ambiguity it can't resolve without you.
+:::
+
+Those hit the gate and wait.
 
 So you don't pay attention evenly across the whole run. You pay it where it's load-bearing and nowhere else.
 
@@ -47,4 +57,6 @@ Real control is being present at the boundary where a choice gets made, and abse
 
 That's the line between driving a run and babysitting one. Babysitting is watching everything and deciding nothing. Driving is deciding at the checkpoints and ignoring the rest. darkrun is built for the second one.
 
+:::callout
 Pick your mode. Let the line run. Show up at the gate.
+:::

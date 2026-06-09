@@ -8,7 +8,11 @@ That's the model darkrun is built on. It's where the name comes from, and it's w
 
 A factory floor runs as a sequence, not a pile of machines. Each station does one thing, hands the product to the next, and the order is the whole point. You don't paint before you weld.
 
-darkrun's factory works the same way. An ordered line of stations, each retiring one class of risk, handing a locked artifact to the next. The order follows one rule: **cost of late discovery**. Cheapest mistakes to catch go first, because a mistake caught early costs almost nothing and the same mistake caught late costs a rewrite.
+darkrun's factory works the same way. An ordered line of stations, each retiring one class of risk, handing a locked artifact to the next.
+
+:::callout
+The order follows one rule: **cost of late discovery**. Cheapest mistakes to catch go first, because a mistake caught early costs almost nothing and the same mistake caught late costs a rewrite.
+:::
 
 ## The line, in order
 
@@ -21,7 +25,14 @@ darkrun's factory works the same way. An ordered line of stations, each retiring
 | **Prove** | escaped defects | a regression your tests should have caught |
 | **Harden** | works-in-dev-dies-in-prod | the 2am page |
 
-Read it top to bottom. Frame is first because building the wrong thing perfectly is the most expensive mistake there is, and it's free to catch — you just have to ask before you start. Specify kills the ambiguity that turns into "that's not what I meant" three stations later. Shape locks structure before there's code stacked on top of it, when reversing a decision is still cheap. By the time you're in Build, the expensive questions are answered and the agent can implement against a settled spec.
+Read it top to bottom.
+
+:::keypoints title="Why this order"
+- Frame is first because building the wrong thing perfectly is the most expensive mistake there is, and it's free to catch — you just have to ask before you start.
+- Specify kills the ambiguity that turns into "that's not what I meant" three stations later.
+- Shape locks structure before there's code stacked on top of it, when reversing a decision is still cheap.
+- By the time you're in Build, the expensive questions are answered and the agent can implement against a settled spec.
+:::
 
 Prove and Harden are the back half. Prove catches the defect that escaped Build. Harden catches the thing that works on your laptop and dies in production. Each one is a net under the last.
 
@@ -45,4 +56,6 @@ A staffed line has a human at every station signing off before the product moves
 
 That only works because the stations are real. A lights-out factory is only safe if each station actually retires its risk before passing the product on. The whole design — order by cost of late discovery, lock one artifact per station, never reopen — is what makes it safe to turn the lights off.
 
+:::callout
 Build the line so each station is honest. Then you can leave the floor.
+:::

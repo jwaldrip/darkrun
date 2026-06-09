@@ -39,6 +39,13 @@ fn main() {
     // so the shell toolbar (the wordmark + theme control) IS the title bar, with
     // the traffic lights floating over its left. The toolbar carries an
     // `-webkit-app-region:drag` region so the window stays draggable by it.
+    // Transparent window: macOS rounds the window corners, and with a fullsize
+    // content view the square webview can't fill those rounded corners — the
+    // window's own (appearance-tracking, so often dark) backing bleeds through
+    // as a dark crescent when the in-app theme is light. Making the window
+    // transparent removes that backing; the opaque, theme-painted `html,body`
+    // (see SHELL_CSS) becomes the visible fill in every theme, so the corner
+    // always matches the active theme instead of the OS appearance.
     #[cfg(target_os = "macos")]
     let window = {
         use dioxus::desktop::tao::platform::macos::WindowBuilderExtMacOS;
@@ -46,10 +53,20 @@ fn main() {
             .with_titlebar_transparent(true)
             .with_title_hidden(true)
             .with_fullsize_content_view(true)
+            .with_transparent(true)
     };
-    dioxus::LaunchBuilder::desktop()
-        .with_cfg(Config::new().with_window(window))
-        .launch(app);
+    // Persist the webview's storage (localStorage, where the theme override is
+    // saved) under a stable per-user data directory. Without this the webview
+    // gets an ephemeral store that's wiped each launch, so a pinned Light/Dark
+    // theme would reset to System on every relaunch.
+    let mut cfg = Config::new()
+        .with_window(window)
+        // Clear backing so nothing shows behind the theme-painted body.
+        .with_background_color((0, 0, 0, 0));
+    if let Some(data_dir) = dirs::data_dir() {
+        cfg = cfg.with_data_directory(data_dir.join("darkrun").join("webview"));
+    }
+    dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(app);
 }
 
 /// Top-level app: reads the launch config from the environment and opens the

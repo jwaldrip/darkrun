@@ -1,6 +1,10 @@
 # Pure Rust, no C
 
-darkrun is Rust end to end. The engine, the CLI, the desktop app, the website you're reading. No Python sidecar, no Node runtime, no shelling out to a system tool and parsing its stdout. One binary, no runtime dependencies.
+darkrun is Rust end to end. The engine, the CLI, the desktop app, the website you're reading. No Python sidecar, no Node runtime, no shelling out to a system tool and parsing its stdout.
+
+:::callout
+One binary, no runtime dependencies.
+:::
 
 The part people don't expect is git.
 
@@ -42,10 +46,12 @@ The desktop app is [Dioxus](https://dioxuslabs.com/), so the review UI is the sa
 
 Three things fall out of "no C, no subprocess, one binary."
 
-**It's one artifact.** You ship a single static binary. No "make sure git 2.40+ is installed," no Python venv, no node_modules. It runs where you put it.
+:::keypoints title="What no C, no subprocess, one binary buys"
+- **It's one artifact.** You ship a single static binary. No "make sure git 2.40+ is installed," no Python venv, no node_modules. It runs where you put it.
+- **It's reproducible.** Subprocesses make behavior depend on the host. The git on your laptop and the git in CI can differ, and then so does darkrun. With gix linked in, the git behavior is pinned to the binary. Same input, same output, everywhere.
+- **It fails honestly.** A merge conflict comes back as a typed value the engine matches on, not a string it parses and hopes it understood. Fewer places for "the tool said something we didn't anticipate" to turn into a wedged run.
+:::
 
-**It's reproducible.** Subprocesses make behavior depend on the host. The git on your laptop and the git in CI can differ, and then so does darkrun. With gix linked in, the git behavior is pinned to the binary. Same input, same output, everywhere.
-
-**It fails honestly.** A merge conflict comes back as a typed value the engine matches on, not a string it parses and hopes it understood. Fewer places for "the tool said something we didn't anticipate" to turn into a wedged run.
-
+:::callout
 Rust everywhere buys one thing: darkrun is a single artifact you can drop on a machine and trust, instead of a script only as reliable as the six tools it happens to find installed. The purity is the means, not the flex.
+:::

@@ -134,6 +134,13 @@ a { color: inherit; }
 }
 .dr-theme-seg { appearance: none; border: 0; cursor: pointer; font-family: var(--dr-font-mono); font-size: 11px; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 999px; line-height: 1; white-space: nowrap; font-weight: 400; color: var(--dr-text); background-color: transparent; transition: background-color .15s ease, color .15s ease; }
 .dr-theme-seg[aria-pressed="true"] { font-weight: 600; color: var(--dr-on-accent); background-color: var(--dr-accent); }
+
+/* Slideshow position dots. The active surface is a wide accent pill; the rest
+   are muted dots. Driven by a toggled class (not an inline style string) so the
+   active state actually updates on navigation. */
+.dr-dot { height: 8px; width: 8px; border: 0; border-radius: 999px; padding: 0; cursor: pointer;
+  background: var(--dr-text-muted); }
+.dr-dot.is-active { width: 24px; background: var(--dr-accent); }
 "#;
 
 /// A page section header: an eyebrow kicker, a title, and an optional lead.

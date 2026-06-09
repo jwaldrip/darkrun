@@ -308,6 +308,13 @@ pub const DOCS: &[Doc] = &[
         markdown: include_str!("../content/docs/review.md"),
     },
     Doc {
+        slug: "tools-and-commands",
+        title: "Tools and commands",
+        summary: "The slash commands you type and the MCP tools the manager calls.",
+        date: "",
+        markdown: include_str!("../content/docs/tools-and-commands.md"),
+    },
+    Doc {
         slug: "other-harnesses",
         title: "Other harnesses",
         summary: "Run darkrun in Cursor, Gemini, Codex, and more.",

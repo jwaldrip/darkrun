@@ -2,21 +2,46 @@
 
 darkrun is a **dark factory harness**: it runs your agents lights-out as an
 ordered line of stations that take work from raw intent to a shipped, hardened
-outcome. You drive the line; the manager keeps every station honest. The
-**software factory** below is the first factory it ships.
+outcome. You drive the line; the manager keeps every station honest.
 
-## Install
+:::callout
+darkrun runs **inside your agent**, not beside it. You install it as a plugin,
+then start runs with a slash command — the agent does the work, the manager
+keeps it honest, and you show up at the checkpoints.
+:::
 
-darkrun ships as a single binary. Drop it on your path and point it at a repo:
+## Install (in your agent)
 
-```sh
-darkrun init
-darkrun run "add rate limiting to the public API"
+In Claude Code, add the marketplace and install the plugin:
+
+```
+/plugin marketplace add darkrun-ai/darkrun
+/plugin install darkrun
 ```
 
-`init` writes a `.darkrun/` directory with your factory selection and worker
-config. `run` opens a top-level **Run** and starts the **manager** — the loop
-that advances each station through its phases.
+That registers the darkrun **MCP server** (a single native Rust binary — no JS
+runtime) and the `/darkrun:*` commands. Other harnesses — Cursor, Gemini,
+Codex — wire up the same way; see [Other harnesses](/docs/other-harnesses).
+
+## Start a run
+
+Describe what you want. The manager scaffolds a right-sized run and starts
+walking the line:
+
+```
+/darkrun:darkrun-new "add rate limiting to the public API"
+```
+
+:::steps
+- **darkrun-new** scaffolds the run and opens the first station.
+- The **manager** advances each station through its phases, doing the work.
+- You **review in the desktop app** — approve, request changes, or annotate.
+- At each **checkpoint** the run either advances on its own or stops and asks you.
+:::
+
+The everyday commands: `darkrun-resume` to advance, `darkrun-inspect` to see
+state, `darkrun-checkpoint` to decide a gate. The full surface is in
+[Tools and commands](/docs/tools-and-commands).
 
 ## The shape of a run
 
@@ -32,13 +57,18 @@ A **Run** moves through six stations, in cost-of-late-discovery order:
 | Harden   | the release — the externally-signed checkpoint |
 
 Each station runs the same internal phase machine: **spec → review →
-manufacture → audit → reflect → checkpoint**. Audit folds in the quality checks
-(no separate tests phase); reflect is a quick retrospective before the gate. You
-only stop where a station's **Checkpoint** asks you to.
+manufacture → audit → reflect → checkpoint**. Audit folds in the quality checks;
+reflect is a quick retrospective before the gate. You only stop where a
+station's **Checkpoint** asks you to.
 
-## Drive it
+## Without an agent (the CLI)
 
-Most of the time you watch the line move and answer at the checkpoints. When a
-station produces a **Unit**, you can open it, leave inline feedback, and send it
-back for another **Pass**. The **fix-workers** pick up drift and feedback without
-restarting the station.
+The same engine runs headless if you'd rather drive it directly:
+
+```sh
+npm i -g darkrun          # the native binary, no JS app
+darkrun run "add rate limiting to the public API"
+```
+
+`run` opens a top-level Run and starts the manager loop. Most people use the
+agent path above; the CLI is there for scripts and CI.

@@ -62,6 +62,39 @@ pub fn Landing() -> Element {
             DesktopSlideshow {}
         }
 
+        // Why you should use it: the value, not the feature list.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "why darkrun".to_string(),
+                title: "Spend your attention where it's load-bearing".to_string(),
+                lead: Some(
+                    "Agents are fast and tireless; your judgment is the scarce input. \
+                     darkrun spends it at the gates and nowhere else."
+                        .to_string(),
+                ),
+            }
+            div { class: "dr-grid",
+                for (title , body) in why_points() {
+                    ValueCard { title, body }
+                }
+            }
+        }
+
+        // How to get started quickly: the agent path, three lines.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "get started".to_string(),
+                title: "Three lines, inside your agent".to_string(),
+                lead: Some(
+                    "darkrun installs as a plugin and runs where your agent already lives. \
+                     Add it, then describe the work — the manager walks the line and you \
+                     review in the desktop app."
+                        .to_string(),
+                ),
+            }
+            Quickstart {}
+        }
+
         // The software factory's line: its own declared stations, in pipeline
         // order. This is one factory's recipe, not a fixed universal six.
         section { style: "margin:8px 0 40px;",
@@ -114,9 +147,15 @@ fn DesktopSlideshow() -> Element {
     let slides = [
         (
             "The run review",
-            "The main surface. The station line shows where the run is; the tabs hold the work under review; and this is where you approve, request changes, or leave feedback.",
+            "The main surface. The station line shows where the run is; the tabs hold the work under review — units, outputs, knowledge, and feedback.",
             asset!("/assets/desktop-run-review.png"),
             asset!("/assets/desktop-run-review-light.png"),
+        ),
+        (
+            "The approval gate",
+            "At a checkpoint the run stops and hands you the decision: complete the station to advance, or request changes — which route back as drift, no restart.",
+            asset!("/assets/desktop-approval.png"),
+            asset!("/assets/desktop-approval-light.png"),
         ),
         (
             "Decisions",
@@ -129,6 +168,12 @@ fn DesktopSlideshow() -> Element {
             "Choose a design archetype from real mockups, then annotate what to change.",
             asset!("/assets/desktop-direction.png"),
             asset!("/assets/desktop-direction-light.png"),
+        ),
+        (
+            "Annotate & steer",
+            "Pick a direction and mark it up — drop pins on the preview and leave comments. The agent inherits not just which way to go, but exactly what to adjust.",
+            asset!("/assets/desktop-annotate.png"),
+            asset!("/assets/desktop-annotate-light.png"),
         ),
         (
             "Projects & runs",
@@ -145,13 +190,16 @@ fn DesktopSlideshow() -> Element {
     let dark = &slides[cur].2;
     let light = &slides[cur].3;
 
-    // No `display` here — the `.dr-shot-*` CSS classes toggle which variant shows
-    // per the active theme, and an inline `display` would outrank them.
-    let frame = format!(
-        "width:100%;height:auto;border:1px solid {border};\
-         border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.45);",
-        border = theme::BORDER,
-    );
+    // No `display` here — the `.dr-themed-*` CSS classes toggle which variant
+    // shows per the active theme, and an inline `display` would outrank them.
+    // The screenshots carry their own transparent, rounded window corners (baked
+    // into the PNG alpha), so we add neither border nor border-radius here — a
+    // CSS rounding wouldn't match the window's corner radius and would leave a
+    // mismatched edge. `drop-shadow` (not `box-shadow`) follows the alpha shape,
+    // so the shadow hugs the rounded corners instead of a square box.
+    let frame = "width:100%;height:auto;\
+                 filter:drop-shadow(0 10px 30px rgba(0,0,0,0.32));"
+        .to_string();
     let navbtn = format!(
         "appearance:none;cursor:pointer;background:{raised};border:1px solid {border};\
          color:{text};border-radius:999px;width:30px;height:30px;line-height:1;font-size:16px;",
@@ -182,17 +230,17 @@ fn DesktopSlideshow() -> Element {
                     onclick: move |_| idx.set((cur + n - 1) % n),
                     "\u{2039}"
                 }
-                div { style: "display:flex;align-items:center;gap:8px;",
+                div { style: "display:flex;align-items:center;gap:7px;",
                     for i in 0..n {
-                        {
-                            let dot = format!(
-                                "width:9px;height:9px;border-radius:50%;border:0;cursor:pointer;padding:0;background:{};",
-                                if i == cur { theme::ACCENT } else { theme::BORDER_STRONG },
-                            );
-                            rsx! {
-                                button { key: "{i}", style: "{dot}", "aria-label": "go to surface {i + 1}",
-                                    onclick: move |_| idx.set(i) }
-                            }
+                        // Active state via a toggled CLASS (.dr-dot / .is-active in
+                        // GLOBAL_CSS). NO `key` here: the list order is fixed, and a
+                        // keyed reuse left the rendered width stale (the pill stuck on
+                        // the first dot) even though the class attribute updated.
+                        button {
+                            class: if i == cur { "dr-dot is-active" } else { "dr-dot" },
+                            "aria-label": "go to surface {i + 1}",
+                            "aria-current": if i == cur { "true" } else { "false" },
+                            onclick: move |_| idx.set(i),
                         }
                     }
                 }
@@ -247,6 +295,168 @@ fn StationCard(index: usize, name: String) -> Element {
         div { style: "{card}",
             div { style: "{num}", "station {n}" }
             div { style: "{title}", "{name}" }
+        }
+    }
+}
+
+/// The three reasons to use it — value, not features.
+fn why_points() -> [(String, String); 3] {
+    [
+        (
+            "Checkpoints, not babysitting".to_string(),
+            "Your attention goes to the gates, not the keystrokes. The run does the work; \
+             you decide where it actually counts."
+                .to_string(),
+        ),
+        (
+            "Risk dies early".to_string(),
+            "Stations run in cost-of-late-discovery order. The cheap risks die first, before \
+             they get expensive to undo."
+                .to_string(),
+        ),
+        (
+            "Shipped, not just done".to_string(),
+            "Every run ends hardened — proven against its spec and signed off at the release \
+             gate, not left at \"works on my machine\"."
+                .to_string(),
+        ),
+    ]
+}
+
+/// One value card in the "why" grid.
+#[component]
+fn ValueCard(title: String, body: String) -> Element {
+    let card = format!(
+        "background:{raised};border:1px solid {border};border-radius:10px;padding:18px;",
+        raised = theme::SURFACE_RAISED,
+        border = theme::BORDER,
+    );
+    let head = format!(
+        "font-family:{sans};font-size:17px;font-weight:700;color:{text};margin:0 0 8px;",
+        sans = tokens::FONT_SANS,
+        text = theme::TEXT,
+    );
+    let body_style = format!(
+        "font-family:{sans};font-size:14px;line-height:1.5;color:{muted};margin:0;",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+    rsx! {
+        div { style: "{card}",
+            h3 { style: "{head}", "{title}" }
+            p { style: "{body_style}", "{body}" }
+        }
+    }
+}
+
+/// How a given harness installs darkrun.
+#[derive(Clone, Copy, PartialEq)]
+enum Hkind {
+    /// Claude Code: the `/plugin` marketplace commands.
+    Plugin,
+    /// A one-line `<cli> mcp add` command (the `detail` is the CLI binary).
+    Cli,
+    /// An MCP config file (the `detail` is the config path).
+    Mcp,
+}
+
+/// The harness catalog: (label, harness id, install kind, detail). `detail` is
+/// the CLI binary for `Cli` and the config-file path for `Mcp`.
+fn harnesses() -> [(&'static str, &'static str, Hkind, &'static str); 7] {
+    [
+        ("Claude Code", "claude-code", Hkind::Plugin, ""),
+        ("Codex", "codex", Hkind::Cli, "codex"),
+        ("Gemini CLI", "gemini-cli", Hkind::Cli, "gemini"),
+        ("Cursor", "cursor", Hkind::Mcp, ".cursor/mcp.json"),
+        ("Windsurf", "windsurf", Hkind::Mcp, "~/.codeium/windsurf/mcp_config.json"),
+        ("OpenCode", "opencode", Hkind::Mcp, "opencode.json"),
+        ("Kiro", "kiro", Hkind::Mcp, ".kiro/agents/darkrun.yaml"),
+    ]
+}
+
+/// The quickstart: pick your harness, get the right install + first run.
+#[component]
+fn Quickstart() -> Element {
+    let list = harnesses();
+    let mut sel = use_signal(|| 0usize);
+    let (label, id, kind, path) = list[sel()];
+
+    // The install + first-run snippet for the selected harness.
+    let code = match kind {
+        Hkind::Plugin => format!(
+            "# in {label}: add the plugin\n\
+             /plugin marketplace add darkrun-ai/darkrun\n\
+             /plugin install darkrun\n\n\
+             # then describe the work\n\
+             /darkrun:darkrun-new \"add rate limiting to the public API\""
+        ),
+        Hkind::Cli => format!(
+            "# in {label}: register the MCP server\n\
+             {path} mcp add darkrun -- npx -y darkrun mcp --harness {id}\n\n\
+             # then ask your agent to start a darkrun run\n\
+             \"start a darkrun run: add rate limiting to the public API\""
+        ),
+        Hkind::Mcp => format!(
+            "# add darkrun as an MCP server in {path}\n\
+             npx -y darkrun mcp --harness {id}\n\n\
+             # then ask your agent to start a darkrun run\n\
+             \"start a darkrun run: add rate limiting to the public API\""
+        ),
+    };
+
+    let block = format!(
+        "background:{sink};border:1px solid {border};border-radius:10px;padding:18px 20px;\
+         font-family:{mono};font-size:13.5px;line-height:1.7;color:{text};overflow-x:auto;\
+         white-space:pre;margin:0;",
+        sink = theme::SURFACE_BASE,
+        border = theme::BORDER,
+        mono = tokens::FONT_MONO,
+        text = theme::TEXT,
+    );
+    let seg_wrap = format!(
+        "display:inline-flex;flex-wrap:wrap;gap:3px;border:1px solid {border};\
+         border-radius:999px;padding:3px;background:{raised};",
+        border = theme::BORDER,
+        raised = theme::SURFACE_RAISED,
+    );
+    let row_label = format!(
+        "font-family:{mono};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;\
+         color:{muted};",
+        mono = tokens::FONT_MONO,
+        muted = theme::TEXT_MUTED,
+    );
+    let note = format!(
+        "font-family:{sans};font-size:13px;color:{muted};margin:12px 2px 0;",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+
+    rsx! {
+        div {
+            style: "display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;",
+            span { style: "{row_label}", "harness" }
+            // Radio-style segmented control. `.dr-theme-seg` + aria-pressed reuses
+            // the theme-picker pill styling and updates reliably (no inline-style
+            // diffing quirk); no `key` so positions update in place.
+            div { role: "radiogroup", "aria-label": "harness", style: "{seg_wrap}",
+                for (j , h) in list.iter().enumerate() {
+                    button {
+                        class: "dr-theme-seg",
+                        role: "radio",
+                        "aria-checked": if j == sel() { "true" } else { "false" },
+                        "aria-pressed": if j == sel() { "true" } else { "false" },
+                        onclick: move |_| sel.set(j),
+                        "{h.0}"
+                    }
+                }
+            }
+        }
+        pre { style: "{block}", "{code}" }
+        p { style: "{note}",
+            "The manager scaffolds a right-sized run and walks the line; you review in the "
+            "desktop app (Claude Code) or inline. Full per-harness setup and capabilities in "
+            Link { to: Route::DocPage { slug: "other-harnesses".to_string() }, "Other harnesses" }
+            "."
         }
     }
 }

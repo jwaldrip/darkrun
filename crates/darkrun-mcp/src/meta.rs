@@ -145,7 +145,7 @@ pub fn report(
     std::fs::write(&path, &doc)?;
     Ok(Report {
         saved_to: path.to_string_lossy().to_string(),
-        file_at: "https://github.com/jwaldrip/darkrun/issues/new".to_string(),
+        file_at: "https://github.com/darkrun-ai/darkrun/issues/new".to_string(),
         message: message.trim().to_string(),
     })
 }

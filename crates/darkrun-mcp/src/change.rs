@@ -166,6 +166,8 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::FeedbackQuestion { .. } => "feedback_question",
         RunAction::UnitsInvalid { .. } => "units_invalid",
         RunAction::Escalate { .. } => "escalate",
+        RunAction::BestEffortBoot { .. } => "best_effort_boot",
+        RunAction::EscalateToUser { .. } => "escalate_to_user",
         RunAction::SafeRepair { .. } => "safe_repair",
         RunAction::ReviseUnitSpecs { .. } => "revise_unit_specs",
         RunAction::RunReview { .. } => "run_review",

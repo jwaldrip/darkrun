@@ -8,27 +8,31 @@ between.
 This is the fastest path from zero to your first finished Run. Install, start a
 Run, walk it to a checkpoint, approve, ship.
 
+:::callout
+darkrun runs **inside your agent**. You install it as a plugin and start runs
+with a slash command — the agent does the work, the manager keeps it honest.
+:::
+
 ## Install
 
-darkrun ships as a single static binary — end-to-end Rust, no runtime to babysit.
-Drop it on your path and point it at a repo:
+In Claude Code, add the marketplace and install the plugin:
 
-```sh
-darkrun init
+```
+/plugin marketplace add darkrun-ai/darkrun
+/plugin install darkrun
 ```
 
-`init` auto-detects your VCS, hosting, CI, and default branch, then writes a
-`.darkrun/` directory: your factory selection, worker config, and settings. That
-directory is the only state darkrun keeps, and it lives in your repo where you can
-read it.
+That registers the darkrun **MCP server** (a single static Rust binary — no
+runtime to babysit) and the `/darkrun:*` commands. Cursor, Gemini, and Codex
+wire up the same way; see [Other harnesses](/docs/other-harnesses).
 
 ## Your first Run, end to end
 
 A **Run** is the top-level execution of a factory against a real task. Describe
 what you want and let the manager size the line:
 
-```sh
-darkrun run "add rate limiting to the public API"
+```
+/darkrun:darkrun-new "add rate limiting to the public API"
 ```
 
 Here is the whole loop, start to finish:
@@ -36,10 +40,10 @@ Here is the whole loop, start to finish:
 1. **Start.** The manager scaffolds a right-sized Run — the software factory's
    stations (Frame → Specify → Shape → Build → Prove → Harden), trimmed to fit
    the work. Small change, short line. Big change, full line.
-2. **Pickup.** Each tick, you ask the manager for the next concrete action and it
-   hands you exactly one: explore this, decompose that, run this Pass, attach this
-   proof. You perform it, then tick again. The agent runs hot inside a station —
-   you are not approving keystrokes.
+2. **Pickup.** The agent drives the line with `darkrun-resume`: each tick the
+   manager hands it exactly one concrete action — explore this, decompose that,
+   run this Pass, attach this proof — and the agent performs it, then ticks again.
+   It runs hot inside a station; you are not approving keystrokes.
 3. **Checkpoint.** Every station ends at a gate. When the manager reaches one set
    to **ask**, it stops and surfaces the locked artifact for your review. This is
    your control point — not the thousand decisions the agent made to get here, the

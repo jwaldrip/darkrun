@@ -284,8 +284,13 @@ fn engine_display_name(e: &DiscoveredEngine) -> String {
 const SHELL_CSS: &str = r#"
 /* Reset the webview's default 8px body margin so the shell sits flush to the
    window edges (otherwise it's inset on all sides AND 100vh overflows into a
-   scrollbar). The website has its own reset; the desktop needs this one. */
-html,body{ margin:0; padding:0; height:100%; }
+   scrollbar). The website has its own reset; the desktop needs this one.
+
+   Paint the theme surface onto html/body too: the macOS window is rounded
+   (fullsize content view + transparent titlebar), and the OS corner mask clips
+   the content — without a themed backing the window's dark default bleeds
+   through the rounded corners as a dark crescent in light theme. */
+html,body{ margin:0; padding:0; height:100%; background:var(--dr-surface-base); }
 *{ box-sizing:border-box; }
 .dr-shell{ display:flex; flex-direction:column; height:100vh; overflow:hidden;
   background:var(--dr-surface-base); color:var(--dr-text);

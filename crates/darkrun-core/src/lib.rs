@@ -20,11 +20,13 @@
 //! - [`error`]       — the crate error type.
 
 pub mod annotation;
+pub mod boot;
 pub mod dag;
 pub mod derive;
 pub mod domain;
 pub mod error;
 pub mod frontmatter;
+pub mod gate_env;
 pub mod locks;
 pub mod state;
 pub mod witness;

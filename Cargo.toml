@@ -10,7 +10,7 @@ edition = "2021"
 # informational string doesn't need to be a valid SPDX expression.
 license = "FSL-1.1-ALv2"
 authors = ["darkrun contributors"]
-repository = "https://github.com/jwaldrip/darkrun"
+repository = "https://github.com/darkrun-ai/darkrun"
 homepage = "https://darkrun.ai"
 
 [workspace.dependencies]
