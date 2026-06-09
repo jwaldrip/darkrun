@@ -110,8 +110,13 @@ fn DesktopSlideshow() -> Element {
     // (feature label, caption, image). `asset!` needs a literal path.
     let slides = [
         (
+            "The run review",
+            "The main surface. The station line shows where the run is; the tabs hold the work under review; and this is where you approve, request changes, or leave feedback.",
+            asset!("/assets/desktop-run-review.png"),
+        ),
+        (
             "Decisions",
-            "The agent surfaces a checkpoint — you pick from a diagram of each option.",
+            "When a call is yours to make, the agent draws each option — you pick from a diagram, not a wall of prose.",
             asset!("/assets/desktop-review.png"),
         ),
         (
