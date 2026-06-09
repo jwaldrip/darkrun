@@ -2,7 +2,9 @@
 
 Anthropic published a piece called [Harness Design for Long-Running Application Development](https://www.anthropic.com/engineering/harness-design-long-running-apps). It puts a name to something darkrun already does. A harness is the scaffolding around a model that makes it reliable on work too long to fit in one context window: structured phases, specialized roles, file-based state, and clean handoffs across context resets.
 
+:::callout
 darkrun is that, top to bottom. I built it as a harness before the word landed.
+:::
 
 ## What a harness is
 
@@ -24,7 +26,13 @@ Anthropic's version has a few load-bearing parts: specialized agent roles, a gen
 
 ## Workers make, challenge, resolve
 
-A Worker doesn't just emit a draft and move on. It runs a three-beat pass. **Make** produces the artifact. **Challenge** attacks it from a different angle than the one that wrote it. **Resolve** reconciles the two into something that survived a real argument.
+A Worker doesn't just emit a draft and move on. It runs a three-beat pass.
+
+:::keypoints title="The three-beat pass"
+- **Make** produces the artifact.
+- **Challenge** attacks it from a different angle than the one that wrote it.
+- **Resolve** reconciles the two into something that survived a real argument.
+:::
 
 That's the generator-evaluator split Anthropic names, pulled inside a single station. A model grading its own first draft grades it kindly. Forcing the challenge step means the draft has to survive a critic before it advances.
 
@@ -57,4 +65,8 @@ darkrun is built so you can test that. Each station retires one class of risk. E
 
 The reason the mapping is this clean is that darkrun didn't bolt a harness onto a chatbot. The factory is the harness. The stations are the phases. The Workers and Reviewers are the roles. The `.darkrun/` directory is the file-based state. Resume is the context-reset handoff.
 
-Anthropic wrote down the shape of the thing. darkrun is one concrete instance of it, with opinions about where the guardrails go and the cost of late discovery to order them by. Read their post, then read [the stations doc](/docs/stations). It's the same machine, described twice.
+Anthropic wrote down the shape of the thing. darkrun is one concrete instance of it, with opinions about where the guardrails go and the cost of late discovery to order them by. Read their post, then read [the stations doc](/docs/stations).
+
+:::callout
+It's the same machine, described twice.
+:::

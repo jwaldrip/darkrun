@@ -28,7 +28,9 @@ The dial controls where you sit relative to the run. In the loop with your team.
 
 This is the part that makes the dial safe to turn. Every mode does the elaboration work up front. The run thinks through the whole job before it starts building, in team and solo and dark alike.
 
+:::callout
 Dark front-loads the thinking instead of skipping it: plan the whole job first, then run without interrupting me for it. Dark and solo plan with the same care. They differ on one thing — whether the run stops to show you each plan as it goes, or shows you the whole shape once and then executes.
+:::
 
 ## Why one global dial
 
@@ -50,4 +52,12 @@ The gate kind comes from the mode now, not the station. team makes every gate ex
 
 A run is a long thing. The cost of the wrong gate model isn't one bad decision, it's a hundred small ones spread across every station boundary, each one either interrupting you when you wanted flow or sliding past when you wanted a look.
 
-Set the dial to the altitude you actually want to work at. Shipping with your team: **team**. Heads-down by yourself: **solo**. Specs in, software out: **dark**. Then stop thinking about gates and let the run honor the choice.
+Set the dial to the altitude you actually want to work at.
+
+:::columns
+- Shipping with your team: **team**.
+- Heads-down by yourself: **solo**.
+- Specs in, software out: **dark**.
+:::
+
+Then stop thinking about gates and let the run honor the choice.
