@@ -21,7 +21,13 @@ fn docs_carry_the_expected_slugs_in_order() {
     let slugs: Vec<&str> = DOCS.iter().map(|d| d.slug).collect();
     assert_eq!(
         slugs,
-        vec!["getting-started", "stations", "review", "other-harnesses"]
+        vec![
+            "getting-started",
+            "stations",
+            "review",
+            "tools-and-commands",
+            "other-harnesses"
+        ]
     );
 }
 
