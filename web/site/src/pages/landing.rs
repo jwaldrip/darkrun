@@ -185,16 +185,27 @@ fn DesktopSlideshow() -> Element {
                     onclick: move |_| idx.set((cur + n - 1) % n),
                     "\u{2039}"
                 }
-                div { style: "display:flex;align-items:center;gap:8px;",
+                div { style: "display:flex;align-items:center;gap:7px;",
                     for i in 0..n {
                         {
+                            // The active surface is a wide accent pill; the rest are
+                            // muted dots — so the position in the sequence reads at a
+                            // glance (the earlier faint same-size dots did not).
+                            let active = i == cur;
                             let dot = format!(
-                                "width:9px;height:9px;border-radius:50%;border:0;cursor:pointer;padding:0;background:{};",
-                                if i == cur { theme::ACCENT } else { theme::BORDER_STRONG },
+                                "height:8px;border-radius:999px;border:0;cursor:pointer;padding:0;\
+                                 transition:width .2s ease,background-color .2s ease;\
+                                 width:{w};background:{bg};",
+                                w = if active { "24px" } else { "8px" },
+                                bg = if active { theme::ACCENT } else { theme::TEXT_MUTED },
                             );
                             rsx! {
-                                button { key: "{i}", style: "{dot}", "aria-label": "go to surface {i + 1}",
-                                    onclick: move |_| idx.set(i) }
+                                button {
+                                    key: "{i}", style: "{dot}",
+                                    "aria-label": "go to surface {i + 1}",
+                                    "aria-current": if active { "true" } else { "false" },
+                                    onclick: move |_| idx.set(i),
+                                }
                             }
                         }
                     }
