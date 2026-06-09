@@ -62,6 +62,39 @@ pub fn Landing() -> Element {
             DesktopSlideshow {}
         }
 
+        // Why you should use it: the value, not the feature list.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "why darkrun".to_string(),
+                title: "Spend your attention where it's load-bearing".to_string(),
+                lead: Some(
+                    "Agents are fast and tireless; your judgment is the scarce input. \
+                     darkrun spends it at the gates and nowhere else."
+                        .to_string(),
+                ),
+            }
+            div { class: "dr-grid",
+                for (title , body) in why_points() {
+                    ValueCard { title, body }
+                }
+            }
+        }
+
+        // How to get started quickly: the agent path, three lines.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "get started".to_string(),
+                title: "Three lines, inside your agent".to_string(),
+                lead: Some(
+                    "darkrun installs as a plugin and runs where your agent already lives. \
+                     Add it, then describe the work — the manager walks the line and you \
+                     review in the desktop app."
+                        .to_string(),
+                ),
+            }
+            Quickstart {}
+        }
+
         // The software factory's line: its own declared stations, in pipeline
         // order. This is one factory's recipe, not a fixed universal six.
         section { style: "margin:8px 0 40px;",
@@ -250,6 +283,93 @@ fn StationCard(index: usize, name: String) -> Element {
         div { style: "{card}",
             div { style: "{num}", "station {n}" }
             div { style: "{title}", "{name}" }
+        }
+    }
+}
+
+/// The three reasons to use it — value, not features.
+fn why_points() -> [(String, String); 3] {
+    [
+        (
+            "Checkpoints, not babysitting".to_string(),
+            "Your attention goes to the gates, not the keystrokes. The run does the work; \
+             you decide where it actually counts."
+                .to_string(),
+        ),
+        (
+            "Risk dies early".to_string(),
+            "Stations run in cost-of-late-discovery order. The cheap risks die first, before \
+             they get expensive to undo."
+                .to_string(),
+        ),
+        (
+            "Shipped, not just done".to_string(),
+            "Every run ends hardened — proven against its spec and signed off at the release \
+             gate, not left at \"works on my machine\"."
+                .to_string(),
+        ),
+    ]
+}
+
+/// One value card in the "why" grid.
+#[component]
+fn ValueCard(title: String, body: String) -> Element {
+    let card = format!(
+        "background:{raised};border:1px solid {border};border-radius:10px;padding:18px;",
+        raised = theme::SURFACE_RAISED,
+        border = theme::BORDER,
+    );
+    let head = format!(
+        "font-family:{sans};font-size:17px;font-weight:700;color:{text};margin:0 0 8px;",
+        sans = tokens::FONT_SANS,
+        text = theme::TEXT,
+    );
+    let body_style = format!(
+        "font-family:{sans};font-size:14px;line-height:1.5;color:{muted};margin:0;",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+    rsx! {
+        div { style: "{card}",
+            h3 { style: "{head}", "{title}" }
+            p { style: "{body_style}", "{body}" }
+        }
+    }
+}
+
+/// The quickstart: the agent install + first run, as a terminal block.
+#[component]
+fn Quickstart() -> Element {
+    let block = format!(
+        "background:{sink};border:1px solid {border};border-radius:10px;padding:18px 20px;\
+         font-family:{mono};font-size:13.5px;line-height:1.7;color:{text};overflow-x:auto;",
+        sink = theme::SURFACE_BASE,
+        border = theme::BORDER,
+        mono = tokens::FONT_MONO,
+        text = theme::TEXT,
+    );
+    let comment = format!("color:{};", theme::TEXT_MUTED);
+    let accent = format!("color:{};", theme::ACCENT);
+    let note = format!(
+        "font-family:{sans};font-size:13px;color:{muted};margin:12px 2px 0;",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+    rsx! {
+        div { style: "{block}",
+            div { style: "{comment}", "# in Claude Code: add the plugin" }
+            div { span { style: "{accent}", "/plugin" } " marketplace add jwaldrip/darkrun" }
+            div { span { style: "{accent}", "/plugin" } " install darkrun" }
+            div { style: "height:8px;" }
+            div { style: "{comment}", "# then describe the work" }
+            div { span { style: "{accent}", "/darkrun:darkrun-new" } " \"add rate limiting to the public API\"" }
+        }
+        p { style: "{note}",
+            "That's it. The manager scaffolds a right-sized run and walks the line; you show up "
+            "at the checkpoints in the desktop app. Prefer headless? "
+            "Read "
+            Link { to: Route::Docs {}, "the docs" }
+            " for the CLI path."
         }
     }
 }
