@@ -145,13 +145,16 @@ fn DesktopSlideshow() -> Element {
     let dark = &slides[cur].2;
     let light = &slides[cur].3;
 
-    // No `display` here — the `.dr-shot-*` CSS classes toggle which variant shows
-    // per the active theme, and an inline `display` would outrank them.
-    let frame = format!(
-        "width:100%;height:auto;border:1px solid {border};\
-         border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.45);",
-        border = theme::BORDER,
-    );
+    // No `display` here — the `.dr-themed-*` CSS classes toggle which variant
+    // shows per the active theme, and an inline `display` would outrank them.
+    // The screenshots carry their own transparent, rounded window corners (baked
+    // into the PNG alpha), so we add neither border nor border-radius here — a
+    // CSS rounding wouldn't match the window's corner radius and would leave a
+    // mismatched edge. `drop-shadow` (not `box-shadow`) follows the alpha shape,
+    // so the shadow hugs the rounded corners instead of a square box.
+    let frame = "width:100%;height:auto;\
+                 filter:drop-shadow(0 10px 30px rgba(0,0,0,0.32));"
+        .to_string();
     let navbtn = format!(
         "appearance:none;cursor:pointer;background:{raised};border:1px solid {border};\
          color:{text};border-radius:999px;width:30px;height:30px;line-height:1;font-size:16px;",
