@@ -45,6 +45,41 @@ pub fn Landing() -> Element {
             }
         }
 
+        // The desktop review app: where the human stands on the line. The shot
+        // shows a real design decision rendered as a picture per option.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "the review app".to_string(),
+                title: "Decisions as a picture book".to_string(),
+                lead: Some(
+                    "When a station needs a call, the native desktop app surfaces it as a \
+                     review — each option drawn as a diagram, not a wall of prose. Anyone on \
+                     the team can see the decision and make it, not just the engineer who \
+                     framed it."
+                        .to_string(),
+                ),
+            }
+            figure { style: "margin:0;",
+                img {
+                    src: "/assets/desktop-review.png",
+                    alt: "darkrun desktop review app showing a rate-limit design decision, each option drawn as a diagram",
+                    loading: "lazy",
+                    style: format!(
+                        "width:100%;height:auto;display:block;border:1px solid {border};\
+                         border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.45);",
+                        border = theme::BORDER,
+                    ),
+                }
+                figcaption {
+                    style: format!(
+                        "font-family:{mono};font-size:12px;color:{faint};margin-top:10px;text-align:center;",
+                        mono = tokens::FONT_MONO, faint = theme::TEXT_FAINT,
+                    ),
+                    "A live review: pick the rate-limiting strategy from a diagram of each option."
+                }
+            }
+        }
+
         // The software factory's line: its own declared stations, in pipeline
         // order. This is one factory's recipe, not a fixed universal six.
         section { style: "margin:8px 0 40px;",
