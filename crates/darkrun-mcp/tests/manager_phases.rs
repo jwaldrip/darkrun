@@ -96,6 +96,8 @@ fn action_station(a: &RunAction) -> Option<&str> {
         | RunAction::FeedbackQuestion { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
+        | RunAction::BestEffortBoot { station, .. }
+        | RunAction::EscalateToUser { station, .. }
         | RunAction::SafeRepair { station, .. }
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }

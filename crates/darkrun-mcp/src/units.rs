@@ -323,6 +323,27 @@ pub fn record_gate_result(
             }
         }
     }
+    // Gate-environment classification: a `fail` whose output reads as a dead
+    // dependency (DB down, tool missing, port taken) is not a code defect. Flip
+    // it to EnvBlocked *before* the fix loop sees it, so the run routes to a
+    // best-effort boot / operator escalation instead of churning fix passes
+    // against a broken box. A genuine defect stays `fail`.
+    let status = if matches!(status, GateStatus::Fail) {
+        let recipe = darkrun_core::boot::read_boot_recipe(store.root()).ok().flatten();
+        let tools = recipe
+            .as_ref()
+            .map(darkrun_core::boot::required_tools)
+            .unwrap_or_default();
+        let class =
+            darkrun_core::gate_env::classify_gate_failure(gate, detail.as_deref().unwrap_or(""), &tools);
+        if class.environment {
+            GateStatus::EnvBlocked
+        } else {
+            status
+        }
+    } else {
+        status
+    };
     let now = Utc::now().to_rfc3339();
     let prior_attempts = unit
         .frontmatter
@@ -649,6 +670,44 @@ mod tests {
         let after = record_gate_result(&store, "r", "u1", "tests", GateStatus::Fail, None, None).unwrap();
         assert!(!after.gates_satisfied());
         assert_eq!(after.unsatisfied_gates(), vec!["tests"]);
+    }
+
+    #[test]
+    fn a_fail_with_environment_output_auto_flips_to_env_blocked() {
+        use darkrun_core::domain::QualityGate;
+        let (_d, store) = store1();
+        let mut u = create(&store, "r", "u1", "build", None, vec![]).unwrap();
+        u.frontmatter.quality_gates = vec![QualityGate { name: "itest".into(), command: "t".into() }];
+        store.write_unit("r", &u).unwrap();
+
+        // A `fail` whose output reads as a dead dependency is reclassified to
+        // EnvBlocked (routes to boot/escalate, not the fix loop).
+        let after = record_gate_result(
+            &store,
+            "r",
+            "u1",
+            "itest",
+            GateStatus::Fail,
+            Some("Error: connect ECONNREFUSED 127.0.0.1:5432".into()),
+            None,
+        )
+        .unwrap();
+        let g = after.frontmatter.gate_results.iter().find(|r| r.name == "itest").unwrap();
+        assert_eq!(g.status, GateStatus::EnvBlocked);
+
+        // A `fail` that's a genuine defect stays a `fail`.
+        let after2 = record_gate_result(
+            &store,
+            "r",
+            "u1",
+            "itest",
+            GateStatus::Fail,
+            Some("assertion `left == right` failed\n left: 3\n right: 4".into()),
+            None,
+        )
+        .unwrap();
+        let g2 = after2.frontmatter.gate_results.iter().find(|r| r.name == "itest").unwrap();
+        assert_eq!(g2.status, GateStatus::Fail);
     }
 
     /// Predecessor BUG-1: the CI-deferral attempt counter was keyed per-UNIT, so

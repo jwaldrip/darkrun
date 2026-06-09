@@ -137,6 +137,27 @@ pub enum RunAction {
         station: String,
         reason: String,
     },
+    /// A gate failed for an ENVIRONMENT reason (a dependency was down) and the
+    /// repo's `.darkrun/boot.md` declares a service whose tool is available:
+    /// instruct the agent to best-effort boot it, then re-record the gate.
+    BestEffortBoot {
+        run: String,
+        station: String,
+        unit: String,
+        gate: String,
+        /// The service boot commands, as `name: <command line>` entries.
+        services: Vec<String>,
+    },
+    /// A gate is environment-blocked and can't be auto-recovered (no boot recipe,
+    /// or the required tool is missing) — hold the station and surface it to the
+    /// operator instead of churning fix passes against a dead dependency.
+    EscalateToUser {
+        run: String,
+        station: String,
+        unit: String,
+        gate: String,
+        reason: String,
+    },
     /// Persisted state is internally inconsistent (a unit points at a station
     /// the factory doesn't define). Run a guarded repair before proceeding —
     /// parity for the predecessor's `safe_intent_repair`.
@@ -1196,6 +1217,73 @@ pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
         });
     }
 
+    // Environment-blocked gate: the classifier flagged a gate failure as a dead
+    // dependency, not a code defect. Don't churn fix passes — best-effort boot
+    // the declared services when the repo's `.darkrun/boot.md` lists one whose
+    // tool is live, otherwise escalate to the operator. (EnvBlocked auto-defers
+    // to CI after repeated attempts in `record_gate_result`, so this self-clears
+    // rather than wedging.)
+    if let Some((u, gate_name, detail)) = su_all.iter().find_map(|u| {
+        u.frontmatter
+            .gate_results
+            .iter()
+            .find(|r| r.status == darkrun_core::domain::GateStatus::EnvBlocked)
+            .map(|r| (u, r.name.clone(), r.detail.clone().unwrap_or_default()))
+    }) {
+        let recipe = darkrun_core::boot::read_boot_recipe(store.root()).ok().flatten();
+        let services: Vec<String> = recipe
+            .as_ref()
+            .map(|r| {
+                darkrun_core::boot::service_processes(r)
+                    .into_iter()
+                    .filter(|p| {
+                        p.requires_tool
+                            .as_deref()
+                            .map(darkrun_core::gate_env::is_tool_available)
+                            .unwrap_or(true)
+                    })
+                    .map(|p| format!("{}: {}", p.name, p.command_line()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !services.is_empty() {
+            return Ok(Position {
+                track: Track::Run,
+                action: Some(RunAction::BestEffortBoot {
+                    run: slug.to_string(),
+                    station: station.clone(),
+                    unit: u.slug.clone(),
+                    gate: gate_name,
+                    services,
+                }),
+            });
+        }
+        let reason = if detail.trim().is_empty() {
+            format!(
+                "gate `{gate_name}` on unit `{}` is environment-blocked and can't be \
+                 auto-recovered (no boot recipe, or its tool is missing). Bring the \
+                 dependency up, then re-record the gate.",
+                u.slug
+            )
+        } else {
+            format!(
+                "gate `{gate_name}` on unit `{}` is environment-blocked: {detail}. Bring \
+                 the dependency up, then re-record the gate.",
+                u.slug
+            )
+        };
+        return Ok(Position {
+            track: Track::Run,
+            action: Some(RunAction::EscalateToUser {
+                run: slug.to_string(),
+                station: station.clone(),
+                unit: u.slug.clone(),
+                gate: gate_name,
+                reason,
+            }),
+        });
+    }
+
     // ── Track A: run — walk the active station's phase machine ───────────
     let def = factory
         .station(&station)
@@ -1503,6 +1591,8 @@ pub fn action_tag(action: &RunAction) -> &'static str {
         RunAction::FeedbackQuestion { .. } => "feedback_question",
         RunAction::UnitsInvalid { .. } => "units_invalid",
         RunAction::Escalate { .. } => "escalate",
+        RunAction::BestEffortBoot { .. } => "best_effort_boot",
+        RunAction::EscalateToUser { .. } => "escalate_to_user",
         RunAction::SafeRepair { .. } => "safe_repair",
         RunAction::ReviseUnitSpecs { .. } => "revise_unit_specs",
         RunAction::ExternalReviewRequested { .. } => "external_review_requested",
@@ -1535,6 +1625,8 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         | RunAction::FeedbackQuestion { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
+        | RunAction::BestEffortBoot { station, .. }
+        | RunAction::EscalateToUser { station, .. }
         | RunAction::SafeRepair { station, .. }
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }
@@ -2062,6 +2154,8 @@ fn station_of(action: &RunAction) -> Option<&str> {
         | RunAction::FeedbackQuestion { station, .. }
         | RunAction::UnitsInvalid { station, .. }
         | RunAction::Escalate { station, .. }
+        | RunAction::BestEffortBoot { station, .. }
+        | RunAction::EscalateToUser { station, .. }
         | RunAction::SafeRepair { station, .. }
         | RunAction::ReviseUnitSpecs { station, .. }
         | RunAction::MergeConflict { station, .. }
@@ -3253,6 +3347,62 @@ mod tests {
                 assert!(reason.contains("budget"), "explains the budget overrun: {reason}");
             }
             other => panic!("expected Escalate for a runaway pass loop, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_env_blocked_gate_escalates_then_best_effort_boots_with_a_recipe() {
+        use darkrun_core::domain::{GateResult, GateStatus, Unit, UnitFrontmatter};
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        // The active station (frame) holds a unit whose gate is env-blocked.
+        let unit = Unit {
+            slug: "frame-u".into(),
+            frontmatter: UnitFrontmatter {
+                station: Some("frame".into()),
+                gate_results: vec![GateResult {
+                    name: "itest".into(),
+                    status: GateStatus::EnvBlocked,
+                    at: None,
+                    attempts: 1,
+                    detail: Some("connection refused".into()),
+                }],
+                ..Default::default()
+            },
+            title: "u".into(),
+            body: String::new(),
+        };
+        store.write_unit("r", &unit).unwrap();
+
+        // No boot recipe → escalate to the operator.
+        match derive_position(&store, "r").expect("derive").action {
+            Some(RunAction::EscalateToUser { gate, station, .. }) => {
+                assert_eq!(station, "frame");
+                assert_eq!(gate, "itest");
+            }
+            other => panic!("expected EscalateToUser without a recipe, got {other:?}"),
+        }
+
+        // A recipe whose service tool is on PATH (`sh`) → best-effort boot.
+        let boot = concat!(
+            "---\n",
+            "processes:\n",
+            "  - name: db\n",
+            "    command: [docker, compose, up, -d, db]\n",
+            "    service: true\n",
+            "    requires_tool: sh\n",
+            "---\n",
+        );
+        std::fs::write(store.root().join("boot.md"), boot).unwrap();
+        match derive_position(&store, "r").expect("derive").action {
+            Some(RunAction::BestEffortBoot { gate, services, .. }) => {
+                assert_eq!(gate, "itest");
+                assert!(
+                    services.iter().any(|s| s.contains("db")),
+                    "lists the service: {services:?}"
+                );
+            }
+            other => panic!("expected BestEffortBoot with a recipe, got {other:?}"),
         }
     }
 
