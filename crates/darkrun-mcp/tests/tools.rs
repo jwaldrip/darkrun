@@ -5435,6 +5435,7 @@ fn q_opt(id: &str, label: &str) -> QuestionOptionInput {
         id: id.into(),
         label: label.into(),
         image_url: None,
+        image_url_light: None,
         description: None,
     }
 }
@@ -5444,6 +5445,7 @@ fn arch_in(id: &str) -> ArchetypeInput {
         id: id.into(),
         label: format!("{id} label"),
         image_url: format!("https://img/{id}.png"),
+        image_url_light: None,
         description: format!("{id} direction"),
     }
 }
@@ -5473,6 +5475,7 @@ fn question_tool_creates_awaiting_session() {
                     id: "a".into(),
                     label: "Option A".into(),
                     image_url: Some("https://img/a.png".into()),
+                    image_url_light: None,
                     description: Some("bold".into()),
                 },
                 q_opt("b", "Option B"),

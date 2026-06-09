@@ -108,8 +108,9 @@ pub fn Landing() -> Element {
 #[component]
 fn DesktopSlideshow() -> Element {
     // (feature label, caption, dark image, light image). `asset!` needs literal
-    // paths. Both variants render; CSS (`.dr-shot-*`, see GLOBAL_CSS) shows the
-    // one matching the site theme — same mechanism the wordmark uses.
+    // paths. Both variants render; the shared `.dr-themed-*` CSS (in
+    // darkrun_ui::tokens::THEME_CSS) shows the one matching the site theme —
+    // the same render-both-let-CSS-pick mechanism the wordmark uses.
     let slides = [
         (
             "The run review",
@@ -172,8 +173,8 @@ fn DesktopSlideshow() -> Element {
 
     rsx! {
         figure { style: "margin:0;",
-            img { class: "dr-shot dr-shot-dark", src: "{dark}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
-            img { class: "dr-shot dr-shot-light", src: "{light}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
+            img { class: "dr-themed-dark", src: "{dark}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
+            img { class: "dr-themed-light", src: "{light}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
             div {
                 style: "display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;",
                 button {

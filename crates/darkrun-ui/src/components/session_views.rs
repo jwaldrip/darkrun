@@ -30,8 +30,12 @@ pub struct OptionCard {
     pub id: String,
     /// Display label.
     pub label: String,
-    /// Optional image url (a generated mockup / design option).
+    /// Optional image url (a generated mockup / design option). Dark-theme
+    /// variant when `image_url_light` is also set.
     pub image_url: Option<String>,
+    /// Optional light-theme variant of `image_url`. When present, the card shows
+    /// whichever image matches the active theme.
+    pub image_url_light: Option<String>,
     /// Optional longer description.
     pub description: Option<String>,
 }
@@ -43,13 +47,20 @@ impl OptionCard {
             id: id.into(),
             label: label.into(),
             image_url: None,
+            image_url_light: None,
             description: None,
         }
     }
 
-    /// Attach an image url.
+    /// Attach an image url (the dark/default variant).
     pub fn with_image(mut self, url: impl Into<String>) -> Self {
         self.image_url = Some(url.into());
+        self
+    }
+
+    /// Attach the light-theme variant of the image.
+    pub fn with_image_light(mut self, url: impl Into<String>) -> Self {
+        self.image_url_light = Some(url.into());
         self
     }
 
@@ -68,8 +79,11 @@ pub struct ArchetypeCard {
     pub id: String,
     /// Display label.
     pub label: String,
-    /// Generated preview-image url.
+    /// Generated preview-image url (dark/default variant when a light one is set).
     pub image_url: String,
+    /// Optional light-theme variant of `image_url`. When present, the card shows
+    /// whichever preview matches the active theme.
+    pub image_url_light: Option<String>,
     /// Description of the design direction.
     pub description: String,
 }
@@ -86,8 +100,15 @@ impl ArchetypeCard {
             id: id.into(),
             label: label.into(),
             image_url: image_url.into(),
+            image_url_light: None,
             description: description.into(),
         }
+    }
+
+    /// Attach the light-theme variant of the preview image.
+    pub fn with_image_light(mut self, url: impl Into<String>) -> Self {
+        self.image_url_light = Some(url.into());
+        self
     }
 }
 
@@ -135,23 +156,57 @@ impl PickerItem {
 /// Render an `<img>` for `url`, or a labelled placeholder surface when the url is
 /// absent or blank. `aspect` is a CSS `aspect-ratio` (e.g. `"4 / 3"`).
 fn image_or_placeholder(url: Option<&str>, alt: &str, aspect: &str) -> Element {
+    themed_image_or_placeholder(url, None, alt, aspect)
+}
+
+/// Theme-aware variant of [`image_or_placeholder`]: when a `light` url is given,
+/// render *both* the dark and light images and let the `.dr-themed-*` CSS (in
+/// [`crate::tokens::THEME_CSS`]) show the one matching the active theme. With no
+/// `light` url this collapses to a single theme-neutral image — same render path
+/// as [`image_or_placeholder`].
+fn themed_image_or_placeholder(
+    url: Option<&str>,
+    light: Option<&str>,
+    alt: &str,
+    aspect: &str,
+) -> Element {
     let frame = format!(
         "width:100%;aspect-ratio:{aspect};border-radius:6px;overflow:hidden;\
-         background:{base};border:1px solid {border};display:block;",
+         background:{base};border:1px solid {border};",
         aspect = aspect,
         base = tokens::var::SURFACE_BASE,
         border = tokens::var::BORDER,
     );
-    match url.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(u) => rsx! {
+    let dark = url.map(str::trim).filter(|u| !u.is_empty());
+    let light = light.map(str::trim).filter(|u| !u.is_empty());
+    match (dark, light) {
+        // Multi-theme: render both; CSS shows the variant matching the theme.
+        (Some(d), Some(l)) => rsx! {
             img {
+                class: "dr-themed-dark",
                 style: "{frame}object-fit:cover;",
+                src: "{d}",
+                alt: "{alt}",
+                loading: "lazy",
+            }
+            img {
+                class: "dr-themed-light",
+                style: "{frame}object-fit:cover;",
+                src: "{l}",
+                alt: "{alt}",
+                loading: "lazy",
+            }
+        },
+        // Single image (either variant present alone) — theme-neutral.
+        (Some(u), None) | (None, Some(u)) => rsx! {
+            img {
+                style: "{frame}display:block;object-fit:cover;",
                 src: "{u}",
                 alt: "{alt}",
                 loading: "lazy",
             }
         },
-        None => {
+        (None, None) => {
             let ph = format!(
                 "{frame}display:flex;align-items:center;justify-content:center;\
                  font-family:{mono};font-size:11px;color:{faint};\
@@ -352,7 +407,7 @@ fn option_card(
                     }
                 }
             },
-            {image_or_placeholder(opt.image_url.as_deref(), &opt.label, "4 / 3")}
+            {themed_image_or_placeholder(opt.image_url.as_deref(), opt.image_url_light.as_deref(), &opt.label, "4 / 3")}
             div { style: "{label_style}",
                 span { "{opt.label}" }
                 if selected {
@@ -515,7 +570,7 @@ fn archetype_card(
                     }
                 }
             },
-            {image_or_placeholder(Some(&arch.image_url), &arch.label, "4 / 3")}
+            {themed_image_or_placeholder(Some(&arch.image_url), arch.image_url_light.as_deref(), &arch.label, "4 / 3")}
             div { style: "{label_style}",
                 span { "{arch.label}" }
                 if chosen {
@@ -576,10 +631,14 @@ fn annotation_layer(
                         h.call((coords.x, coords.y, 0.0, 0.0));
                     }
                 },
-                img {
-                    style: "{img_style}",
-                    src: "{arch.image_url}",
-                    alt: "{arch.label}",
+                match arch.image_url_light.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+                    Some(light) => rsx! {
+                        img { class: "dr-themed-dark", style: "{img_style}", src: "{arch.image_url}", alt: "{arch.label}" }
+                        img { class: "dr-themed-light", style: "{img_style}", src: "{light}", alt: "{arch.label}" }
+                    },
+                    None => rsx! {
+                        img { style: "{img_style}", src: "{arch.image_url}", alt: "{arch.label}" }
+                    },
                 }
                 for (i, pin) in pins.iter().enumerate() {
                     {pin_marker(i, pin)}

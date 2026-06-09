@@ -134,21 +134,6 @@ a { color: inherit; }
 }
 .dr-theme-seg { appearance: none; border: 0; cursor: pointer; font-family: var(--dr-font-mono); font-size: 11px; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 999px; line-height: 1; white-space: nowrap; font-weight: 400; color: var(--dr-text); background-color: transparent; transition: background-color .15s ease, color .15s ease; }
 .dr-theme-seg[aria-pressed="true"] { font-weight: 600; color: var(--dr-on-accent); background-color: var(--dr-accent); }
-
-/* Theme-paired screenshots: show the variant that matches the active theme.
-   Same idea as the wordmark — render both, let CSS pick. The explicit
-   data-theme rules win over the prefers-color-scheme fallback when the
-   visitor has chosen a theme. */
-.dr-shot-dark { display: block; }
-.dr-shot-light { display: none; }
-@media (prefers-color-scheme: light) {
-  .dr-shot-dark { display: none; }
-  .dr-shot-light { display: block; }
-}
-:root[data-theme="dark"] .dr-shot-dark { display: block; }
-:root[data-theme="dark"] .dr-shot-light { display: none; }
-:root[data-theme="light"] .dr-shot-dark { display: none; }
-:root[data-theme="light"] .dr-shot-light { display: block; }
 "#;
 
 /// A page section header: an eyebrow kicker, a title, and an optional lead.

@@ -311,6 +311,7 @@ pub fn option_card(o: &QuestionOption) -> OptionCard {
         id: o.id.clone(),
         label: o.label.clone(),
         image_url: o.image_url.clone(),
+        image_url_light: o.image_url_light.clone(),
         description: o.description.clone(),
     }
 }
@@ -326,6 +327,7 @@ pub fn archetype_card(a: &DirectionArchetype) -> ArchetypeCard {
         id: a.id.clone(),
         label: a.label.clone(),
         image_url: a.image_url.clone(),
+        image_url_light: a.image_url_light.clone(),
         description: a.description.clone(),
     }
 }
@@ -673,6 +675,7 @@ mod tests {
             id: "warm".into(),
             label: "Warm palette".into(),
             image_url: Some("https://img/warm.png".into()),
+            image_url_light: None,
             description: Some("amber + rust".into()),
         };
         let card = option_card(&o);
@@ -688,6 +691,7 @@ mod tests {
             id: "plain".into(),
             label: "Plain".into(),
             image_url: None,
+            image_url_light: None,
             description: None,
         };
         let card = option_card(&o);
@@ -702,12 +706,14 @@ mod tests {
                 id: "a".into(),
                 label: "A".into(),
                 image_url: None,
+                image_url_light: None,
                 description: None,
             },
             QuestionOption {
                 id: "b".into(),
                 label: "B".into(),
                 image_url: Some("u".into()),
+                image_url_light: None,
                 description: None,
             },
         ];
@@ -723,6 +729,7 @@ mod tests {
             id: "editorial".into(),
             label: "Editorial".into(),
             image_url: "https://img/ed.png".into(),
+            image_url_light: None,
             description: "serif, airy".into(),
         };
         let card = archetype_card(&a);

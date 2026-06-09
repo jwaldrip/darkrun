@@ -35,6 +35,7 @@ pub fn Preview() -> Element {
             id: o.id.clone(),
             label: o.label.clone(),
             image_url: o.image_url.clone(),
+            image_url_light: o.image_url_light.clone(),
             description: o.description.clone(),
         })
         .collect();
@@ -51,6 +52,7 @@ pub fn Preview() -> Element {
             id: a.id.clone(),
             label: a.label.clone(),
             image_url: a.image_url.clone(),
+            image_url_light: a.image_url_light.clone(),
             description: a.description.clone(),
         })
         .collect();
@@ -300,18 +302,21 @@ pub fn sample_question() -> QuestionSessionPayload {
                 id: "split".to_string(),
                 label: "Split status rail".to_string(),
                 image_url: None,
+                image_url_light: None,
                 description: Some("Run status pinned left, output stream right.".to_string()),
             },
             QuestionOption {
                 id: "stacked".to_string(),
                 label: "Stacked timeline".to_string(),
                 image_url: None,
+                image_url_light: None,
                 description: Some("Phases as a vertical timeline with inline previews.".to_string()),
             },
             QuestionOption {
                 id: "grid".to_string(),
                 label: "Station grid".to_string(),
                 image_url: None,
+                image_url_light: None,
                 description: Some("Every station as a card in a responsive grid.".to_string()),
             },
         ],
@@ -340,6 +345,7 @@ pub fn sample_direction() -> DirectionSessionPayload {
                 id: "instrument".to_string(),
                 label: "Instrument panel".to_string(),
                 image_url: String::new(),
+                image_url_light: None,
                 description: "Dense, telemetry-first: gauges, sparklines, monospace readouts."
                     .to_string(),
             },
@@ -347,6 +353,7 @@ pub fn sample_direction() -> DirectionSessionPayload {
                 id: "editorial".to_string(),
                 label: "Editorial calm".to_string(),
                 image_url: String::new(),
+                image_url_light: None,
                 description: "Generous whitespace, one focal metric, quiet supporting detail."
                     .to_string(),
             },
@@ -354,6 +361,7 @@ pub fn sample_direction() -> DirectionSessionPayload {
                 id: "terminal".to_string(),
                 label: "Terminal".to_string(),
                 image_url: String::new(),
+                image_url_light: None,
                 description: "Pure mono, log-stream forward, minimal chrome.".to_string(),
             },
         ],

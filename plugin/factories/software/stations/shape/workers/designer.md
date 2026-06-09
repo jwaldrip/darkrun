@@ -48,6 +48,13 @@ trade-off and make the call.
   pass it as the option's `image_url` (a `data:image/svg+xml;base64,…` URI works, no
   hosting needed). Match the brand: dark surface (`#0e1217`), cyan accent (`#5fd7ff`),
   light text (`#e6edf3`).
+- **Pass the theme through.** The operator's app follows their light/dark preference, so a
+  preview must match it — a dark diagram on a light screen reads as a bug (it did: the dark
+  art bled through). Generate **both** a dark and a light rendering of each diagram and pass
+  the dark one as `image_url` and the light one as `image_url_light`; the app shows whichever
+  matches the operator's theme. Light palette: surface `#ffffff`, accent `#0b6e8c`, text
+  `#0e1217`. If a diagram is genuinely theme-neutral (no fills that fight a background),
+  one `image_url` is fine — but when in doubt, ship both.
 - **Ask with the pictures.** Use `darkrun_question` (pick one) or `darkrun_direction`
   (richer, annotatable) with the diagram-backed options. Never surface a decision option
   with no image — an imageless option is the wall of text this station exists to avoid.
