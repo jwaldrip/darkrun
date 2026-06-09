@@ -34,8 +34,7 @@ pub const ENGINE_STATE_PREFIX: &str = ".darkrun";
 
 /// Whether `rel` is an engine-owned workflow-state path for `run_slug`.
 ///
-/// The darkrun analogue of the reference's `.haiku/intents/<slug>` predicate:
-/// the run document, derived `state.json`, units, feedback, reflections, drift,
+/// The run document, derived `state.json`, units, feedback, reflections, drift,
 /// witnesses, and proof all live under `.darkrun/<run>/` and are owned by the
 /// engine on the target branch. Holding the WHOLE run subtree is deliberately
 /// broad — a station branch never legitimately authors run state (that's the
