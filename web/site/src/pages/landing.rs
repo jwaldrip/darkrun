@@ -170,6 +170,12 @@ fn DesktopSlideshow() -> Element {
             asset!("/assets/desktop-direction-light.png"),
         ),
         (
+            "Annotate & steer",
+            "Pick a direction and mark it up — drop pins on the preview and leave comments. The agent inherits not just which way to go, but exactly what to adjust.",
+            asset!("/assets/desktop-annotate.png"),
+            asset!("/assets/desktop-annotate-light.png"),
+        ),
+        (
             "Projects & runs",
             "Every repo's runs in one place — open a review or add a project.",
             asset!("/assets/desktop-browser.png"),
