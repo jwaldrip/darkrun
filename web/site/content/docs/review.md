@@ -73,7 +73,7 @@ projects:
    zero build wiring.
 
 A minimal, framework-agnostic runtime example lives next to the engine:
-[`crates/darkrun-mcp/examples/darkrun-src-injector.js`](https://github.com/jwaldrip/darkrun/blob/main/crates/darkrun-mcp/examples/darkrun-src-injector.js).
+[`crates/darkrun-mcp/examples/darkrun-src-injector.js`](https://github.com/darkrun-ai/darkrun/blob/main/crates/darkrun-mcp/examples/darkrun-src-injector.js).
 Copy it, point it at your own source hints, and gate it behind your dev flag.
 Once your elements carry the attribute, marks on them resolve to `file:line`
 with no further darkrun configuration.

@@ -9,7 +9,7 @@ Hierarchy: **Factory › Station › Unit › Pass**.
 ## Install
 
 ```
-/plugin marketplace add jwaldrip/darkrun
+/plugin marketplace add darkrun-ai/darkrun
 /plugin install darkrun
 ```
 

@@ -337,39 +337,104 @@ fn ValueCard(title: String, body: String) -> Element {
     }
 }
 
-/// The quickstart: the agent install + first run, as a terminal block.
+/// How a given harness installs darkrun.
+#[derive(Clone, Copy, PartialEq)]
+enum Hkind {
+    /// Claude Code: the `/plugin` marketplace commands.
+    Plugin,
+    /// An MCP config file (path + a `npx -y darkrun mcp --harness <id>` server).
+    Mcp,
+}
+
+/// The harness catalog: (label, harness id, install kind, config path).
+fn harnesses() -> [(&'static str, &'static str, Hkind, &'static str); 7] {
+    [
+        ("Claude Code", "claude-code", Hkind::Plugin, ""),
+        ("Cursor", "cursor", Hkind::Mcp, ".cursor/mcp.json"),
+        ("Codex", "codex", Hkind::Mcp, "~/.codex/config.toml"),
+        ("Gemini CLI", "gemini-cli", Hkind::Mcp, "~/.gemini/settings.json"),
+        ("Windsurf", "windsurf", Hkind::Mcp, "~/.codeium/windsurf/mcp_config.json"),
+        ("OpenCode", "opencode", Hkind::Mcp, "opencode.json"),
+        ("Kiro", "kiro", Hkind::Mcp, ".kiro/agents/darkrun.yaml"),
+    ]
+}
+
+/// The quickstart: pick your harness, get the right install + first run.
 #[component]
 fn Quickstart() -> Element {
+    let list = harnesses();
+    let mut sel = use_signal(|| 0usize);
+    let (label, id, kind, path) = list[sel()];
+
+    // The install + first-run snippet for the selected harness.
+    let code = match kind {
+        Hkind::Plugin => format!(
+            "# in {label}: add the plugin\n\
+             /plugin marketplace add darkrun-ai/darkrun\n\
+             /plugin install darkrun\n\n\
+             # then describe the work\n\
+             /darkrun:darkrun-new \"add rate limiting to the public API\""
+        ),
+        Hkind::Mcp => format!(
+            "# add darkrun as an MCP server in {path}\n\
+             npx -y darkrun mcp --harness {id}\n\n\
+             # then ask your agent to start a darkrun run\n\
+             \"start a darkrun run: add rate limiting to the public API\""
+        ),
+    };
+
     let block = format!(
         "background:{sink};border:1px solid {border};border-radius:10px;padding:18px 20px;\
-         font-family:{mono};font-size:13.5px;line-height:1.7;color:{text};overflow-x:auto;",
+         font-family:{mono};font-size:13.5px;line-height:1.7;color:{text};overflow-x:auto;\
+         white-space:pre;margin:0;",
         sink = theme::SURFACE_BASE,
         border = theme::BORDER,
         mono = tokens::FONT_MONO,
         text = theme::TEXT,
     );
-    let comment = format!("color:{};", theme::TEXT_MUTED);
-    let accent = format!("color:{};", theme::ACCENT);
+    let select_style = format!(
+        "appearance:none;cursor:pointer;font-family:{mono};font-size:13px;\
+         background:{raised};color:{text};border:1px solid {border};border-radius:8px;\
+         padding:6px 12px;",
+        mono = tokens::FONT_MONO,
+        raised = theme::SURFACE_RAISED,
+        text = theme::TEXT,
+        border = theme::BORDER,
+    );
+    let row_label = format!(
+        "font-family:{mono};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;\
+         color:{muted};",
+        mono = tokens::FONT_MONO,
+        muted = theme::TEXT_MUTED,
+    );
     let note = format!(
         "font-family:{sans};font-size:13px;color:{muted};margin:12px 2px 0;",
         sans = tokens::FONT_SANS,
         muted = theme::TEXT_MUTED,
     );
+
     rsx! {
-        div { style: "{block}",
-            div { style: "{comment}", "# in Claude Code: add the plugin" }
-            div { span { style: "{accent}", "/plugin" } " marketplace add jwaldrip/darkrun" }
-            div { span { style: "{accent}", "/plugin" } " install darkrun" }
-            div { style: "height:8px;" }
-            div { style: "{comment}", "# then describe the work" }
-            div { span { style: "{accent}", "/darkrun:darkrun-new" } " \"add rate limiting to the public API\"" }
+        div {
+            style: "display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;",
+            span { style: "{row_label}", "harness" }
+            select {
+                style: "{select_style}",
+                onchange: move |e| {
+                    if let Ok(v) = e.value().parse::<usize>() {
+                        sel.set(v);
+                    }
+                },
+                for (j , h) in list.iter().enumerate() {
+                    option { value: "{j}", selected: j == sel(), "{h.0}" }
+                }
+            }
         }
+        pre { style: "{block}", "{code}" }
         p { style: "{note}",
-            "That's it. The manager scaffolds a right-sized run and walks the line; you show up "
-            "at the checkpoints in the desktop app. Prefer headless? "
-            "Read "
-            Link { to: Route::Docs {}, "the docs" }
-            " for the CLI path."
+            "The manager scaffolds a right-sized run and walks the line; you review in the "
+            "desktop app (Claude Code) or inline. Full per-harness setup and capabilities in "
+            Link { to: Route::DocPage { slug: "other-harnesses".to_string() }, "Other harnesses" }
+            "."
         }
     }
 }

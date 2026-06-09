@@ -18,7 +18,7 @@ with a slash command — the agent does the work, the manager keeps it honest.
 In Claude Code, add the marketplace and install the plugin:
 
 ```
-/plugin marketplace add jwaldrip/darkrun
+/plugin marketplace add darkrun-ai/darkrun
 /plugin install darkrun
 ```
 

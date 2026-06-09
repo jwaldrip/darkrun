@@ -15,7 +15,7 @@ keeps it honest, and you show up at the checkpoints.
 In Claude Code, add the marketplace and install the plugin:
 
 ```
-/plugin marketplace add jwaldrip/darkrun
+/plugin marketplace add darkrun-ai/darkrun
 /plugin install darkrun
 ```
 
