@@ -45,6 +45,23 @@ pub fn Landing() -> Element {
             }
         }
 
+        // The desktop review app: where the human stands on the line. The shot
+        // shows a real design decision rendered as a picture per option.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "the desktop app".to_string(),
+                title: "Where you and the agent collaborate".to_string(),
+                lead: Some(
+                    "The desktop app is the visual interface between you and the agent — the \
+                     control room for the line. The agent surfaces every checkpoint, review, \
+                     and design direction as something you can see and act on; you decide, \
+                     annotate, and steer. A few of its surfaces:"
+                        .to_string(),
+                ),
+            }
+            DesktopSlideshow {}
+        }
+
         // The software factory's line: its own declared stations, in pipeline
         // order. This is one factory's recipe, not a fixed universal six.
         section { style: "margin:8px 0 40px;",
@@ -81,6 +98,114 @@ pub fn Landing() -> Element {
                 ),
             }
             PhaseLegend {}
+        }
+    }
+}
+
+/// A manual carousel of the desktop app's surfaces — one feature per slide,
+/// driven by prev/next + dots. No auto-advance (no timer): the visitor steps
+/// through it, which also keeps the SSG pre-render deterministic.
+#[component]
+fn DesktopSlideshow() -> Element {
+    // (feature label, caption, dark image, light image). `asset!` needs literal
+    // paths. Both variants render; the shared `.dr-themed-*` CSS (in
+    // darkrun_ui::tokens::THEME_CSS) shows the one matching the site theme —
+    // the same render-both-let-CSS-pick mechanism the wordmark uses.
+    let slides = [
+        (
+            "The run review",
+            "The main surface. The station line shows where the run is; the tabs hold the work under review; and this is where you approve, request changes, or leave feedback.",
+            asset!("/assets/desktop-run-review.png"),
+            asset!("/assets/desktop-run-review-light.png"),
+        ),
+        (
+            "Decisions",
+            "When a call is yours to make, the agent draws each option — you pick from a diagram, not a wall of prose.",
+            asset!("/assets/desktop-review.png"),
+            asset!("/assets/desktop-review-light.png"),
+        ),
+        (
+            "Design directions",
+            "Choose a design archetype from real mockups, then annotate what to change.",
+            asset!("/assets/desktop-direction.png"),
+            asset!("/assets/desktop-direction-light.png"),
+        ),
+        (
+            "Projects & runs",
+            "Every repo's runs in one place — open a review or add a project.",
+            asset!("/assets/desktop-browser.png"),
+            asset!("/assets/desktop-browser-light.png"),
+        ),
+    ];
+    let n = slides.len();
+    let mut idx = use_signal(|| 0usize);
+    let cur = idx();
+    let label = slides[cur].0;
+    let caption = slides[cur].1;
+    let dark = &slides[cur].2;
+    let light = &slides[cur].3;
+
+    // No `display` here — the `.dr-shot-*` CSS classes toggle which variant shows
+    // per the active theme, and an inline `display` would outrank them.
+    let frame = format!(
+        "width:100%;height:auto;border:1px solid {border};\
+         border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.45);",
+        border = theme::BORDER,
+    );
+    let navbtn = format!(
+        "appearance:none;cursor:pointer;background:{raised};border:1px solid {border};\
+         color:{text};border-radius:999px;width:30px;height:30px;line-height:1;font-size:16px;",
+        raised = theme::SURFACE_RAISED,
+        border = theme::BORDER,
+        text = theme::TEXT,
+    );
+    let cap = format!(
+        "margin-top:10px;text-align:center;font-family:{sans};font-size:14px;color:{muted};",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+    let chip = format!(
+        "font-family:{mono};font-size:11px;text-transform:uppercase;letter-spacing:0.06em;\
+         color:{accent};margin-right:8px;",
+        mono = tokens::FONT_MONO,
+        accent = theme::ACCENT,
+    );
+
+    rsx! {
+        figure { style: "margin:0;",
+            img { class: "dr-themed-dark", src: "{dark}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
+            img { class: "dr-themed-light", src: "{light}", alt: "darkrun desktop app — {label}", loading: "lazy", style: "{frame}" }
+            div {
+                style: "display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;",
+                button {
+                    style: "{navbtn}", "aria-label": "previous surface",
+                    onclick: move |_| idx.set((cur + n - 1) % n),
+                    "\u{2039}"
+                }
+                div { style: "display:flex;align-items:center;gap:8px;",
+                    for i in 0..n {
+                        {
+                            let dot = format!(
+                                "width:9px;height:9px;border-radius:50%;border:0;cursor:pointer;padding:0;background:{};",
+                                if i == cur { theme::ACCENT } else { theme::BORDER_STRONG },
+                            );
+                            rsx! {
+                                button { key: "{i}", style: "{dot}", "aria-label": "go to surface {i + 1}",
+                                    onclick: move |_| idx.set(i) }
+                            }
+                        }
+                    }
+                }
+                button {
+                    style: "{navbtn}", "aria-label": "next surface",
+                    onclick: move |_| idx.set((cur + 1) % n),
+                    "\u{203a}"
+                }
+            }
+            figcaption { style: "{cap}",
+                span { style: "{chip}", "{label}" }
+                "{caption}"
+            }
         }
     }
 }

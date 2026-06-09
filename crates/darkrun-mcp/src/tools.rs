@@ -830,8 +830,14 @@ pub struct QuestionOptionInput {
     /// Display label.
     pub label: String,
     /// Optional generated-image URL (a mockup / design option to pick among).
+    /// When `image_url_light` is also given, this is the **dark-theme** variant.
     #[serde(default)]
     pub image_url: Option<String>,
+    /// Optional **light-theme** variant of `image_url`. Set this when the option
+    /// has distinct light/dark mockups so the operator sees the one matching
+    /// their theme; leave unset for a single theme-neutral image.
+    #[serde(default)]
+    pub image_url_light: Option<String>,
     /// Optional longer description rendered under the label.
     #[serde(default)]
     pub description: Option<String>,
@@ -871,8 +877,14 @@ pub struct ArchetypeInput {
     pub id: String,
     /// Display label.
     pub label: String,
-    /// Generated preview-image URL (required).
+    /// Generated preview-image URL (required). When `image_url_light` is also
+    /// given, this is the **dark-theme** variant.
     pub image_url: String,
+    /// Optional **light-theme** variant of `image_url`. Set this when the
+    /// archetype has distinct light/dark mockups so the operator sees the one
+    /// matching their theme; leave unset for a single theme-neutral preview.
+    #[serde(default)]
+    pub image_url_light: Option<String>,
     /// Description of the design direction this archetype represents.
     pub description: String,
 }
@@ -2302,6 +2314,7 @@ impl DarkrunServer {
                 id: o.id,
                 label: o.label,
                 image_url: o.image_url,
+                image_url_light: o.image_url_light,
                 description: o.description,
             })
             .collect();
@@ -2355,6 +2368,7 @@ impl DarkrunServer {
                 id: a.id,
                 label: a.label,
                 image_url: a.image_url,
+                image_url_light: a.image_url_light,
                 description: a.description,
             })
             .collect();
@@ -3340,6 +3354,7 @@ mod handler_smoke {
                     id: "a".into(),
                     label: "A".into(),
                     image_url: None,
+                    image_url_light: None,
                     description: None,
                 }],
                 multi_select: false,
@@ -3357,6 +3372,7 @@ mod handler_smoke {
                     id: "x".into(),
                     label: "X".into(),
                     image_url: "http://img/x.png".into(),
+                    image_url_light: None,
                     description: "the x".into(),
                 }],
             }))

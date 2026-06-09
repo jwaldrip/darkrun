@@ -1665,6 +1665,7 @@ fn question_option_minimal_and_full() {
         id: "a".into(),
         label: "Option A".into(),
         image_url: None,
+        image_url_light: None,
         description: None,
     };
     let json = serde_json::to_value(&minimal).unwrap();
@@ -1678,6 +1679,7 @@ fn question_option_minimal_and_full() {
         id: "b".into(),
         label: "Option B".into(),
         image_url: Some("/mockups/b.png".into()),
+        image_url_light: None,
         description: Some("the bold one".into()),
     };
     let json2 = serde_json::to_value(&full).unwrap();
@@ -1728,12 +1730,14 @@ fn question_payload_full_roundtrips() {
                 id: "red".into(),
                 label: "Crimson".into(),
                 image_url: Some("/mock/red.png".into()),
+                image_url_light: None,
                 description: Some("bold + warm".into()),
             },
             QuestionOption {
                 id: "blue".into(),
                 label: "Cobalt".into(),
                 image_url: Some("/mock/blue.png".into()),
+                image_url_light: None,
                 description: None,
             },
         ],
@@ -1767,6 +1771,7 @@ fn question_payload_multi_select_true() {
             id: "x".into(),
             label: "X".into(),
             image_url: None,
+            image_url_light: None,
             description: None,
         }],
         ..Default::default()
@@ -1816,6 +1821,7 @@ fn direction_archetype_roundtrips() {
         id: "brutalist".into(),
         label: "Brutalist".into(),
         image_url: "/mock/brutalist.png".into(),
+        image_url_light: None,
         description: "raw concrete".into(),
     };
     let json = serde_json::to_value(&a).unwrap();
@@ -1892,12 +1898,14 @@ fn direction_payload_full_roundtrips() {
                 id: "a".into(),
                 label: "A".into(),
                 image_url: "/mock/a.png".into(),
+                image_url_light: None,
                 description: "da".into(),
             },
             DirectionArchetype {
                 id: "b".into(),
                 label: "B".into(),
                 image_url: "/mock/b.png".into(),
+                image_url_light: None,
                 description: "db".into(),
             },
         ],

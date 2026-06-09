@@ -21,6 +21,12 @@ must own. So make the options concrete and get a real decision *before* any UI i
   mockups or option images that render the layout, hierarchy, and tone of each. Each
   candidate is a real design archetype (e.g. a dense data-first layout vs. a calm
   focused one), not a colour swap. Capture each as an image and collect the image urls.
+- **Pass the operator's theme through.** When the surface itself is multi-theme (it has a
+  light *and* a dark design), render each candidate in **both** themes and pass the dark
+  mockup as `image_url` and the light one as `image_url_light` on the option/archetype.
+  The operator's app follows their light/dark preference and shows the matching variant, so
+  they preview the design in the theme they actually use — never a dark mockup on a light
+  screen. A single-theme surface needs only `image_url`.
 - **Ask the operator to choose.** Hand the candidates to the operator and get their
   visual decision before committing:
   - Use `darkrun_question` when the decision is "pick one of these options" — present

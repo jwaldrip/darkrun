@@ -34,6 +34,34 @@ Then branch the design approach on the surface:
 - **Integration points** — exactly where this touches existing systems.
 - **Key decisions** — each significant choice with the rationale and the alternative rejected.
 
+## Surface the operator's decisions as a picture book
+
+Some structural choices are genuinely the operator's call — a real fork with lasting
+consequences (which algorithm, sync vs async, which storage model, monolith vs split).
+Don't bury those in prose and decide them silently. Surface each one the way the
+VisualDesigner surfaces UI — as a **picture book**, so a non-engineer can see the
+trade-off and make the call.
+
+- **Draw each option.** For an operator-facing architecture decision, generate a small,
+  clear **diagram per option** — boxes, arrows, a timeline, a before/after — that shows
+  what the option *is*, not a paragraph describing it. Encode each diagram as an SVG and
+  pass it as the option's `image_url` (a `data:image/svg+xml;base64,…` URI works, no
+  hosting needed). Match the brand: dark surface (`#0e1217`), cyan accent (`#5fd7ff`),
+  light text (`#e6edf3`).
+- **Pass the theme through.** The operator's app follows their light/dark preference, so a
+  preview must match it — a dark diagram on a light screen reads as a bug (it did: the dark
+  art bled through). Generate **both** a dark and a light rendering of each diagram and pass
+  the dark one as `image_url` and the light one as `image_url_light`; the app shows whichever
+  matches the operator's theme. Light palette: surface `#ffffff`, accent `#0b6e8c`, text
+  `#0e1217`. If a diagram is genuinely theme-neutral (no fills that fight a background),
+  one `image_url` is fine — but when in doubt, ship both.
+- **Ask with the pictures.** Use `darkrun_question` (pick one) or `darkrun_direction`
+  (richer, annotatable) with the diagram-backed options. Never surface a decision option
+  with no image — an imageless option is the wall of text this station exists to avoid.
+- **Lock the pick.** Record the chosen option and its diagram in `design.md` as the
+  decision Build must honour. Reserve this for the few decisions that truly need the
+  operator; routine calls stay yours to make.
+
 ## Rules
 
 - Satisfy the spec, the whole spec, and nothing but the spec. Every component must trace to a criterion.

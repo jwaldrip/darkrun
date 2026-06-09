@@ -203,8 +203,10 @@ pub struct QuestionOptionSpec {
     pub id: String,
     /// Display label.
     pub label: String,
-    /// Optional generated-image URL.
+    /// Optional generated-image URL (dark-theme variant when a light one is set).
     pub image_url: Option<String>,
+    /// Optional light-theme variant of `image_url`.
+    pub image_url_light: Option<String>,
     /// Optional longer description.
     pub description: Option<String>,
 }
@@ -256,6 +258,7 @@ pub fn create_question(
             id: opt.id,
             label: opt.label,
             image_url: opt.image_url.filter(|s| !s.trim().is_empty()),
+            image_url_light: opt.image_url_light.filter(|s| !s.trim().is_empty()),
             description: opt.description.filter(|s| !s.trim().is_empty()),
         });
     }
@@ -310,6 +313,8 @@ pub struct ArchetypeSpec {
     pub label: String,
     /// Generated preview-image URL (required for a direction archetype).
     pub image_url: String,
+    /// Optional light-theme variant of `image_url`.
+    pub image_url_light: Option<String>,
     /// Description of the design direction.
     pub description: String,
 }
@@ -373,6 +378,7 @@ pub fn create_direction(
             id: arch.id,
             label: arch.label,
             image_url: arch.image_url,
+            image_url_light: arch.image_url_light.filter(|s| !s.trim().is_empty()),
             description: arch.description,
         });
     }
@@ -747,6 +753,7 @@ mod tests {
             id: id.into(),
             label: label.into(),
             image_url: None,
+            image_url_light: None,
             description: None,
         }
     }
@@ -767,6 +774,7 @@ mod tests {
                     id: "a".into(),
                     label: "Option A".into(),
                     image_url: Some("https://img/a.png".into()),
+                    image_url_light: None,
                     description: Some("bold".into()),
                 },
                 q_opt("b", "Option B"),
@@ -857,6 +865,7 @@ mod tests {
             id: id.into(),
             label: format!("{id} label"),
             image_url: format!("https://img/{id}.png"),
+            image_url_light: None,
             description: format!("{id} direction"),
         }
     }
@@ -1062,13 +1071,13 @@ mod tests {
     fn builders_reject_empty_labels_and_ids_across_session_types() {
         let reg = registry();
         // Question option with an empty LABEL.
-        let q = QuestionOptionSpec { id: "a".into(), label: "  ".into(), image_url: None, description: None };
+        let q = QuestionOptionSpec { id: "a".into(), label: "  ".into(), image_url: None, image_url_light: None, description: None };
         assert!(create_question(&reg, "r", None, "p", None, vec![q], false, vec![]).is_err());
 
         // Direction archetype with an empty id, then an empty label.
-        let blank_id = ArchetypeSpec { id: " ".into(), label: "L".into(), image_url: "u".into(), description: "d".into() };
+        let blank_id = ArchetypeSpec { id: " ".into(), label: "L".into(), image_url: "u".into(), image_url_light: None, description: "d".into() };
         assert!(create_direction(&reg, "r", None, "p", None, vec![blank_id]).is_err());
-        let blank_label = ArchetypeSpec { id: "x".into(), label: " ".into(), image_url: "u".into(), description: "d".into() };
+        let blank_label = ArchetypeSpec { id: "x".into(), label: " ".into(), image_url: "u".into(), image_url_light: None, description: "d".into() };
         assert!(create_direction(&reg, "r", None, "p", None, vec![blank_label]).is_err());
 
         // Picker option with an empty id, then an empty label.

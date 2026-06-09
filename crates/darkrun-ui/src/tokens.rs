@@ -396,6 +396,19 @@ html,body{
   .dr-wordmark-anim[data-anim="flicker"] .dr-wordmark-dark{ animation:none; color:#07090c; }
   .dr-wordmark-anim[data-anim="lit"] .dr-wordmark-dark{ transition:none; }
 }
+/* Theme-paired images: a decision option / archetype / screenshot that ships a
+   dark AND a light variant renders both, and these rules show the one matching
+   the active theme. Dark is the default; a light OS (System) or a pinned
+   [data-theme="light"] flips to light, while a pinned [data-theme="dark"] wins
+   over the OS — same precedence the wordmark uses. */
+.dr-themed-dark{ display:block; }
+.dr-themed-light{ display:none; }
+:root[data-theme="light"] .dr-themed-dark{ display:none; }
+:root[data-theme="light"] .dr-themed-light{ display:block; }
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]) .dr-themed-dark{ display:none; }
+  :root:not([data-theme="dark"]) .dr-themed-light{ display:block; }
+}
 "#;
 
 /// CSS custom-property references (`var(--dr-*)`) — the **theme-aware twins** of

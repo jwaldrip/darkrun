@@ -43,7 +43,7 @@ unworkable integration, an assumption that does not hold at scale.
 
 ## The pass-loop
 
-- **Designer** classifies the surface from the Surface Explorer's finding, records it with `darkrun_run_surface`, then proposes the structure that satisfies the spec with the least machinery — designing *for that surface* (public-API / contract / visual+component / terminal layout / command-output UX / structural).
+- **Designer** classifies the surface from the Surface Explorer's finding, records it with `darkrun_run_surface`, then proposes the structure that satisfies the spec with the least machinery — designing *for that surface* (public-API / contract / visual+component / terminal layout / command-output UX / structural). Operator-facing architecture decisions are surfaced as a **picture book** — a diagram per option — so a non-engineer can see and decide, not just read prose.
 - **VisualDesigner** owns the visual/UX facet for user-facing work: it generates two to four design options (mockups / option images) and uses `darkrun_question` or `darkrun_direction` to get the operator's visual decision *before* any UI is built. For non-UI work there is no surface to shape, so this beat is skipped.
 - **Spiker** builds a *throwaway* proof of the riskiest assumptions — the thing most likely to be wrong — and reports what it learned. The spike code is discarded; the knowledge is kept.
 - **PressureTester** attacks the design under load, failure, and change: what reverses this, what does not scale, what is hard to undo?

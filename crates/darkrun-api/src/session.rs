@@ -459,8 +459,14 @@ pub struct QuestionOption {
     /// Display label.
     pub label: String,
     /// Optional generated-image URL (a mockup / design option to pick among).
+    /// When `image_url_light` is also set, this is the **dark-theme** variant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// Optional **light-theme** variant of `image_url`. When present, the option
+    /// is multi-theme: the desktop/web view shows whichever matches the active
+    /// theme. Absent → `image_url` is theme-neutral and always shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url_light: Option<String>,
     /// Optional longer description rendered under the label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -520,8 +526,14 @@ pub struct DirectionArchetype {
     pub id: String,
     /// Display label.
     pub label: String,
-    /// Generated preview-image URL for this archetype.
+    /// Generated preview-image URL for this archetype. When `image_url_light` is
+    /// also set, this is the **dark-theme** variant.
     pub image_url: String,
+    /// Optional **light-theme** variant of `image_url`. When present, the
+    /// archetype is multi-theme: the view shows whichever matches the active
+    /// theme. Absent → `image_url` is theme-neutral and always shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url_light: Option<String>,
     /// Description of the design direction this archetype represents.
     pub description: String,
 }
