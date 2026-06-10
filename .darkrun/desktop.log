@@ -532,3 +532,6 @@ note: to see what the problems were, use the option `--future-incompat-report`, 
     Finished `release` profile [optimized] target(s) in 13.31s
 warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+    Finished `release` profile [optimized] target(s) in 0.21s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
