@@ -100,29 +100,48 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
                 phase: Some(run_phase(state.active_phase())),
                 ..Default::default()
             };
-            // The approval gate: when the active station sits at its Checkpoint
-            // phase under an interactive mode (ask/external, not auto) and the
-            // checkpoint hasn't been decided yet, surface the Approve /
-            // Request-changes bar to the desktop. The gate kind is the run's
-            // global mode gate — there are no per-station overrides.
-            let gate = if matches!(state.active_phase(), StationPhase::Checkpoint) {
-                let decided = state
-                    .stations
-                    .get(&state.active_station)
-                    .and_then(|s| s.checkpoint.as_ref())
-                    .and_then(|c| c.outcome.as_ref())
-                    .is_some();
-                match (decided, run.frontmatter.mode.gate()) {
-                    (false, CheckpointKind::Ask) => {
-                        Some((GateType::Ask, state.active_station.clone()))
+            // The approval gate. TWO operator holds surface the Approve /
+            // Request-changes bar to the desktop — both decided by
+            // `darkrun_checkpoint_decide`, and (auto/dark never parks at either):
+            //
+            //   - the post-execution **Checkpoint** — the station was made,
+            //     audited, and is asking to lock; and
+            //   - the pre-execution **UserGate** — the spec is reviewed and the
+            //     operator clears it BEFORE any Unit is manufactured.
+            //
+            // The gate kind is the run's global mode gate (no per-station
+            // overrides). The trailing bool marks the pre-execution gate so the
+            // Approve button reads "start execution" rather than "complete".
+            let gate: Option<(GateType, String, bool)> = match state.active_phase() {
+                StationPhase::Checkpoint => {
+                    let decided = state
+                        .stations
+                        .get(&state.active_station)
+                        .and_then(|s| s.checkpoint.as_ref())
+                        .and_then(|c| c.outcome.as_ref())
+                        .is_some();
+                    match (decided, run.frontmatter.mode.gate()) {
+                        (false, CheckpointKind::Ask) => {
+                            Some((GateType::Ask, state.active_station.clone(), false))
+                        }
+                        (false, CheckpointKind::External) => {
+                            Some((GateType::External, state.active_station.clone(), false))
+                        }
+                        _ => None,
                     }
-                    (false, CheckpointKind::External) => {
-                        Some((GateType::External, state.active_station.clone()))
+                }
+                // The pre-execution operator gate is OPEN while the phase holds at
+                // UserGate (cleared by the decide that advances it to Manufacture).
+                StationPhase::UserGate => match run.frontmatter.mode.gate() {
+                    CheckpointKind::Ask => {
+                        Some((GateType::Ask, state.active_station.clone(), true))
+                    }
+                    CheckpointKind::External => {
+                        Some((GateType::External, state.active_station.clone(), true))
                     }
                     _ => None,
-                }
-            } else {
-                None
+                },
+                _ => None,
             };
             (station_states, Some(current), gate)
         }
@@ -132,19 +151,24 @@ pub fn create_show(registry: &SessionRegistry, store: &StateStore, slug: &str) -
     // Expand the gate into the review payload's approval fields. The desktop
     // renders the checkpoint bar only when `await_active` is set.
     let (gate_type, gate_station, approve_action, await_active) = match gate {
-        Some((gt, station)) => {
+        Some((gt, station, pre_exec)) => {
             let mut chars = station.chars();
             let cap = chars
                 .next()
                 .map(|f| f.to_uppercase().collect::<String>() + chars.as_str())
                 .unwrap_or_default();
+            // The pre-execution gate releases the manufacture wave; the
+            // post-execution gate locks the station. Distinct verbs + kinds so
+            // the desktop's Approve button names the real consequence.
+            let (label, kind) = if pre_exec {
+                (format!("Start {cap} execution"), ApproveActionKind::StartExecution)
+            } else {
+                (format!("Complete {cap} station"), ApproveActionKind::CompleteStation)
+            };
             (
                 Some(gt),
                 Some(station),
-                Some(ApproveAction {
-                    label: format!("Complete {cap} station"),
-                    kind: ApproveActionKind::CompleteStation,
-                }),
+                Some(ApproveAction { label, kind }),
                 Some(true),
             )
         }
@@ -881,6 +905,60 @@ mod tests {
         };
         assert_eq!(drev.await_active, None);
         assert!(drev.approve_action.is_none());
+    }
+
+    #[test]
+    fn create_show_surfaces_the_pre_execution_user_gate() {
+        use darkrun_api::session::ApproveActionKind;
+        use darkrun_core::domain::{Station, StationPhase, Status};
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        crate::position::run_start(&store, "r", "software", None, Mode::Solo, "full").unwrap();
+
+        // The active station sits at its PRE-execution operator gate (the spec is
+        // reviewed; the operator clears it before any Unit is manufactured).
+        let mut state = store.read_state("r").unwrap().unwrap();
+        state.active_station = "frame".into();
+        state.stations.insert(
+            "frame".into(),
+            Station {
+                station: "frame".into(),
+                status: Status::InProgress,
+                phase: StationPhase::UserGate,
+                elaborated: true,
+                checkpoint: None,
+                branch: None,
+                pr_ref: None,
+                pr_status: None,
+                pr_ready_at: None,
+                pr_merged_at: None,
+                verifier_nonce: None,
+                started_at: Some("2026-06-01T00:00:00Z".into()),
+                completed_at: None,
+            },
+        );
+        store.write_state("r", &state).unwrap();
+
+        let reg = registry();
+        create_show(&reg, &store, "r").expect("show");
+        let SessionPayload::Review(rev) = reg.get("r").expect("session present") else {
+            panic!("expected a review session");
+        };
+
+        // Solo mode → an ask gate is OPEN at the user gate, with a
+        // start-execution approve action (it releases the wave, not "complete").
+        assert_eq!(rev.await_active, Some(true), "the user gate surfaces the approval bar");
+        assert_eq!(rev.gate_type, Some(GateType::Ask));
+        assert_eq!(rev.station.as_deref(), Some("frame"));
+        let approve = rev.approve_action.expect("an approve action");
+        assert_eq!(approve.kind, ApproveActionKind::StartExecution);
+        assert!(approve.label.contains("Start"), "label names execution: {}", approve.label);
+        // The phase still reads as `review` in the universal taxonomy.
+        assert_eq!(
+            rev.current_state.and_then(|c| c.phase),
+            Some(darkrun_api::session::RunPhase::Review),
+        );
     }
 
     // ── question ─────────────────────────────────────────────────────────

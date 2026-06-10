@@ -6,13 +6,17 @@ The review work for station **{{ station }}** is done: the spec is written, the 
 
 {% include "_shared/contracts.md" %}
 
-## The gate is open in the desktop review surface
+## The decision happens in the desktop review surface
 
-The manager has surfaced this gate to the operator's review surface (the desktop app). The operator reads the spec/brief there and either approves the wave or returns feedback. **You do not ask inline and you do not advance the run yourself.**
+This tick **raised the desktop app** pointed at this gate — that is the operator's review surface, and the only place this gate is decided. The operator reads the spec/brief there and either approves the wave or returns feedback.
 
-- The operator **approves** → the gate clears and the next tick releases the manufacture wave.
+**Do NOT ask the operator inline.** No `AskUserQuestion`, no chat prompt, no improvised approve/reject question — the gate lives in the desktop, not the transcript. And do not advance the run yourself.
+
+- The operator **approves** in the desktop → the gate clears and the next tick releases the manufacture wave.
 - The operator **returns feedback** → it lands as a fix track; address it, then the gate re-opens for their re-decision.
+
+If the desktop did not come up, call `darkrun_run_inspect` to raise it again — never substitute an inline question for the gate.
 
 ## Done when
 
-The operator has cleared the gate via `darkrun_checkpoint_decide`. Until then, this gate holds. Call `darkrun_tick` to re-check — a held gate is not a wedge; it is waiting on a human.
+The operator has cleared the gate via `darkrun_checkpoint_decide` (the desktop's Approve button calls it). Until then, this gate holds. Call `darkrun_advance` to re-check — a held gate is not a wedge; it is waiting on a human at the desktop.

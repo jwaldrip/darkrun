@@ -32,7 +32,7 @@ The gate kind decides *who* clears it. Surface the brief above, then act per the
 {% if kind == "auto" %}
 **auto** — no human in the loop. The evidence already justifies the lock. Confirm the criteria are met, lock the station, and call `darkrun_tick` to advance.
 {% elif kind == "ask" %}
-**ask** — a human must approve. Present the summary above and **stop**. Do not advance the run until the operator approves. On approval, lock and call `darkrun_tick`; on rejection, route their feedback as a fix track.
+**ask** — a human must approve, **in the desktop review surface this tick raised** (the engine brings it up automatically at an ask gate). Surface the closing brief there and **hold**. Do NOT ask the operator inline — no `AskUserQuestion`, no chat prompt; the decision lives in the desktop, not the transcript. Do not advance the run until the operator approves. On approval, lock and call `darkrun_advance`; on rejection, route their feedback as a fix track. If the desktop did not come up, call `darkrun_run_inspect` to raise it.
 {% elif kind == "external" %}
 **external** — an external system or process must clear this gate (CI, a deploy, a sign-off elsewhere). Surface what's required, trigger or point at it, and hold until it reports back. Lock only on a real external pass.
 {% elif kind == "await" %}

@@ -162,7 +162,44 @@ impl DarkrunServer {
         if let Some(p) = tick.prompt.as_mut() {
             *p = darkrun_harness::adapt_instructions(p, &self.caps);
         }
+        // A tick that lands on an operator gate MUST raise the desktop review
+        // surface — that's where the gate is decided. We do it here in the engine
+        // rather than trusting the agent to call `darkrun_run_inspect`: left to
+        // the prompt alone, the agent falls back to an inline question and the
+        // desktop never opens (the gate is "popped" only in the desktop). [G-fix]
+        self.raise_desktop_for_gate(&tick.action);
         tick
+    }
+
+    /// When `action` is an operator gate (the pre-execution `UserGate` or a
+    /// non-auto post-execution `Checkpoint`), surface the run's review payload
+    /// and bring up the desktop app pointed at it — the same path
+    /// `darkrun_run_inspect` runs, fired automatically so a gate always opens the
+    /// decision surface. A no-op for every other action and when no engine port
+    /// is announced (headless / tests) or a desktop is already connected.
+    fn raise_desktop_for_gate(&self, action: &crate::position::RunAction) {
+        use crate::position::RunAction;
+        let run = match action {
+            RunAction::UserGate { run, .. } => run,
+            RunAction::Checkpoint { run, kind, .. }
+                if !matches!(kind, darkrun_core::domain::CheckpointKind::Auto) =>
+            {
+                run
+            }
+            _ => return,
+        };
+        let store = self.store();
+        // Build/refresh the run's review session (carries the open gate) so a
+        // connected desktop navigates to it and a freshly-launched one finds it.
+        let _ = crate::sessions::create_show(&self.sessions, &store, run);
+        // Already connected (or within the presence grace window) → the desktop's
+        // home poller navigates itself; don't spawn a second window.
+        if self.sessions.presence().is_present() {
+            return;
+        }
+        if let Some(addr) = self.announced_addr {
+            let _ = self.launch_desktop(addr.port(), run);
+        }
     }
 }
 
@@ -3960,41 +3997,41 @@ mod handler_smoke {
         let wi = || WorkItemInput { kind: "output".into(), id: "x".into(), station: "build".into() };
 
         // Each of these resolves a run that doesn't exist → its Err arm.
-        let _ = (s.darkrun_unit_list(Parameters(RunRef { slug: "ghost".into() })).unwrap());
-        let _ = (s.darkrun_unit_beat(Parameters(UnitIterateInput {
+        let _ = s.darkrun_unit_list(Parameters(RunRef { slug: "ghost".into() })).unwrap();
+        let _ = s.darkrun_unit_beat(Parameters(UnitIterateInput {
             slug: "ghost".into(), unit: "u1".into(), worker: "make".into(),
             result: "advance".into(), note: None, next_worker: None,
-        })).unwrap());
-        let _ = (s.darkrun_quality_gate_record(Parameters(GateRecordInput {
+        })).unwrap();
+        let _ = s.darkrun_quality_gate_record(Parameters(GateRecordInput {
             slug: "ghost".into(), unit: "u1".into(), gate: "t".into(), status: "pass".into(), detail: None, nonce: None,
-        })).unwrap());
-        let _ = (s.darkrun_review_stamp(Parameters(ReviewStampInput {
+        })).unwrap();
+        let _ = s.darkrun_review_stamp(Parameters(ReviewStampInput {
             slug: "ghost".into(), station: "frame".into(), role: "spec".into(), kind: "review".into(),
-        })).unwrap());
-        let _ = (s.darkrun_annotation_submit(Parameters(AnnotationSubmitInput {
+        })).unwrap();
+        let _ = s.darkrun_annotation_submit(Parameters(AnnotationSubmitInput {
             slug: "ghost".into(), author: Some("human".into()), work_item: wi(),
             artifact: None, anchor: None, expression: None, comment: "c".into(),
             ask: serde_json::json!({"kind": "change", "severity": "should"}), suggestion: None,
-        })).unwrap());
-        let _ = (s.darkrun_annotation_list(Parameters(AnnotationListInput {
+        })).unwrap();
+        let _ = s.darkrun_annotation_list(Parameters(AnnotationListInput {
             slug: "ghost".into(), work_item: wi(), open_only: false,
-        })).unwrap());
-        let _ = (s.darkrun_annotation_payload(Parameters(AnnotationListInput {
+        })).unwrap();
+        let _ = s.darkrun_annotation_payload(Parameters(AnnotationListInput {
             slug: "ghost".into(), work_item: wi(), open_only: false,
-        })).unwrap());
-        let _ = (s.darkrun_reflection_record(Parameters(ReflectionRecordInput {
+        })).unwrap();
+        let _ = s.darkrun_reflection_record(Parameters(ReflectionRecordInput {
             slug: "ghost".into(), body: "x".into(), station: None,
-        })).unwrap());
-        let _ = (s.darkrun_reflection_list(Parameters(ReflectionListInput { slug: "ghost".into() })).unwrap());
-        let _ = (s.darkrun_drift_witness(Parameters(DriftAcceptInput {
+        })).unwrap();
+        let _ = s.darkrun_reflection_list(Parameters(ReflectionListInput { slug: "ghost".into() })).unwrap();
+        let _ = s.darkrun_drift_witness(Parameters(DriftAcceptInput {
             slug: "ghost".into(), path: "frame/frame.md".into(),
-        })).unwrap());
-        let _ = (s.darkrun_feedback_list(Parameters(FeedbackListInput {
+        })).unwrap();
+        let _ = s.darkrun_feedback_list(Parameters(FeedbackListInput {
             slug: "ghost".into(), include_settled: true,
-        })).unwrap());
-        let _ = (s.darkrun_direction_result(Parameters(SessionResultInput {
+        })).unwrap();
+        let _ = s.darkrun_direction_result(Parameters(SessionResultInput {
             slug: "ghost".into(), session_id: "d-01".into(),
-        })).unwrap());
+        })).unwrap();
     }
 
     #[test]
