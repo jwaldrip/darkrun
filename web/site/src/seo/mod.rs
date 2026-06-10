@@ -74,20 +74,29 @@ pub fn feed_rss() -> String {
 
 /// Build an Atom 1.0 feed of the blog posts.
 pub fn feed_atom() -> String {
+    let feed_updated = POSTS
+        .iter()
+        .map(|post| post.date)
+        .max()
+        .map(xml_escape)
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+
     let mut entries = String::new();
     for post in POSTS {
         let link = format!("{SITE_URL}/blog/{}", post.slug);
         entries.push_str(&format!(
-            "  <entry>\n    <title>{title}</title>\n    <id>{link}</id>\n    <link href=\"{link}\"/>\n    <summary>{summary}</summary>\n  </entry>\n",
+            "  <entry>\n    <title>{title}</title>\n    <id>{link}</id>\n    <link href=\"{link}\"/>\n    <updated>{updated}</updated>\n    <summary>{summary}</summary>\n  </entry>\n",
             title = xml_escape(post.title),
             link = xml_escape(&link),
+            updated = xml_escape(post.date),
             summary = xml_escape(post.summary),
         ));
     }
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed xmlns=\"http://www.w3.org/2005/Atom\">\n  <title>{name}</title>\n  <id>{site}/</id>\n  <link href=\"{site}/\"/>\n{entries}</feed>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed xmlns=\"http://www.w3.org/2005/Atom\">\n  <title>{name}</title>\n  <id>{site}/</id>\n  <link href=\"{site}/\"/>\n  <updated>{updated}</updated>\n{entries}</feed>\n",
         name = xml_escape(SITE_NAME),
         site = SITE_URL,
+        updated = feed_updated,
     )
 }
 
