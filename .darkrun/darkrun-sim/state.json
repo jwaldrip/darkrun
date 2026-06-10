@@ -1,0 +1,21 @@
+{
+  "factory": "software",
+  "active_station": "frame",
+  "base_branch": "main",
+  "stations": {
+    "frame": {
+      "station": "frame",
+      "status": "in_progress",
+      "phase": "manufacture",
+      "elaborated": true,
+      "checkpoint": {
+        "kind": "ask"
+      },
+      "branch": "darkrun/darkrun-sim/frame",
+      "verifier_nonce": "6e59dbba21af093746ae984e6ab2a484b90dc39257979df3777e03e876e07f56",
+      "started_at": "2026-06-09T22:55:22.988212+00:00"
+    }
+  },
+  "created_with_version": "0.1.0",
+  "schema_version": 1
+}
