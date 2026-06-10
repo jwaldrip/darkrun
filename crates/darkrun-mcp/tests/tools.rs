@@ -4164,6 +4164,48 @@ fn unit_update_empty_depends_on_clears_set() {
     assert_eq!(v["frontmatter"]["depends_on"].as_array().unwrap().len(), 0);
 }
 
+
+// ── Live mirror: every tick refreshes the session payload ───────────────────
+
+/// The desktop re-renders live as the engine progresses: EVERY `darkrun_tick`
+/// rebuilds the run's session payload (and the registry upsert broadcasts it
+/// to subscribed WebSockets) — not just gate ticks. The operator can watch the
+/// phase move and file feedback against current state at any moment.
+#[test]
+fn every_tick_refreshes_the_live_session_payload() {
+    let (_d, server) = started("r");
+    let reg = server.sessions();
+
+    // Tick 1: the session exists immediately (no gate required) and carries
+    // the run's live phase.
+    next(&server, "r");
+    let phase_of = |reg: &darkrun_http::SessionRegistry| -> String {
+        match reg.get("r") {
+            Some(darkrun_api::SessionPayload::Review(p)) => p
+                .current_state
+                .as_ref()
+                .and_then(|c| c.phase.as_ref())
+                .map(|ph| format!("{ph:?}"))
+                .unwrap_or_default(),
+            other => panic!("expected a review session for the run, got {other:?}"),
+        }
+    };
+    let first = phase_of(&reg);
+    assert!(!first.is_empty(), "tick 1 published a live phase");
+
+    // Subscribe to the broadcast channel, then tick again: the refreshed
+    // payload is PUSHED to the subscriber (the WS frame the desktop receives).
+    let mut rx = reg.subscribe("r").expect("session broadcast channel");
+    next(&server, "r");
+    let frame = rx.try_recv().expect("the tick pushed a frame to subscribers");
+    assert!(frame.contains("\"session_type\""), "a payload frame: {frame}");
+    // And again — every tick pushes, continuously, gate or not.
+    next(&server, "r");
+    rx.try_recv().expect("the next tick pushed another frame");
+    let _ = phase_of(&reg); // payload stays well-formed across refreshes
+    let _ = first;
+}
+
 // ── Batch 6: feedback create with empty station string ─────────────────────
 
 #[test]

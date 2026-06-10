@@ -166,6 +166,17 @@ impl DarkrunServer {
         if let Some(p) = tick.prompt.as_mut() {
             *p = darkrun_harness::adapt_instructions(p, &self.caps);
         }
+        // LIVE MIRROR: every tick refreshes the run's session payload, and the
+        // registry upsert broadcasts it to every subscribed WebSocket — so a
+        // connected desktop re-renders as the engine progresses (stations,
+        // phases, units, feedback), not just when a gate opens. The operator
+        // can therefore annotate / file feedback at ANY time against current
+        // state; Track B picks the open item up on the very next tick.
+        {
+            let store = self.store();
+            let run = crate::position::run_of(&tick.action);
+            let _ = crate::sessions::create_show(&self.sessions, &store, run);
+        }
         // A tick that lands on an operator gate MUST raise the desktop review
         // surface — that's where the gate is decided. We do it here in the engine
         // rather than trusting the agent to call `darkrun_run_inspect`: left to

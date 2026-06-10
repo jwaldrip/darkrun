@@ -2483,6 +2483,34 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     })
 }
 
+/// The run an action belongs to — every action carries its run slug.
+pub fn run_of(action: &RunAction) -> &str {
+    match action {
+        RunAction::Spec { run, .. }
+        | RunAction::Review { run, .. }
+        | RunAction::Manufacture { run, .. }
+        | RunAction::Audit { run, .. }
+        | RunAction::Reflect { run, .. }
+        | RunAction::UserGate { run, .. }
+        | RunAction::Checkpoint { run, .. }
+        | RunAction::FixFeedback { run, .. }
+        | RunAction::FeedbackQuestion { run, .. }
+        | RunAction::UnitsInvalid { run, .. }
+        | RunAction::Escalate { run, .. }
+        | RunAction::BestEffortBoot { run, .. }
+        | RunAction::EscalateToUser { run, .. }
+        | RunAction::SafeRepair { run, .. }
+        | RunAction::ReviseUnitSpecs { run, .. }
+        | RunAction::MergeConflict { run, .. }
+        | RunAction::ExternalReviewRequested { run, .. }
+        | RunAction::RunReview { run, .. }
+        | RunAction::PendingSeal { run, .. }
+        | RunAction::Sealed { run }
+        | RunAction::SaveWip { run, .. }
+        | RunAction::Noop { run, .. } => run,
+    }
+}
+
 /// The station an action targets, if any (run-level actions have none).
 fn station_of(action: &RunAction) -> Option<&str> {
     match action {
