@@ -7,7 +7,7 @@
     "frame": {
       "station": "frame",
       "status": "in_progress",
-      "phase": "manufacture",
+      "phase": "reflect",
       "elaborated": true,
       "checkpoint": {
         "kind": "ask"
