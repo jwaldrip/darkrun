@@ -1,12 +1,13 @@
 ---
 name: Frame the protocol-fidelity problem, user, value, and single success metric
 unit_type: ''
-status: in_progress
+status: completed
 depends_on: []
 worker: distiller
 station: frame
 branch: darkrun/darkrun-sim/units/frame/frame-protocol-problem
 started_at: 2026-06-10T06:35:07.265893+00:00
+completed_at: 2026-06-10T06:38:09.134803+00:00
 iterations:
 - worker: framer
   started_at: 2026-06-10T06:35:07.265893+00:00
