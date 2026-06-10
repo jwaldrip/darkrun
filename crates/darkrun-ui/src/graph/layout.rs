@@ -209,13 +209,34 @@ impl GraphLayout for LayeredLayout {
             by_layer.entry(layers[&n.id]).or_default().push(n);
         }
 
-        // Place: layers march left->right (x by layer), nodes stack top->bottom.
+        // Label-aware node sizing: a node is as wide as its (monospace) label
+        // needs, floored at `opts.node_width` — long labels never overflow
+        // their box. ~7.2px/char at the renderer's 12px mono + side padding.
+        let node_w = |n: &GraphNode| -> f64 {
+            (n.label.chars().count() as f64 * 7.2 + 24.0).max(opts.node_width)
+        };
+        // Each layer's column is as wide as its widest node.
+        let layer_count = by_layer.keys().next_back().map(|m| m + 1).unwrap_or(1);
+        let mut col_w: Vec<f64> = vec![opts.node_width; layer_count];
+        for (&layer_idx, layer_nodes) in &by_layer {
+            for node in layer_nodes {
+                col_w[layer_idx] = col_w[layer_idx].max(node_w(node));
+            }
+        }
+        // Column x origins: padding + the accumulated widths + gaps before it.
+        let mut col_x: Vec<f64> = Vec::with_capacity(layer_count);
+        let mut acc = opts.padding;
+        for w in &col_w {
+            col_x.push(acc);
+            acc += w + opts.layer_gap;
+        }
+
+        // Place: layers march left->right (x by column), nodes stack top->bottom.
         let mut placed: Vec<PlacedNode> = Vec::with_capacity(nodes.len());
         let mut index: HashMap<String, usize> = HashMap::new();
         let mut max_y: f64 = 0.0;
         for (&layer_idx, layer_nodes) in &by_layer {
-            let x = opts.padding
-                + layer_idx as f64 * (opts.node_width + opts.layer_gap);
+            let x = col_x[layer_idx];
             for (row, node) in layer_nodes.iter().enumerate() {
                 let y = opts.padding
                     + row as f64 * (opts.node_height + opts.node_gap);
@@ -226,16 +247,15 @@ impl GraphLayout for LayeredLayout {
                     layer: layer_idx,
                     x,
                     y,
-                    width: opts.node_width,
+                    width: node_w(node),
                     height: opts.node_height,
                 });
                 max_y = max_y.max(y + opts.node_height);
             }
         }
 
-        let layer_count = by_layer.keys().next_back().map(|m| m + 1).unwrap_or(1);
         let width = opts.padding * 2.0
-            + layer_count as f64 * opts.node_width
+            + col_w.iter().sum::<f64>()
             + (layer_count.saturating_sub(1)) as f64 * opts.layer_gap;
         let height = max_y + opts.padding;
 

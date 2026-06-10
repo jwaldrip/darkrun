@@ -91,8 +91,10 @@ pub fn ReviewApp(cfg: ConnConfig) -> Element {
     // Fill the main pane (the shell already provides the chrome + gutters); a
     // generous max-width keeps long lines readable without leaving a centered
     // moat of padding on a wide window.
+    // Full-bleed: the review fills the window's width (the shell's gutters are
+    // the only margin) — no centered moat on wide displays.
     let shell = "padding:14px 18px;display:flex;flex-direction:column;gap:12px;\
-                 max-width:1000px;";
+                 width:100%;box-sizing:border-box;";
 
     rsx! {
         div { style: "{shell}",

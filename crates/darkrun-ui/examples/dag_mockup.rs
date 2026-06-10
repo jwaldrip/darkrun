@@ -13,18 +13,25 @@ struct U(&'static str, &'static str, &'static str, &'static str, u32, &'static [
 fn main() {
     // A realistic Build-station wave: tones mirror the run UI conventions
     // (done=ok, in-progress=info, pending=muted, blocked=danger).
+    // The REAL failure case from a live run: sentence-length unit titles. The
+    // graph labels are the ellipsized SLUGS (a node is a handle); the rows
+    // below carry the full titles.
     let units = [
-        U("contract-types", "contract-types", "ok", "feature", 3, &[]),
-        U("parser", "parser", "ok", "feature", 2, &[]),
-        U("state-engine", "state-engine", "info", "feature", 4, &["contract-types", "parser"]),
-        U("api-routes", "api-routes", "info", "feature", 1, &["contract-types"]),
-        U("cli-surface", "cli-surface", "pending", "feature", 0, &["parser"]),
-        U("desktop-wire", "desktop-wire", "pending", "feature", 0, &["state-engine", "api-routes"]),
-        U("e2e-tests", "e2e-tests", "danger", "test", 1, &["desktop-wire"]),
-        U("docs-pass", "docs-pass", "pending", "doc", 0, &["state-engine"]),
+        U("frame-problem", "Frame the protocol-fidelity problem, user, value, and single success metric", "pending", "knowledge", 0, &[]),
+        U("bound-reconciliation", "Bound the dead-TS-to-darkrun reconciliation so later stations don't port the brief literally", "pending", "knowledge", 0, &[]),
+        U("lock-scope", "Lock full-brief scope and non-goals; separate protocol-green from build-green", "pending", "knowledge", 0, &["frame-problem", "bound-reconciliation"]),
     ];
 
-    let nodes: Vec<GraphNode> = units.iter().map(|u| GraphNode::new(u.0, u.1)).collect();
+    fn ellipsize(s: &str, max: usize) -> String {
+        let n = s.chars().count();
+        if n <= max { return s.to_string(); }
+        let keep = max - 1;
+        let (head, tail) = (keep / 2 + keep % 2, keep / 2);
+        format!("{}\u{2026}{}", s.chars().take(head).collect::<String>(),
+                s.chars().skip(n - tail).collect::<String>())
+    }
+    let nodes: Vec<GraphNode> =
+        units.iter().map(|u| GraphNode::new(u.0, ellipsize(u.0, 18))).collect();
     let mut edges: Vec<GraphEdge> = Vec::new();
     for u in &units {
         for dep in u.5 {
@@ -49,7 +56,7 @@ fn main() {
     // ── The SVG, mirroring graph/view.rs exactly ─────────────────────────
     let mut svg = String::new();
     svg.push_str(&format!(
-        r#"<svg class="dr-unit-graph" width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="unit dependency graph" style="background:var(--dr-surface-raised);border:1px solid var(--dr-border);border-radius:8px;display:block;max-width:100%;height:auto;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;">
+        r#"<svg class="dr-unit-graph" width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="unit dependency graph" preserveAspectRatio="xMinYMid meet" style="background:var(--dr-surface-raised);border:1px solid var(--dr-border);border-radius:8px;display:block;max-width:100%;height:auto;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;">
 <defs><marker id="dr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--dr-border-strong)"/></marker></defs>
 "#,
         w = result.width,
@@ -89,7 +96,7 @@ fn main() {
         r#"<!doctype html><html data-theme="{theme}"><head><meta charset="utf-8"><style>
 {THEME_CSS}
 body {{ margin:0; background:var(--dr-surface-base); color:var(--dr-text); font-family:Inter,-apple-system,'Segoe UI',sans-serif; }}
-.frame {{ max-width:980px; margin:28px auto; padding:0 24px; }}
+.frame {{ margin:28px auto; padding:0 24px; }}
 .window {{ border:1px solid var(--dr-border); border-radius:14px; background:var(--dr-surface-base); overflow:hidden; box-shadow:0 18px 50px rgba(0,0,0,.25); }}
 .titlebar {{ display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--dr-border); background:var(--dr-surface-raised); }}
 .dotsys {{ width:11px; height:11px; border-radius:50%; opacity:.9 }}

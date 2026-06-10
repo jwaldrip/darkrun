@@ -57,11 +57,12 @@ pub fn UnitGraph(
     };
 
     let view_box = format!("0 0 {} {}", result.width, result.height);
-    // `width:100%` (not max-width) so the graph FILLS its container — it
-    // scales up to the window as well as down, the viewBox keeping the aspect.
+    // Crisp 1:1 rendering: the drawing never UPSCALES (billboarded text), only
+    // shrinks when wider than its container. The graph panel itself spans the
+    // full pane width; a small graph simply sits left within it.
     let svg_style = format!(
         "background:{surface};border:1px solid {border};border-radius:8px;\
-         display:block;width:100%;height:auto;font-family:{mono};",
+         display:block;max-width:100%;height:auto;font-family:{mono};",
         surface = tokens::var::SURFACE_RAISED,
         border = tokens::var::BORDER,
         mono = tokens::FONT_MONO,
@@ -73,6 +74,7 @@ pub fn UnitGraph(
             width: "{result.width}",
             height: "{result.height}",
             view_box: "{view_box}",
+            preserve_aspect_ratio: "xMinYMid meet",
             xmlns: "http://www.w3.org/2000/svg",
             style: "{svg_style}",
             role: "img",

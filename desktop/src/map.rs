@@ -315,6 +315,20 @@ pub fn unit_view(unit: &Value) -> UnitView {
     }
 }
 
+/// Middle-ellipsize `s` to at most `max` characters (graph node labels).
+pub fn ellipsize(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let head = keep / 2 + keep % 2;
+    let tail = keep / 2;
+    let h: String = s.chars().take(head).collect();
+    let t: String = s.chars().skip(n - tail).collect();
+    format!("{h}\u{2026}{t}")
+}
+
 /// Project the review payload's raw unit documents into the [`UnitGraph`]'s
 /// nodes + edges — the dependency DAG at the top of the Units tab.
 ///
@@ -338,7 +352,10 @@ pub fn unit_graph(units: &[Value]) -> (Vec<UnitGraphNode>, Vec<GraphEdge>) {
     let mut ids: std::collections::BTreeSet<String> = Default::default();
     for u in units {
         let id = id_of(u);
-        let label = first_str(u, &["title", "name"]).unwrap_or_else(|| id.clone());
+        // Node labels are the SLUG, ellipsized — real unit titles are sentences
+        // and a graph node is a handle, not a paragraph (the row below carries
+        // the full title).
+        let label = ellipsize(&id, 18);
         let status = nested(u, "status")
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_else(|| "pending".to_string())
