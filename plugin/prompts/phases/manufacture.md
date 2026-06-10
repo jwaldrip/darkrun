@@ -19,6 +19,26 @@ Dispatch the **{{ worker }}** beat in parallel across these wave-ready Units:
 No Units are wave-ready this tick. The previous wave's dependents are still blocked, or work is mid-flight.
 {% endif %}
 
+{% if unit_specs %}
+## Each Unit's spec — the contract the beat works against
+
+The subagent you dispatch for a Unit gets **no context beyond what you hand it**. Pass the Unit's spec below into its dispatch verbatim — the completion criteria with their verify commands, the declared paths, and the scope boundary are the contract the beat is judged against.
+{% for s in unit_specs %}
+### `{{ s.unit }}` — {{ s.title }}
+{% if s.inputs %}
+- **inputs:** {% for i in s.inputs %}`{{ i }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+{% if s.outputs %}
+- **outputs:** {% for o in s.outputs %}`{{ o }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+{% if s.gates %}
+- **quality gates:** {% for g in s.gates %}{{ g }}{% if not loop.last %} · {% endif %}{% endfor %}
+{% endif %}
+
+{{ s.body }}
+{% endfor %}
+{% endif %}
+
 {% if worktrees %}
 ## Each Unit has its own worktree — work in it
 

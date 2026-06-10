@@ -272,6 +272,30 @@ pub struct Handoff {
     pub note: String,
 }
 
+/// One wave unit's full SPEC, threaded into the Manufacture dispatch. The
+/// executing subagent has NO other context — the unit body written at
+/// decompose time only steers the work if the dispatch carries it. (The
+/// predecessor threaded the whole unit document into every beat; a slug-only
+/// dispatch was exactly how thin units slipped through.)
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UnitSpecCard {
+    /// The unit slug.
+    pub unit: String,
+    /// The display title.
+    pub title: String,
+    /// The full markdown spec body — goal, completion criteria, scope.
+    pub body: String,
+    /// Declared input paths.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<String>,
+    /// Declared output paths.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<String>,
+    /// Declared quality gates, rendered `name — command`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub gates: Vec<String>,
+}
+
 /// A project knowledge prior surfaced into the Spec prompt.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct KnowledgePrior {
@@ -415,6 +439,11 @@ pub struct PromptContext {
     /// The wave-ready / on-record unit slugs for this action.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub units: Vec<String>,
+    /// Each wave unit's full spec (title, body, paths, gates) — the Manufacture
+    /// dispatch carries the definition, not just the slug, because the worker
+    /// subagent has no other context.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unit_specs: Vec<UnitSpecCard>,
     /// The run's classified SURFACE token (`web_ui`, `library`, …), absent
     /// until the Shape station records one. Drives surface-routed verification
     /// in the Prove/Audit prompts.
@@ -1728,6 +1757,26 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
             // Thread each wave unit's most-recent handoff note into the dispatch
             // so the next worker reads what the last beat did, or why it bounced.
             let wave_units = store.read_units(slug).unwrap_or_default();
+            // …and each wave unit's FULL SPEC. The worker subagent has no other
+            // context: the body written at decompose time only steers the beat
+            // if the dispatch carries it (slug-only dispatch = thin work).
+            ctx.unit_specs = wave_units
+                .iter()
+                .filter(|u| wave.contains(&u.slug))
+                .map(|u| UnitSpecCard {
+                    unit: u.slug.clone(),
+                    title: u.title.clone(),
+                    body: u.body.trim().to_string(),
+                    inputs: u.frontmatter.inputs.clone(),
+                    outputs: u.frontmatter.outputs.clone(),
+                    gates: u
+                        .frontmatter
+                        .quality_gates
+                        .iter()
+                        .map(|g| format!("{} — `{}`", g.name, g.command))
+                        .collect(),
+                })
+                .collect();
             ctx.handoffs = wave_units
                 .iter()
                 .filter(|u| wave.contains(&u.slug))
@@ -4488,7 +4537,7 @@ mod tests {
         let (_d, store) = store();
         run_start(&store, "d", "software", None, Mode::Solo, "quick").expect("start");
         // A wedged InProgress unit the operator flagged for reset in the UI.
-        let mut u = crate::units::create(&store, "d", "u1", "build", None, vec![]).unwrap();
+        let mut u = crate::units::create(&store, "d", "u1", "build", crate::units::UnitSpec::default()).unwrap();
         u.frontmatter.status = Status::InProgress;
         u.frontmatter.reset_requested = true;
         u.frontmatter.iterations = vec![
@@ -5193,7 +5242,7 @@ mod tests {
     fn derive_emits_revise_for_a_flagged_unit() {
         let (_d, store) = store();
         run_start(&store, "r", "software", None, Mode::Solo, "full").unwrap();
-        let mut u = crate::units::create(&store, "r", "u1", "frame", None, vec![]).unwrap();
+        let mut u = crate::units::create(&store, "r", "u1", "frame", crate::units::UnitSpec::default()).unwrap();
         u.frontmatter.revise = true;
         store.write_unit("r", &u).unwrap();
         let pos = derive_position(&store, "r").unwrap();
@@ -5204,7 +5253,7 @@ mod tests {
     fn derive_emits_safe_repair_for_an_undefined_station_unit() {
         let (_d, store) = store();
         run_start(&store, "r2", "software", None, Mode::Solo, "full").unwrap();
-        let bad = crate::units::create(&store, "r2", "ub", "ghost-station", None, vec![]).unwrap();
+        let bad = crate::units::create(&store, "r2", "ub", "ghost-station", crate::units::UnitSpec::default()).unwrap();
         store.write_unit("r2", &bad).unwrap();
         let pos = derive_position(&store, "r2").unwrap();
         assert!(matches!(pos.action, Some(RunAction::SafeRepair { .. })), "safe_repair: {:?}", pos.action);

@@ -727,9 +727,11 @@ fn roundtrip_run_full_frontmatter() {
         }),
         seal: None,
         external_refs: Default::default(),
+        created_by: Some("jason@example.com".into()),
     };
     let doc = frontmatter::serialize(&fm, "# Body\n").expect("ser");
     let (back, _) = parse_run(&doc);
+    assert_eq!(back.created_by, fm.created_by);
     assert_eq!(back.title, fm.title);
     assert_eq!(back.factory, fm.factory);
     assert_eq!(back.mode, fm.mode);

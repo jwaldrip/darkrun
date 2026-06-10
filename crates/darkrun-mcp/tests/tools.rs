@@ -121,6 +121,7 @@ fn create_unit(server: &DarkrunServer, slug: &str, unit: &str, station: &str) ->
             station: station.into(),
             title: None,
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap()
 }
@@ -439,6 +440,7 @@ fn run_next_noop_when_unit_blocked_mid_wave() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -463,6 +465,7 @@ fn run_next_advances_to_audit_when_units_complete() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&next(&server, "r"));
@@ -486,6 +489,7 @@ fn run_next_walks_audit_reflect_checkpoint_in_order() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&next(&server, "r"))["action"]["action"], "audit");
@@ -666,6 +670,7 @@ fn unit_create_with_title_sets_name_and_title() {
             station: "frame".into(),
             title: Some("First unit".into()),
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&res);
@@ -684,6 +689,7 @@ fn unit_create_with_dependencies() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["dep".into()],
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&res);
@@ -747,6 +753,7 @@ fn unit_update_advances_status_to_completed() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&res);
@@ -767,6 +774,7 @@ fn unit_update_sets_worker() {
             worker: Some("builder".into()),
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&res)["frontmatter"]["worker"], "builder");
@@ -785,6 +793,7 @@ fn unit_update_sets_outputs() {
             worker: None,
             inputs: None,
             outputs: Some(vec!["frame/out.md".into()]),
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&res)["frontmatter"]["outputs"][0], "frame/out.md");
@@ -793,6 +802,7 @@ fn unit_update_sets_outputs() {
 #[test]
 fn unit_update_deps_allowed_while_pending() {
     let (_d, server) = started("r");
+    create_unit(&server, "r", "x", "frame");
     create_unit(&server, "r", "u1", "frame");
     let res = server
         .darkrun_unit_update(Parameters(UnitUpdateInput {
@@ -803,6 +813,7 @@ fn unit_update_deps_allowed_while_pending() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -822,6 +833,7 @@ fn unit_update_deps_rejected_once_active() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let res = server
@@ -833,6 +845,7 @@ fn unit_update_deps_rejected_once_active() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_err(&res));
@@ -852,6 +865,7 @@ fn unit_update_rejects_invalid_status() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_err(&res));
@@ -870,6 +884,7 @@ fn unit_update_errors_on_missing_unit() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_err(&res));
@@ -888,6 +903,7 @@ fn unit_update_accepts_in_progress_alias() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -907,6 +923,7 @@ fn unit_create_get_update_roundtrip_is_persistent() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -1911,6 +1928,7 @@ fn full_walk_to_specify_via_tools_only() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -2077,6 +2095,7 @@ fn walk_station_to_checkpoint(server: &DarkrunServer, slug: &str, station: &str)
             station: station.into(),
             title: None,
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap();
     // Consume the station's declared inputs so the runtime input-coverage gate
@@ -2093,6 +2112,7 @@ fn walk_station_to_checkpoint(server: &DarkrunServer, slug: &str, station: &str)
             worker: None,
             inputs,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     for _ in 0..14 {
@@ -2382,6 +2402,7 @@ fn unit_update_status_pending_ok() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&res)["frontmatter"]["status"], "pending");
@@ -2400,6 +2421,7 @@ fn unit_update_status_active_ok() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&res)["frontmatter"]["status"], "active");
@@ -2418,6 +2440,7 @@ fn unit_update_status_blocked_ok() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert_eq!(body(&res)["frontmatter"]["status"], "blocked");
@@ -2436,6 +2459,7 @@ fn unit_update_status_uppercase_normalized() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -2455,6 +2479,7 @@ fn unit_update_inputs_rejected_once_active() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let res = server
@@ -2466,6 +2491,7 @@ fn unit_update_inputs_rejected_once_active() {
             worker: None,
             inputs: Some(vec!["in.md".into()]),
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_err(&res));
@@ -2484,6 +2510,7 @@ fn unit_update_outputs_allowed_after_active() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     // outputs are not structural → allowed even when not pending.
@@ -2496,6 +2523,7 @@ fn unit_update_outputs_allowed_after_active() {
             worker: None,
             inputs: None,
             outputs: Some(vec!["out.md".into()]),
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -2515,6 +2543,7 @@ fn unit_update_inputs_allowed_while_pending() {
             worker: None,
             inputs: Some(vec!["spec.md".into()]),
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -2717,6 +2746,7 @@ fn run_next_noop_carries_message() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -2825,6 +2855,7 @@ fn manufacture_dispatches_only_dependency_ready_units() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["base".into()],
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -2848,6 +2879,7 @@ fn manufacture_releases_dependent_after_base_completes() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["base".into()],
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -2861,6 +2893,7 @@ fn manufacture_releases_dependent_after_base_completes() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&next(&server, "r"));
@@ -3304,6 +3337,7 @@ fn audit_action_shape_has_reviewers() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&next(&server, "r"));
@@ -3328,6 +3362,7 @@ fn reflect_action_shape_has_run_and_station_only() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     next(&server, "r"); // audit (folds in the old tests phase)
@@ -3730,6 +3765,7 @@ fn unit_get_after_two_updates_reflects_last() {
             worker: Some("first".into()),
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     server
@@ -3741,6 +3777,7 @@ fn unit_get_after_two_updates_reflects_last() {
             worker: Some("second".into()),
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -3767,6 +3804,7 @@ fn unit_update_noop_when_all_fields_none() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     assert!(is_ok(&res));
@@ -3860,6 +3898,7 @@ fn unit_active_status_sets_started_at() {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -3880,6 +3919,7 @@ fn unit_completed_sets_both_timestamps() {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4061,6 +4101,9 @@ fn feedback_station_survives_status_change() {
 #[test]
 fn unit_update_depends_on_replaces_set() {
     let (_d, server) = started("r");
+    create_unit(&server, "r", "a", "frame");
+    create_unit(&server, "r", "b", "frame");
+    create_unit(&server, "r", "c", "frame");
     server
         .darkrun_unit_create(Parameters(UnitCreateInput {
             slug: "r".into(),
@@ -4068,6 +4111,7 @@ fn unit_update_depends_on_replaces_set() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["a".into(), "b".into()],
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -4080,6 +4124,7 @@ fn unit_update_depends_on_replaces_set() {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4091,6 +4136,7 @@ fn unit_update_depends_on_replaces_set() {
 #[test]
 fn unit_update_empty_depends_on_clears_set() {
     let (_d, server) = started("r");
+    create_unit(&server, "r", "a", "frame");
     server
         .darkrun_unit_create(Parameters(UnitCreateInput {
             slug: "r".into(),
@@ -4098,6 +4144,7 @@ fn unit_update_empty_depends_on_clears_set() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["a".into()],
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -4110,6 +4157,7 @@ fn unit_update_empty_depends_on_clears_set() {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4131,6 +4179,9 @@ fn feedback_create_with_empty_station_allowed() {
 #[test]
 fn unit_create_preserves_dependency_order() {
     let (_d, server) = started("r");
+    create_unit(&server, "r", "first", "frame");
+    create_unit(&server, "r", "second", "frame");
+    create_unit(&server, "r", "third", "frame");
     let v = body(
         &server
             .darkrun_unit_create(Parameters(UnitCreateInput {
@@ -4139,6 +4190,7 @@ fn unit_create_preserves_dependency_order() {
                 station: "frame".into(),
                 title: None,
                 depends_on: vec!["first".into(), "second".into(), "third".into()],
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4344,6 +4396,7 @@ fn unit_station_persists_through_status_changes() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -4446,6 +4499,7 @@ fn unit_update_worker_does_not_change_status() {
                 worker: Some("framer".into()),
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4466,6 +4520,7 @@ fn unit_list_reflects_status_after_update() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -4544,6 +4599,7 @@ fn run_show_reflects_unit_count_indirectly_via_position() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -4655,6 +4711,7 @@ fn manufacture_first_unit(server: &DarkrunServer, slug: &str, station: &str, uni
             station: station.into(),
             title: None,
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap();
     // Consume the station's declared inputs so the runtime input-coverage gate is
@@ -4672,6 +4729,7 @@ fn manufacture_first_unit(server: &DarkrunServer, slug: &str, station: &str, uni
                 worker: None,
                 inputs: Some(inputs),
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap();
     }
@@ -4754,6 +4812,7 @@ fn noop_position_action_is_null_in_show() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -4782,6 +4841,7 @@ fn noop_tick_action_is_noop_but_position_null() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -4885,6 +4945,7 @@ fn unit_create_with_title_overrides_slug_in_body() {
                 station: "frame".into(),
                 title: Some("Display".into()),
                 depends_on: vec![],
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -4937,6 +4998,7 @@ fn manufacture_clears_when_unit_completed_before_dispatch() {
             station: "frame".into(),
             title: None,
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap();
     approve(&server, "r"); // clear the pre-execution operator gate
@@ -4949,6 +5011,7 @@ fn manufacture_clears_when_unit_completed_before_dispatch() {
             worker: None,
             inputs: None,
             outputs: None,
+            ..Default::default()
         }))
         .unwrap();
     let v = body(&next(&server, "r"));
@@ -5056,6 +5119,7 @@ fn feedback_create_returns_run_id_station_status() {
 #[test]
 fn unit_update_status_only_does_not_touch_deps() {
     let (_d, server) = started("r");
+    create_unit(&server, "r", "keep", "frame");
     server
         .darkrun_unit_create(Parameters(UnitCreateInput {
             slug: "r".into(),
@@ -5063,6 +5127,7 @@ fn unit_update_status_only_does_not_touch_deps() {
             station: "frame".into(),
             title: None,
             depends_on: vec!["keep".into()],
+            ..Default::default()
         }))
         .unwrap();
     let v = body(
@@ -5075,6 +5140,7 @@ fn unit_update_status_only_does_not_touch_deps() {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap(),
     );
@@ -5272,24 +5338,24 @@ fn next_station_seeded_pending_after_advance() {
 }
 
 #[test]
-fn unit_with_dependency_on_self_is_units_invalid() {
+fn unit_with_dependency_on_self_is_rejected_at_create() {
     let (_d, server) = started("r");
     next(&server, "r");
     next(&server, "r");
-    server
+    // u1 depends on itself — a trivial dependency cycle. The validator bounces
+    // it at WRITE time now; the derive-time units_invalid net still backstops
+    // units that reach disk by other paths (covered in position validate_units).
+    let res = server
         .darkrun_unit_create(Parameters(UnitCreateInput {
             slug: "r".into(),
             unit: "u1".into(),
             station: "frame".into(),
             title: None,
             depends_on: vec!["u1".into()],
+            ..Default::default()
         }))
         .unwrap();
-    // u1 depends on itself — a trivial dependency cycle. The manager surfaces a
-    // units_invalid repair action, not a silent mid-wave noop.
-    let v = body(&next(&server, "r"));
-    assert_eq!(v["action"]["action"], "units_invalid");
-    assert_eq!(v["action"]["problem"], "dependency_cycle");
+    assert!(res.is_error.unwrap_or(false), "self-dependency must bounce: {res:?}");
 }
 
 #[test]

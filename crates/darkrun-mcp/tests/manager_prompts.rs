@@ -251,6 +251,51 @@ fn manufacture_prompt_lists_units_and_worker() {
 }
 
 #[test]
+fn manufacture_prompt_carries_each_units_full_spec() {
+    let (_d, store) = fresh("r");
+    at_phase(&store, "r", "build", StationPhase::Manufacture);
+    // A unit with a REAL spec: body, paths, and a quality gate. The dispatch
+    // must thread the whole definition — the worker subagent has no other
+    // context, so a slug-only dispatch is how thin work happens.
+    // (It consumes the station's declared inputs so the decomposition is valid.)
+    let station_inputs = darkrun_mcp::resolve_factory("software")
+        .and_then(|f| f.station("build").map(|d| d.inputs.clone()))
+        .unwrap_or_default();
+    let unit = Unit {
+        slug: "alpha".into(),
+        frontmatter: UnitFrontmatter {
+            status: Status::Pending,
+            station: Some("build".into()),
+            inputs: station_inputs,
+            outputs: vec!["src/limiter.rs".into()],
+            quality_gates: vec![darkrun_core::domain::QualityGate {
+                name: "tests".into(),
+                command: "cargo test -p limiter".into(),
+            }],
+            ..Default::default()
+        },
+        title: "Burst limiter".into(),
+        body: "# Burst limiter\n\n## Criteria\n- bursts above N are limited \
+               -> `cargo test -p limiter` exits 0\n\n## Out of scope\n- distributed limits\n"
+            .into(),
+    };
+    store.write_unit("r", &unit).expect("write unit");
+    let t = run_tick(&store, "r").expect("tick");
+    let prompt = t.prompt.expect("prompt");
+    assert!(prompt.contains("Burst limiter"), "spec title missing:\n{prompt}");
+    assert!(
+        prompt.contains("bursts above N are limited"),
+        "spec body (the contract) missing:\n{prompt}"
+    );
+    assert!(prompt.contains("Out of scope"), "scope boundary missing:\n{prompt}");
+    assert!(
+        prompt.contains("cargo test -p limiter"),
+        "quality-gate command missing:\n{prompt}"
+    );
+    assert!(prompt.contains("src/limiter.rs"), "output path missing:\n{prompt}");
+}
+
+#[test]
 fn review_prompt_lists_reviewers() {
     let (_d, store) = fresh("r");
     at_phase(&store, "r", "build", StationPhase::Review);

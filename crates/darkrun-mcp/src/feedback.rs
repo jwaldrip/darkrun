@@ -610,7 +610,7 @@ mod tests {
         use darkrun_core::domain::Stamp;
         let (_d, store) = store();
         // A build unit signed by two roles.
-        let mut unit = crate::units::create(&store, "r", "u1", "build", None, vec![]).unwrap();
+        let mut unit = crate::units::create(&store, "r", "u1", "build", crate::units::UnitSpec::default()).unwrap();
         let stamp = || Some(Stamp { at: "2026-06-04T00:00:00Z".into() });
         unit.frontmatter.approvals.insert("correctness".into(), stamp());
         unit.frontmatter.approvals.insert("user".into(), stamp());

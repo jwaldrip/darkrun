@@ -32,10 +32,23 @@ When discovery surfaces a durable project fact worth carrying into **future** ru
 
 ## decompose — once elaboration + discovery have both landed
 
-Turn the framed, explored problem into the smallest set of independently completable **Units** that, together, kill the risk above. For each Unit write:
-   - a one-line intent,
-   - explicit **completion criteria** (how you'll know it's done — testable, not vibes),
-   - its dependencies on other Units (so the manager can wave them).
+Turn the framed, explored problem into the smallest set of independently completable **Units** that, together, kill the risk above. A Unit's **body is the spec the executing subagent works from — it gets no other context**. A one-line body is a slug, not a definition; the work that comes back from a thin Unit is thin.
+
+Write every Unit with `darkrun_unit_create`, with the full anatomy:
+
+- **`body`** — the real definition, in markdown:
+  - the goal: what this Unit produces and why it exists in this station,
+  - **completion criteria, EACH paired with the literal command that verifies it.** Inspect the project's manifest (`Cargo.toml` / `package.json` / `pyproject.toml` / `go.mod` …) *during decompose* and write commands against THIS project's actual stack — never a placeholder.
+    - Good: "all endpoints return correct status codes (200/400/401/404)" → `cargo test -p api contracts` exits 0.
+    - Bad: "API works correctly", "tests are written" — no check, no criterion.
+  - for build-class Units: the **success path, the failure path, and the edge cases** the criteria must cover,
+  - for knowledge/document Units: substantive criteria — what claims the artifact must ground, with sources,
+  - the **files touched** (so review knows the blast radius),
+  - what is explicitly **out of scope** (so the Unit doesn't sprawl).
+- **`depends_on`** — every cross-Unit prerequisite, DECLARED, never left in prose. The wave scheduler sequences **only** on `depends_on`; a dependency mentioned in the body but not declared is invisible — the Unit gets co-scheduled with its own prerequisite and handed inputs that don't exist yet. A body that says "stub it until unit-X lands" is the symptom of a missing `depends_on` edge: declare the edge instead of writing the stub.
+- **`inputs` / `outputs`** — the paths consumed and produced. A sibling-produced input path requires that sibling in `depends_on`.
+- **`quality_gates`** — executable `{name, command}` checks proving the criteria. Required for any Unit that declares outputs. Each gate must pass **in the Unit's own isolated worktree at the time it runs** — a gate that needs a sibling's unmerged code, with no `depends_on` edge to order it, is not a gate, it's a Unit scheduled to fail. Circular gates (zero-match `! grep`, prose substrings against the Unit's own output) are rejected.
+- **`model`** — match the tier to the risk: `opus` for architectural or cascading-failure work, `sonnet` (default) for known patterns plus judgment, `haiku` only for purely mechanical edits.
 
 {% if units %}
 ### Units already on record

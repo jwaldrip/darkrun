@@ -327,25 +327,66 @@ pub struct UnitRef {
 }
 
 /// Input for `darkrun_unit_create`.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct UnitCreateInput {
     /// The run slug.
     pub slug: String,
-    /// The new unit's slug (unique within the run).
+    /// The new unit's slug (unique within the run, lowercase url-safe).
     pub unit: String,
     /// The station this unit belongs to.
     pub station: String,
     /// Optional display title.
     #[serde(default)]
     pub title: Option<String>,
-    /// Slugs of units this one depends on.
+    /// The unit's full markdown SPEC body — the definition the executing
+    /// subagent works from (it has no other context). Write the real anatomy:
+    /// goal, completion criteria EACH PAIRED with a literal verify command,
+    /// files touched, and what's out of scope. A one-line body is a slug,
+    /// not a definition.
+    #[serde(default)]
+    pub body: Option<String>,
+    /// Slugs of units this one depends on — the ONLY thing the wave scheduler
+    /// sequences on. A dependency mentioned in prose but not declared here is
+    /// invisible.
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Run-relative input PATHS consumed (file paths — never unit slugs; a
+    /// sibling-produced path also requires that sibling in depends_on).
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    /// Run-relative output paths this unit produces.
+    #[serde(default)]
+    pub outputs: Vec<String>,
+    /// Executable quality gates ({name, command}) proving the completion
+    /// criteria. REQUIRED when outputs are declared — pass an explicit empty
+    /// list to defer deliberately. Circular gates (zero-match `! grep`, prose
+    /// substrings against the unit's own output) are rejected.
+    #[serde(default)]
+    pub quality_gates: Option<Vec<QualityGateInput>>,
+    /// Optional model tier for the unit's subagents: `opus` (architectural /
+    /// cascading-failure risk), `sonnet` (default — known patterns + judgment),
+    /// `haiku` (purely mechanical).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Free-form unit kind chip (feature / test / doc / knowledge …).
+    #[serde(default)]
+    pub unit_type: Option<String>,
+}
+
+/// One declared quality gate on the create/update input.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct QualityGateInput {
+    /// Short gate name (e.g. `tests`, `lint`, `types`).
+    pub name: String,
+    /// The literal command that runs the check (the project's real stack, not
+    /// a placeholder).
+    pub command: String,
 }
 
 /// Input for `darkrun_unit_update` — corrective, field-scoped edits.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct UnitUpdateInput {
     /// The run slug.
@@ -364,9 +405,19 @@ pub struct UnitUpdateInput {
     /// New declared input paths (pending units only).
     #[serde(default)]
     pub inputs: Option<Vec<String>>,
-    /// New declared output paths.
+    /// New declared output paths (corrective-exempt: editable after start).
     #[serde(default)]
     pub outputs: Option<Vec<String>>,
+    /// New spec body (pending units only).
+    #[serde(default)]
+    pub body: Option<String>,
+    /// New quality gates (corrective-exempt: a broken gate command stays
+    /// fixable without reopening the unit).
+    #[serde(default)]
+    pub quality_gates: Option<Vec<QualityGateInput>>,
+    /// New model tier (pending units only).
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Input for `darkrun_unit_beat` — record one Pass beat (Make/Challenge/Resolve).
@@ -1367,21 +1418,31 @@ impl DarkrunServer {
     /// Decompose a station into a new pending unit.
     #[tool(
         name = "darkrun_unit_create",
-        description = "Create a new pending unit on a station, with an optional title and dependency set."
+        description = "Create a new pending unit on a station. Write the FULL definition: a markdown spec body (goal, completion criteria each paired with a literal verify command, files touched, out-of-scope), declared inputs/outputs (paths), depends_on (the only thing the scheduler sequences on), and executable quality_gates when outputs are declared."
     )]
     pub fn darkrun_unit_create(
         &self,
         Parameters(input): Parameters<UnitCreateInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         let store = self.store();
-        match units::create(
-            &store,
-            &input.slug,
-            &input.unit,
-            &input.station,
-            input.title.clone(),
-            input.depends_on.clone(),
-        ) {
+        let spec = units::UnitSpec {
+            title: input.title.clone(),
+            body: input.body.clone(),
+            depends_on: input.depends_on.clone(),
+            inputs: input.inputs.clone(),
+            outputs: input.outputs.clone(),
+            quality_gates: input.quality_gates.as_ref().map(|gs| {
+                gs.iter()
+                    .map(|g| darkrun_core::domain::QualityGate {
+                        name: g.name.clone(),
+                        command: g.command.clone(),
+                    })
+                    .collect()
+            }),
+            model: input.model.clone(),
+            unit_type: input.unit_type.clone(),
+        };
+        match units::create(&store, &input.slug, &input.unit, &input.station, spec) {
             Ok(unit) => ok_json(&unit),
             Err(e) => Ok(err_text(e)),
         }
@@ -1410,6 +1471,16 @@ impl DarkrunServer {
             worker: input.worker.clone(),
             inputs: input.inputs.clone(),
             outputs: input.outputs.clone(),
+            body: input.body.clone(),
+            quality_gates: input.quality_gates.as_ref().map(|gs| {
+                gs.iter()
+                    .map(|g| darkrun_core::domain::QualityGate {
+                        name: g.name.clone(),
+                        command: g.command.clone(),
+                    })
+                    .collect()
+            }),
+            model: input.model.clone(),
         };
         match units::update(&store, &input.slug, &input.unit, upd) {
             Ok(unit) => ok_json(&unit),
@@ -2817,6 +2888,7 @@ mod tests {
                 station: "frame".into(),
                 title: Some("First".into()),
                 depends_on: vec![],
+                ..Default::default()
             }))
             .unwrap();
         assert_eq!(created.is_error, Some(false));
@@ -2840,6 +2912,7 @@ mod tests {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap();
         let v = updated.structured_content.unwrap();
@@ -2856,6 +2929,7 @@ mod tests {
                 station: "frame".into(),
                 title: None,
                 depends_on: vec![],
+                ..Default::default()
             }))
             .unwrap();
         let res = server
@@ -2867,6 +2941,7 @@ mod tests {
                 worker: None,
                 inputs: None,
                 outputs: None,
+                ..Default::default()
             }))
             .unwrap();
         assert_eq!(res.is_error, Some(true));
@@ -3241,6 +3316,7 @@ mod handler_smoke {
             station: "frame".into(),
             title: Some("Unit one".into()),
             depends_on: vec![],
+            ..Default::default()
         }))
         .unwrap();
         s.darkrun_unit_get(Parameters(UnitRef { slug: "r".into(), unit: "u1".into() })).unwrap();
@@ -3253,6 +3329,7 @@ mod handler_smoke {
             worker: Some("make".into()),
             inputs: None,
             outputs: Some(vec!["src/x.rs".into()]),
+            ..Default::default()
         }))
         .unwrap();
         s.darkrun_unit_beat(Parameters(UnitIterateInput {
@@ -3497,8 +3574,8 @@ mod handler_smoke {
         // body executes (the failing ones cover their err tail; the write-style
         // ones cover the success tail) — the point is to drive the wrapper.
         let _ = s.darkrun_checkpoint_decide(Parameters(CheckpointDecideInput { slug: g(), approved: true, feedback: None }));
-        let _ = s.darkrun_unit_create(Parameters(UnitCreateInput { slug: g(), unit: "u".into(), station: "frame".into(), title: None, depends_on: vec![] }));
-        let _ = s.darkrun_unit_update(Parameters(UnitUpdateInput { slug: g(), unit: "u".into(), status: Some("bogus".into()), depends_on: None, worker: None, inputs: None, outputs: None }));
+        let _ = s.darkrun_unit_create(Parameters(UnitCreateInput { slug: g(), unit: "u".into(), station: "frame".into(), title: None, depends_on: vec![],  ..Default::default() }));
+        let _ = s.darkrun_unit_update(Parameters(UnitUpdateInput { slug: g(), unit: "u".into(), status: Some("bogus".into()), depends_on: None, worker: None, inputs: None, outputs: None,  ..Default::default() }));
         let _ = s.darkrun_unit_beat(Parameters(UnitIterateInput { slug: g(), unit: "u".into(), worker: "w".into(), result: "advance".into(), note: None, next_worker: None }));
         let _ = s.darkrun_unit_reset(Parameters(UnitResetInput { slug: g(), unit: "u".into(), confirm: true }));
         let _ = s.darkrun_quality_gate_record(Parameters(GateRecordInput { slug: g(), unit: "u".into(), gate: "t".into(), status: "pass".into(), detail: None, nonce: None }));
@@ -3564,7 +3641,7 @@ mod handler_smoke {
         let dir = tempdir().unwrap();
         let s = DarkrunServer::new(dir.path());
         s.darkrun_run_new(Parameters(RunStartInput { slug: "r".into(), factory: "software".into(), title: None, mode: "solo".into(), size: "full".into() })).unwrap();
-        s.darkrun_unit_create(Parameters(UnitCreateInput { slug: "r".into(), unit: "u1".into(), station: "frame".into(), title: None, depends_on: vec![] })).unwrap();
+        s.darkrun_unit_create(Parameters(UnitCreateInput { slug: "r".into(), unit: "u1".into(), station: "frame".into(), title: None, depends_on: vec![],  ..Default::default() })).unwrap();
         let is_err = |r: CallToolResult| r.is_error == Some(true);
         assert!(is_err(s.darkrun_unit_beat(Parameters(UnitIterateInput { slug: "r".into(), unit: "u1".into(), worker: "w".into(), result: "bogus".into(), note: None, next_worker: None })).unwrap()));
         assert!(is_err(s.darkrun_quality_gate_record(Parameters(GateRecordInput { slug: "r".into(), unit: "u1".into(), gate: "t".into(), status: "bogus".into(), detail: None, nonce: None })).unwrap()));
@@ -3960,6 +4037,7 @@ mod handler_smoke {
         })).unwrap();
         s.darkrun_unit_create(Parameters(UnitCreateInput {
             slug: "r".into(), unit: "u1".into(), station: "build".into(), title: None, depends_on: vec![],
+            ..Default::default()
         })).unwrap();
         // A reject with no note is exactly the story-loss this guards against.
         let res = s.darkrun_unit_beat(Parameters(UnitIterateInput {

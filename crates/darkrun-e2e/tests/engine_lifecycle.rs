@@ -1409,7 +1409,7 @@ fn api_session_unknown_type_rejected() {
 #[test]
 fn units_create_seeds_pending() {
     let h = Harness::start("u");
-    let u = darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    let u = darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).unwrap();
     assert_eq!(u.frontmatter.status, Status::Pending);
 }
 
@@ -1418,7 +1418,7 @@ fn units_create_then_appears_in_wave() {
     let h = Harness::start("u");
     h.tick();
     h.tick();
-    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).unwrap();
     h.decide(true, None); // clear the pre-execution operator gate
     let t = h.tick();
     assert!(is_manufacture(&t.action, "frame"));
@@ -1429,7 +1429,7 @@ fn units_update_completion_unblocks_audit() {
     let h = Harness::start("u");
     h.tick();
     h.tick();
-    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).unwrap();
     h.decide(true, None); // clear the pre-execution operator gate
     h.tick(); // dispatch
     darkrun_mcp::units::update(
@@ -1448,7 +1448,7 @@ fn units_update_completion_unblocks_audit() {
 #[test]
 fn units_update_deps_blocked_after_active() {
     let h = Harness::start("u");
-    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
+    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).unwrap();
     darkrun_mcp::units::update(
         &h.store,
         "u",
@@ -1474,8 +1474,8 @@ fn units_update_deps_blocked_after_active() {
 #[test]
 fn units_create_duplicate_errors() {
     let h = Harness::start("u");
-    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).unwrap();
-    assert!(darkrun_mcp::units::create(&h.store, "u", "u1", "frame", None, vec![]).is_err());
+    darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).unwrap();
+    assert!(darkrun_mcp::units::create(&h.store, "u", "u1", "frame", darkrun_mcp::units::UnitSpec::default()).is_err());
 }
 
 #[test]

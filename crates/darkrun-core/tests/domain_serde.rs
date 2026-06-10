@@ -904,8 +904,10 @@ fn run_frontmatter_full_roundtrip_json() {
             pr_url: Some("https://x/pr/1".into()),
             ..Default::default()
         },
+        created_by: Some("jason@example.com".into()),
     };
     let back = json_round(&fm);
+    assert_eq!(back.created_by.as_deref(), Some("jason@example.com"));
     assert_eq!(back.surface, Some(Surface::WebUi));
     assert_eq!(back.title.as_deref(), Some("Big Run"));
     assert_eq!(back.factory, "software");
@@ -934,6 +936,7 @@ fn run_frontmatter_full_roundtrip_yaml() {
         git: Some(RunGit::default()),
         seal: None,
         external_refs: Default::default(),
+        created_by: None,
     };
     let back = yaml_round(&fm);
     assert_eq!(back.status, Status::Completed);
@@ -2634,6 +2637,7 @@ fn run_with_full_git_policy_yaml_roundtrips() {
             }),
             seal: None,
             external_refs: Default::default(),
+            created_by: None,
         },
         title: "Ship".into(),
         body: "# Ship\n".into(),

@@ -1593,7 +1593,7 @@ mod tests {
 
     #[test]
     fn with_worktree_on_branch_runs_a_closure_against_the_branch_tree() {
-        let (_d, root, store) = init_repo();
+        let (_d, _root, store) = init_repo();
         ensure_run_main(&store, "r");
         let (git, root2) = open_git(&store).unwrap();
         let saw = with_worktree_on_branch(&git, &root2, &run_main_branch("r"), "r", |wt| {
