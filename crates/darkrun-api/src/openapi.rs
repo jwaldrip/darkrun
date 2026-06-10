@@ -249,8 +249,45 @@ pub fn document() -> Value {
 }
 
 /// Render the OpenAPI document as pretty-printed JSON.
+///
+/// Whole-valued floats are normalized to integers (`0.0` → `0`) before
+/// serializing: release-please's JSON updater re-serializes `openapi.json`
+/// when it bumps `info.version` and normalizes numbers exactly this way, so
+/// the canonical file must be a FIXED POINT of that rewrite or every release
+/// PR fails the parity test on `minimum: 0.0` vs `minimum: 0`.
 pub fn document_json() -> String {
-    serde_json::to_string_pretty(&document()).expect("openapi document serializes")
+    let mut doc = document();
+    normalize_whole_floats(&mut doc);
+    serde_json::to_string_pretty(&doc).expect("openapi document serializes")
+}
+
+/// Recursively rewrite any f64 with no fractional part into the equivalent
+/// integer JSON number (within i64/u64 range).
+fn normalize_whole_floats(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                if n.as_i64().is_none() && n.as_u64().is_none() && f.fract() == 0.0 {
+                    if f >= 0.0 && f <= u64::MAX as f64 {
+                        *n = serde_json::Number::from(f as u64);
+                    } else if f >= i64::MIN as f64 && f < 0.0 {
+                        *n = serde_json::Number::from(f as i64);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalize_whole_floats(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, item) in map.iter_mut() {
+                normalize_whole_floats(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
