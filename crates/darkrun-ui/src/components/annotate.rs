@@ -151,9 +151,14 @@ pub fn AnnotateToolbar(
                 {
                     let on = tool == active;
                     let handler = on_pick;
+                    // Every tool carries a VISIBLE label (no hover-guessing), and
+                    // the active tool is fully accent-filled — glyph, name, and
+                    // pill all in the accent so the current mode is unmistakable.
+                    // Kept compact (26px pills, 11px mono labels) so the palette
+                    // never outweighs the artifact it annotates.
                     let core = if on {
                         format!(
-                            "background:{accent};color:{on_accent};",
+                            "background:{accent};color:{on_accent};font-weight:600;",
                             accent = tokens::var::ACCENT,
                             on_accent = tokens::var::ON_ACCENT,
                         )
@@ -161,15 +166,20 @@ pub fn AnnotateToolbar(
                         format!("background:transparent;color:{};", tokens::var::TEXT_MUTED)
                     };
                     let btn = format!(
-                        "{core}width:30px;height:28px;border-radius:6px;border:none;\
-                         display:flex;align-items:center;justify-content:center;\
-                         font-size:14px;cursor:pointer;"
+                        "{core}height:26px;border-radius:6px;border:none;\
+                         display:inline-flex;align-items:center;gap:6px;\
+                         padding:0 9px;cursor:pointer;white-space:nowrap;"
+                    );
+                    let label_style = format!(
+                        "font-family:{mono};font-size:11px;letter-spacing:0.02em;line-height:1;",
+                        mono = tokens::FONT_MONO,
                     );
                     rsx! {
                         button {
                             class: "dr-annotate-tool",
                             "data-tool": tool.slug(),
                             "data-active": "{on}",
+                            "aria-pressed": "{on}",
                             title: tool.slug(),
                             style: "{btn}",
                             onclick: move |_| {
@@ -177,7 +187,8 @@ pub fn AnnotateToolbar(
                                     h.call(tool);
                                 }
                             },
-                            "{tool.glyph()}"
+                            span { style: "font-size:13px;line-height:1;", "{tool.glyph()}" }
+                            span { style: "{label_style}", "{tool.slug()}" }
                         }
                     }
                 }

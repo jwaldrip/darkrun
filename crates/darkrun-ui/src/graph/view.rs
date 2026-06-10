@@ -57,9 +57,11 @@ pub fn UnitGraph(
     };
 
     let view_box = format!("0 0 {} {}", result.width, result.height);
+    // `width:100%` (not max-width) so the graph FILLS its container — it
+    // scales up to the window as well as down, the viewBox keeping the aspect.
     let svg_style = format!(
         "background:{surface};border:1px solid {border};border-radius:8px;\
-         display:block;max-width:100%;height:auto;font-family:{mono};",
+         display:block;width:100%;height:auto;font-family:{mono};",
         surface = tokens::var::SURFACE_RAISED,
         border = tokens::var::BORDER,
         mono = tokens::FONT_MONO,

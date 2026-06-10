@@ -23,6 +23,8 @@ use darkrun_ui::components::proof_panel::{
 use darkrun_ui::components::run_list::RunCardData;
 use darkrun_ui::components::session_views::{ArchetypeCard, OptionCard, PickerItem};
 use darkrun_ui::components::view_artifacts::ArtifactEntry;
+use darkrun_ui::graph::layout::GraphEdge;
+use darkrun_ui::graph::view::UnitGraphNode;
 use darkrun_ui::kinds::{Phase, Tone};
 use darkrun_ui::selection::PinPoint;
 use darkrun_ui::view::{
@@ -151,11 +153,24 @@ pub fn feedback_entry(item: &FeedbackItem) -> FeedbackEntry {
     } else {
         item.body.clone()
     };
+    // The persisted inline anchor surfaces as a quoted span on the row, so the
+    // exact text a comment was anchored to is visible wherever the feedback is.
+    let anchor = item
+        .inline_anchor
+        .as_ref()
+        .map(|a| {
+            let mut quote: String = a.selected_text.chars().take(64).collect();
+            if a.selected_text.chars().count() > 64 {
+                quote.push('\u{2026}');
+            }
+            format!("\u{201c}{quote}\u{201d} \u{00b7} {}", a.location)
+        })
+        .unwrap_or_default();
     FeedbackEntry {
         id: item.feedback_id.clone(),
         severity: feedback_severity(item.severity),
         locator,
-        anchor: String::new(),
+        anchor,
         comment,
         author: item.author.clone(),
         resolved: !item.status.blocks_gate(),
@@ -298,6 +313,53 @@ pub fn unit_view(unit: &Value) -> UnitView {
         pass,
         criteria: extract_criteria(unit),
     }
+}
+
+/// Project the review payload's raw unit documents into the [`UnitGraph`]'s
+/// nodes + edges — the dependency DAG at the top of the Units tab.
+///
+/// The wire unit is a serialized `Unit` (`{slug, frontmatter: {...}, title}`),
+/// so fields are probed FLAT first, then under `frontmatter` (status and
+/// `depends_on` live there). Edges keep only endpoints that resolve to a known
+/// unit, so a stale dependency never draws a dangling arrow.
+pub fn unit_graph(units: &[Value]) -> (Vec<UnitGraphNode>, Vec<GraphEdge>) {
+    let nested = |u: &Value, k: &str| -> Option<Value> {
+        u.get(k)
+            .cloned()
+            .or_else(|| u.get("frontmatter").and_then(|f| f.get(k)).cloned())
+    };
+    let id_of = |u: &Value| {
+        first_str(u, &["slug", "id"])
+            .or_else(|| first_str(u, &["title", "name"]))
+            .unwrap_or_else(|| "unit".to_string())
+    };
+
+    let mut nodes = Vec::new();
+    let mut ids: std::collections::BTreeSet<String> = Default::default();
+    for u in units {
+        let id = id_of(u);
+        let label = first_str(u, &["title", "name"]).unwrap_or_else(|| id.clone());
+        let status = nested(u, "status")
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "pending".to_string())
+            .to_ascii_lowercase();
+        ids.insert(id.clone());
+        nodes.push(UnitGraphNode::new(id, label).with_tone(label_tone(&status)));
+    }
+
+    let mut edges = Vec::new();
+    for u in units {
+        let to = id_of(u);
+        let deps = nested(u, "depends_on").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+        for d in deps {
+            if let Some(from) = d.as_str() {
+                if ids.contains(from) && from != to {
+                    edges.push(GraphEdge { from: from.to_string(), to: to.clone() });
+                }
+            }
+        }
+    }
+    (nodes, edges)
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +683,19 @@ mod tests {
         assert_eq!(status_tone(SessionStatus::Approved), Tone::Ok);
         assert_eq!(status_tone(SessionStatus::ChangesRequested), Tone::Danger);
         assert_eq!(status_tone(SessionStatus::Pending), Tone::Warn);
+    }
+
+    #[test]
+    fn unit_graph_probes_nested_frontmatter_and_filters_dangling_edges() {
+        let units = vec![
+            serde_json::json!({"slug":"a","title":"A","frontmatter":{"status":"completed","depends_on":[]}}),
+            serde_json::json!({"slug":"b","title":"B","frontmatter":{"status":"in_progress","depends_on":["a","ghost"]}}),
+        ];
+        let (nodes, edges) = unit_graph(&units);
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(edges.len(), 1, "the dangling `ghost` edge is dropped");
+        assert_eq!(edges[0].from, "a");
+        assert_eq!(edges[0].to, "b");
     }
 
     #[test]
