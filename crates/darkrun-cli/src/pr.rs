@@ -83,7 +83,6 @@ fn resolve_provider(coords: &RepoCoords) -> Result<Provider, Box<dyn std::error:
 /// `darkrun/<slug>` when git reports a detached HEAD).
 #[allow(clippy::too_many_arguments)]
 #[cfg(not(tarpaulin_include))] // network PR/MR creation
-
 pub fn create_for_run(
     transport: &dyn HttpTransport,
     facts: &dyn RepoFacts,

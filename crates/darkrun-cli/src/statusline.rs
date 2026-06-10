@@ -62,9 +62,56 @@ fn phase_chrome(phase: StationPhase) -> (&'static str, &'static str) {
         StationPhase::Manufacture => ("manufacture", C_MANUFACTURE),
         StationPhase::Audit => ("audit", C_AUDIT),
         StationPhase::Reflect => ("reflect", C_REFLECT),
-        StationPhase::UserGate => ("gate", C_CHECKPOINT),
+        // The pre-execution USER gate is the review stage's operator hold — the
+        // engine's universal taxonomy (and the desktop) surface it as `review`,
+        // not a phase of its own. The HOLD is shown by the `⊘` flow mark, not the
+        // label, so the statusline agrees with every other surface.
+        StationPhase::UserGate => ("review", C_REVIEW),
         StationPhase::Checkpoint => ("checkpoint", C_CHECKPOINT),
     }
+}
+
+/// The sub-agent role slugs the active `phase` dispatches at `station` — the
+/// cast that is actually working in this phase. These render as chips beside the
+/// phase so the operator can see *who* is on the line right now.
+///
+/// The mapping mirrors the engine's phase machine: Spec runs the Explorers,
+/// Review (and the pre-execution UserGate) the Reviewers, Manufacture the
+/// Workers, and Audit the post-execution Reviewers. Reflect and Checkpoint are
+/// retrospective / operator-decision steps with no dispatched cast.
+fn phase_roles(station: &darkrun_content::Station, phase: StationPhase) -> Vec<&str> {
+    let roles: &[darkrun_content::Role] = match phase {
+        StationPhase::Spec => &station.explorers,
+        StationPhase::Review | StationPhase::UserGate => &station.reviewers,
+        StationPhase::Manufacture => &station.workers,
+        StationPhase::Audit => &station.reviewers,
+        StationPhase::Reflect | StationPhase::Checkpoint => &[],
+    };
+    roles.iter().map(|r| r.name()).collect()
+}
+
+/// The most chips to print before collapsing the rest into a `+N` overflow, so a
+/// station with a deep cast never blows out the one-line budget.
+const MAX_CHIPS: usize = 4;
+
+/// Render the active phase's role cast as chips: a phase-hued `◦` marker plus the
+/// dim role slug, one per role, capped at [`MAX_CHIPS`] with a `+N` overflow.
+/// Empty when there is no cast (an empty string adds nothing to the line).
+fn render_chips(roles: &[&str], phase_code: &str) -> String {
+    if roles.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for name in roles.iter().take(MAX_CHIPS) {
+        out.push(' ');
+        out.push_str(&paint(phase_code, "\u{25e6}")); // ◦ — the chip marker
+        out.push_str(&paint(C_PENDING, name));
+    }
+    if roles.len() > MAX_CHIPS {
+        out.push(' ');
+        out.push_str(&paint(C_DIM, &format!("+{}", roles.len() - MAX_CHIPS)));
+    }
+    out
 }
 
 /// Wrap `text` in an OSC 8 terminal hyperlink to `url`, so the chip is
@@ -134,6 +181,10 @@ pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
 
     // Phase + flow mark from the active station's derived state — computed
     // before the pipeline so the active pip can take the phase hue.
+    let active_phase: Option<StationPhase> = state
+        .as_ref()
+        .and_then(|s| s.stations.get(&active_station))
+        .map(|st| st.phase);
     let (phase_label, phase_code, gated) =
         match state.as_ref().and_then(|s| s.stations.get(&active_station)) {
             Some(st) => {
@@ -216,8 +267,20 @@ pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
     let phase_disp = paint(phase_code, phase_label);
     let sep = paint(C_DIM, "·");
 
+    // Sub-agent chips: the cast the active phase dispatches, shown only while the
+    // phase is being WORKED. A held gate (`⊘`) shows none — its agents are done
+    // and the line is waiting on a human, so chips there would mislead.
+    let chips = if gated {
+        String::new()
+    } else {
+        let roles = active_phase
+            .and_then(|p| factory.station(&active_station).map(|st| phase_roles(st, p)))
+            .unwrap_or_default();
+        render_chips(&roles, phase_code)
+    };
+
     let mut line = format!(
-        "{brand} {sep} {slug_disp} {sep} {factory_disp} {pipeline} {station_disp} {flow} {phase_disp}"
+        "{brand} {sep} {slug_disp} {sep} {factory_disp} {pipeline} {station_disp} {flow} {phase_disp}{chips}"
     );
     if total > 0 {
         line.push_str(&format!(
@@ -673,5 +736,75 @@ mod tests {
         let line = render(Some(dir.path().to_path_buf())).expect("renders an active run");
         // The gated-hold flow mark appears for a non-auto checkpoint.
         assert!(line.contains('⊘'), "a gated checkpoint shows the hold mark: {line}");
+    }
+
+    /// Build a one-station run sitting at `phase` and render its status line.
+    fn render_at_phase(station: &str, phase: StationPhase) -> String {
+        use darkrun_core::domain::{Run, RunFrontmatter, Station, Status};
+        use darkrun_core::state::RunState;
+        use darkrun_core::StateStore;
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        store
+            .write_run(&Run {
+                slug: "r".into(),
+                title: "T".into(),
+                body: String::new(),
+                frontmatter: RunFrontmatter {
+                    factory: "software".into(),
+                    active_station: station.into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        store.set_active_run("r").unwrap();
+        let mut state = RunState {
+            factory: "software".into(),
+            active_station: station.into(),
+            ..Default::default()
+        };
+        state.stations.insert(
+            station.into(),
+            Station {
+                station: station.into(),
+                status: Status::InProgress,
+                phase,
+                elaborated: true,
+                checkpoint: None,
+                branch: None,
+                pr_ref: None,
+                pr_status: None,
+                pr_ready_at: None,
+                pr_merged_at: None,
+                verifier_nonce: None,
+                started_at: None,
+                completed_at: None,
+            },
+        );
+        store.write_state("r", &state).unwrap();
+        render(Some(dir.path().to_path_buf())).expect("renders an active run")
+    }
+
+    #[test]
+    fn user_gate_renders_as_a_held_review_not_a_gate_label() {
+        // The pre-execution USER gate reads as `review` (the universal taxonomy
+        // the desktop uses), with the `⊘` hold mark carrying the "gated" meaning —
+        // never a `gate` phase label, which no other surface shows.
+        let line = render_at_phase("frame", StationPhase::UserGate);
+        assert!(line.contains("review"), "user gate folds into review: {line}");
+        assert!(!line.contains("gate"), "no `gate` phase label: {line}");
+        assert!(line.contains('⊘'), "the hold is shown by the flow mark: {line}");
+        // A held gate shows NO sub-agent chips — its cast is done.
+        assert!(!line.contains('\u{25e6}'), "a held gate shows no chips: {line}");
+    }
+
+    #[test]
+    fn a_worked_phase_shows_its_sub_agent_chips() {
+        // Manufacture is being worked (not gated) → the station's worker cast
+        // rides the line as chips, each with the `◦` marker.
+        let line = render_at_phase("build", StationPhase::Manufacture);
+        assert!(line.contains("manufacture"), "the worked phase label: {line}");
+        assert!(line.contains('❯'), "a worked phase shows the running mark: {line}");
+        assert!(line.contains('\u{25e6}'), "the worker cast renders as chips: {line}");
     }
 }

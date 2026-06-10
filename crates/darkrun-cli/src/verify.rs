@@ -37,7 +37,6 @@ fn resolve_surface(raw: Option<&str>, default: Surface) -> Result<Surface, Box<d
 /// `proof.png` in the cwd).
 #[allow(clippy::too_many_arguments)]
 #[cfg(not(tarpaulin_include))] // drives a real headless browser
-
 pub fn verify_web_command(
     url: String,
     out: Option<PathBuf>,
@@ -84,7 +83,6 @@ pub fn verify_web_command(
 /// [`BenchProof`].
 #[allow(clippy::too_many_arguments)]
 #[cfg(not(tarpaulin_include))] // runs a live HTTP load harness
-
 pub fn bench_command(
     target: String,
     out: Option<PathBuf>,

@@ -243,7 +243,6 @@ fn open_browser(url: &str) {
 /// Generates a nonce, opens the browser to the website's start URL (printing it
 /// too), polls the broker for the token, and persists it to the store.
 #[cfg(not(tarpaulin_include))] // opens a browser + polls a live broker
-
 pub fn login(
     provider: Provider,
     store: &CredentialStore,
