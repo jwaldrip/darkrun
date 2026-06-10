@@ -36,6 +36,7 @@ impl HttpTransport for ReqwestTransport {
         let method = match request.method {
             Method::Get => reqwest::Method::GET,
             Method::Post => reqwest::Method::POST,
+            Method::Put => reqwest::Method::PUT,
         };
 
         let mut builder = self.client.request(method, &request.url);

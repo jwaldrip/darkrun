@@ -44,10 +44,10 @@ pub use provider::{Credential, Provider};
 pub use remote::{parse_remote_url, RepoCoords};
 pub use rest::{
     create_change_request, github_create_comment, github_create_pull_request,
-    github_create_pull_request_with, github_get_repo, github_pull_view, github_review_notes,
-    gitlab_create_merge_request, gitlab_create_note, gitlab_mr_view, gitlab_notes,
-    gitlab_resolve_project, ChangeRequest, ChangeRequestState, ChangeRequestView, RemoteNote,
-    RepoInfo,
+    github_create_pull_request_with, github_get_repo, github_mark_ready, github_pull_view,
+    github_review_notes, gitlab_create_merge_request, gitlab_create_note, gitlab_mark_ready,
+    gitlab_mr_view, gitlab_notes, gitlab_resolve_project, ChangeRequest, ChangeRequestState,
+    ChangeRequestView, RemoteNote, RepoInfo,
 };
 pub use store::CredentialStore;
 pub use transport::{HttpRequest, HttpResponse, HttpTransport, Method, MockTransport};

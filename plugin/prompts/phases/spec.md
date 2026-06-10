@@ -13,6 +13,12 @@ steps. The moment the station opens, kick off both at once: dispatch the explore
 in parallel *while* you frame the problem. They sharpen each other. Only once both
 have landed do you decompose.
 
+{% if station_optional %}
+## Keep or drop — decide at arrival, before any work
+
+This station is **optional** for this run. Before you elaborate anything, judge whether its risk class — **{{ kills }}** — actually applies here. If it plainly doesn't (the run is too small to carry the risk, or an upstream artifact already bounds it), drop the station now with `darkrun_station_drop` and the next `darkrun_tick` advances to the following station. The decision is only available **now**: once elaboration or units exist the station has started, and a started station can only be reset, never dropped. Keeping it is the default — drop only when you can say in one sentence why the risk doesn't apply.
+{% endif %}
+
 ## elaborate — frame the problem (concurrently with discovery)
 
 State plainly what this station must achieve to kill **{{ kills }}**: the intent, the inputs it inherits from upstream, and the boundary of what is explicitly *out of scope* so later phases don't drift into it. This is the frame the explorers work against — but do NOT wait on a finished frame to start them; the frame and the exploration are written in parallel and inform each other.

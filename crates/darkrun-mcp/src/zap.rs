@@ -126,7 +126,7 @@ mod tests {
     fn default_station_falls_back_and_worker_line_handles_empty() {
         use crate::factory::{FactoryDef, StationDef};
         let station = StationDef {
-            name: "frame".into(), label: None, kills: "wrong-thing".into(), artifact: "o.md".into(),
+            name: "frame".into(), label: None, optional: false, kills: "wrong-thing".into(), artifact: "o.md".into(),
             explorers: vec![],
             workers: vec![], fix_workers: vec![], reviewers: vec![], role_models: Default::default(),
             role_interpretations: Default::default(), worker_roles: Default::default(),

@@ -20,7 +20,7 @@ Every station is locked and the work is done — but the run declares a final **
 
 1. **Confirm the work is genuinely deliverable** — all stations locked, evidence in place, nothing half-finished.
 2. **Drive the gate to a decision:**
-{% if seal == "external" %}   - Make sure the delivery PR/MR is open, green, and ready to merge, and tell the operator it's awaiting merge.{% elif seal == "await" %}   - Surface the await decision to the operator with `darkrun_question` so they can accept or hold delivery.{% else %}   - Surface the delivery decision to the operator.{% endif %}
+{% if seal == "external" %}   - Make sure the delivery PR/MR is open, green, and ready to merge, and tell the operator it's awaiting merge.{% if compare_url %} No delivery PR exists yet — open it from the pre-filled create form: {{ compare_url }}{% endif %}{% elif seal == "await" %}   - Surface the await decision to the operator with `darkrun_question` so they can accept or hold delivery.{% else %}   - Surface the delivery decision to the operator.{% endif %}
 3. **Wait for acceptance.** Don't self-approve delivery. When the gate clears (the merge lands / the operator accepts) the run frontmatter is marked complete and the next tick seals it.
 
 ## Done when

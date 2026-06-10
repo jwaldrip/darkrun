@@ -247,7 +247,7 @@ mod tests {
                 name: "s1".into(),
                 description: String::new(),
                 kills: "a-risk".into(),
-                label: None,
+                label: None, optional: false,
                 explorers: vec!["e1".into()],
                 workers: vec!["w1".into(), "w2".into(), "w3".into()],
                 fix_workers: vec![],

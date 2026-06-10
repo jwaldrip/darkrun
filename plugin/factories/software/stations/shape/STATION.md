@@ -5,6 +5,7 @@ kills: expensive-structural-reversal
 explorers: [surface, architecture, risk]
 workers: [designer, visual_designer, spiker, pressure_tester, resolver]
 reviewers: [fit, reversibility, simplicity]
+optional: true
 locked_artifact: design.md
 inputs: [frame.md, spec.md]
 ---

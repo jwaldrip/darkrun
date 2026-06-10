@@ -778,6 +778,16 @@ pub struct UnitResetInput {
     pub confirm: bool,
 }
 
+/// Input for `darkrun_station_drop` — drop an optional station at arrival.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct StationDropInput {
+    /// The run slug.
+    pub slug: String,
+    /// The station to drop (must be the ACTIVE, optional, not-yet-started one).
+    pub station: String,
+}
+
 /// Input for `darkrun_debug` — admin recovery ops on a wedged run.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -2084,6 +2094,24 @@ impl DarkrunServer {
         let store = self.store();
         match crate::units::reset(&store, &input.slug, &input.unit, input.confirm) {
             Ok(plan) => ok_json(&plan),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Drop an OPTIONAL station from the run's plan at arrival — the
+    /// keep-or-drop decision the Spec prompt offers when the active station's
+    /// risk class plainly doesn't apply to this run.
+    #[tool(
+        name = "darkrun_station_drop",
+        description = "Drop an OPTIONAL station from the run's plan. Use when the Spec phase's keep-or-drop offer fires (the active station is marked optional) and its risk class doesn't apply to this run. Refuses a non-active station (drop_station_not_active), a core station (drop_station_not_optional), or a started one (drop_station_already_started — reset instead). The next darkrun_tick advances to the following station."
+    )]
+    pub fn darkrun_station_drop(
+        &self,
+        Parameters(input): Parameters<StationDropInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match crate::position::station_drop(&store, &input.slug, &input.station) {
+            Ok(out) => ok_json(&out),
             Err(e) => Ok(err_text(e)),
         }
     }

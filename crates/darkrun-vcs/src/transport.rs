@@ -9,13 +9,16 @@ use std::collections::BTreeMap;
 
 use crate::error::{Result, VcsError};
 
-/// An HTTP method, kept deliberately tiny — providers only ever issue GET/POST.
+/// An HTTP method, kept deliberately tiny — providers only ever issue
+/// GET/POST/PUT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     /// HTTP `GET`.
     Get,
     /// HTTP `POST`.
     Post,
+    /// HTTP `PUT`.
+    Put,
 }
 
 impl Method {
@@ -24,6 +27,7 @@ impl Method {
         match self {
             Method::Get => "GET",
             Method::Post => "POST",
+            Method::Put => "PUT",
         }
     }
 }
@@ -57,6 +61,16 @@ impl HttpRequest {
     pub fn post(url: impl Into<String>) -> Self {
         Self {
             method: Method::Post,
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+
+    /// Start a `PUT` request to `url`.
+    pub fn put(url: impl Into<String>) -> Self {
+        Self {
+            method: Method::Put,
             url: url.into(),
             headers: Vec::new(),
             body: None,

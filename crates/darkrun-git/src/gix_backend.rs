@@ -795,6 +795,68 @@ impl GitBackend for GixBackend {
         Ok(false)
     }
 
+    fn dirty_paths_excluding(
+        &self,
+        worktree_path: &Path,
+        exclude_prefixes: &[&str],
+    ) -> Result<Vec<String>> {
+        // Same status iterator as `add_all_under`, filtered the other way:
+        // collect everything that is NOT engine bookkeeping.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let iter = repo
+            .status(gix::progress::Discard)
+            .map_err(gix_err)?
+            .untracked_files(gix::status::UntrackedFiles::Files)
+            .into_iter(None)
+            .map_err(gix_err)?;
+        let excludes: Vec<(String, String)> = exclude_prefixes
+            .iter()
+            .map(|p| {
+                let p = p.trim_matches('/').to_string();
+                let dir = format!("{p}/");
+                (p, dir)
+            })
+            .collect();
+        let mut out: Vec<String> = Vec::new();
+        for item in iter {
+            let item = item.map_err(gix_err)?;
+            let loc = item.location().to_string();
+            let excluded = excludes
+                .iter()
+                .any(|(p, dir)| !p.is_empty() && (loc == *p || loc.starts_with(dir.as_str())));
+            if !excluded {
+                out.push(loc);
+            }
+        }
+        out.sort();
+        out.dedup();
+        Ok(out)
+    }
+
+    fn changed_paths_between(&self, base_ref: &str, head_ref: &str) -> Result<Vec<String>> {
+        // `git diff --name-only base...head`: diff head's tree against the
+        // merge-base tree, so only the child branch's OWN work is named.
+        let repo = self.repo()?;
+        let base_id = repo
+            .rev_parse_single(base_ref)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+        let head_id = repo
+            .rev_parse_single(head_ref)
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .id;
+        let merge_base = repo.merge_base(base_id, head_id).map_err(gix_err)?;
+        crate::diff::changed_paths_between_trees(&repo, merge_base.detach(), head_id)
+    }
+
     fn checkout_branch(&self, branch: &str) -> Result<()> {
         // `git checkout <branch>` for the MAIN tree, on a clean working tree
         // (the caller's contract): remove files tracked in the current HEAD but

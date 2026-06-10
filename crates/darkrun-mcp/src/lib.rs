@@ -58,6 +58,7 @@ pub mod debug;
 pub mod desktop;
 pub mod drift;
 pub mod error;
+pub mod events;
 pub mod factory;
 pub mod feedback;
 pub mod gate;

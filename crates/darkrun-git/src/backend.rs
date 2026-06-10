@@ -138,6 +138,24 @@ pub trait GitBackend {
     /// if-dirty state commit from minting phantom empty commits. Read-only.
     fn status_dirty_under(&self, worktree_path: &Path, prefix: &str) -> Result<bool>;
 
+    /// Every pending change in the working tree at `worktree_path` whose path
+    /// is NOT under any of `exclude_prefixes` — the AGENT's uncommitted work,
+    /// as opposed to the engine's own state-dir bookkeeping. Backs the
+    /// pre-tick clean-tree gate: the engine never authors the agent's commits,
+    /// it blocks the tick and lists exactly what the agent must commit.
+    /// Read-only; untracked files included, gitignore respected.
+    fn dirty_paths_excluding(
+        &self,
+        worktree_path: &Path,
+        exclude_prefixes: &[&str],
+    ) -> Result<Vec<String>>;
+
+    /// The paths whose content differs between `merge-base(base_ref, head_ref)`
+    /// and `head_ref` (`git diff --name-only base...head`) — the files a child
+    /// branch actually touched, ignoring what moved on the base underneath it.
+    /// The read unit-scope validation walks. Read-only.
+    fn changed_paths_between(&self, base_ref: &str, head_ref: &str) -> Result<Vec<String>>;
+
     /// Switch the MAIN working tree to `branch` (`git checkout <branch>`).
     ///
     /// The caller must ensure the tree is clean ([`GitBackend::is_clean`]):

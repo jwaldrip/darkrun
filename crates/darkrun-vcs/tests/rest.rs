@@ -1,8 +1,8 @@
 //! GitHub PR / GitLab MR REST client tests (request shape + response parse).
 
 use darkrun_vcs::rest::{
-    create_change_request, github_create_pull_request, github_get_repo,
-    gitlab_create_merge_request, gitlab_resolve_project,
+    create_change_request, github_create_pull_request, github_get_repo, github_mark_ready,
+    gitlab_create_merge_request, gitlab_mark_ready, gitlab_resolve_project,
 };
 use darkrun_vcs::transport::{HttpResponse, Method};
 use darkrun_vcs::{parse_remote_url, Credential, MockTransport, Provider, RepoCoords, VcsError};
@@ -215,4 +215,86 @@ fn gitlab_resolve_project_404_is_typed_error() {
         }
         other => panic!("expected Api error, got {other:?}"),
     }
+}
+
+#[test]
+fn github_mark_ready_resolves_node_id_then_mutates_via_graphql() {
+    let coords = parse_remote_url("https://github.com/jwaldrip/darkrun.git").unwrap();
+    let mock = MockTransport::new();
+    mock.expect(
+        Method::Get,
+        "https://api.github.com/repos/jwaldrip/darkrun/pulls/42",
+        HttpResponse::new(200, r#"{"node_id":"PR_abc123","draft":true,"state":"open"}"#),
+    );
+    mock.expect(
+        Method::Post,
+        "https://api.github.com/graphql",
+        HttpResponse::new(
+            200,
+            r#"{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}"#,
+        ),
+    );
+
+    github_mark_ready(&mock, &gh_cred(), &coords, 42).unwrap();
+
+    let reqs = mock.requests();
+    assert_eq!(reqs.len(), 2, "GET node_id then POST graphql");
+    let gql: serde_json::Value = serde_json::from_slice(reqs[1].body.as_ref().unwrap()).unwrap();
+    assert!(gql["query"]
+        .as_str()
+        .unwrap()
+        .contains("markPullRequestReadyForReview"));
+    assert_eq!(gql["variables"]["id"], "PR_abc123");
+}
+
+#[test]
+fn github_mark_ready_surfaces_graphql_errors() {
+    let coords = parse_remote_url("https://github.com/jwaldrip/darkrun.git").unwrap();
+    let mock = MockTransport::new();
+    mock.expect(
+        Method::Get,
+        "https://api.github.com/repos/jwaldrip/darkrun/pulls/42",
+        HttpResponse::new(200, r#"{"node_id":"PR_abc123"}"#),
+    );
+    mock.expect(
+        Method::Post,
+        "https://api.github.com/graphql",
+        HttpResponse::new(200, r#"{"errors":[{"message":"not permitted"}]}"#),
+    );
+    let err = github_mark_ready(&mock, &gh_cred(), &coords, 42).unwrap_err();
+    assert!(format!("{err}").contains("markPullRequestReadyForReview"), "{err}");
+}
+
+#[test]
+fn gitlab_mark_ready_strips_the_draft_prefix_via_put() {
+    let mock = MockTransport::new();
+    mock.expect(
+        Method::Get,
+        "https://gitlab.com/api/v4/projects/77/merge_requests/9",
+        HttpResponse::new(200, r#"{"title":"Draft: Ship the thing","state":"opened"}"#),
+    );
+    mock.expect(
+        Method::Put,
+        "https://gitlab.com/api/v4/projects/77/merge_requests/9",
+        HttpResponse::new(200, r#"{"title":"Ship the thing"}"#),
+    );
+
+    gitlab_mark_ready(&mock, &gl_cred(), 77, 9).unwrap();
+
+    let reqs = mock.requests();
+    assert_eq!(reqs.len(), 2, "GET title then PUT stripped title");
+    let put: serde_json::Value = serde_json::from_slice(reqs[1].body.as_ref().unwrap()).unwrap();
+    assert_eq!(put["title"], "Ship the thing");
+}
+
+#[test]
+fn gitlab_mark_ready_noops_when_already_ready() {
+    let mock = MockTransport::new();
+    mock.expect(
+        Method::Get,
+        "https://gitlab.com/api/v4/projects/77/merge_requests/9",
+        HttpResponse::new(200, r#"{"title":"Ship the thing","state":"opened"}"#),
+    );
+    gitlab_mark_ready(&mock, &gl_cred(), 77, 9).unwrap();
+    assert_eq!(mock.requests().len(), 1, "no PUT when the title is un-prefixed");
 }

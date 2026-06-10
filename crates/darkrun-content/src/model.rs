@@ -71,6 +71,11 @@ pub struct StationFrontmatter {
     /// → `Intake`). Display-only; defaults to the position name when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Whether this station may be DROPPED from a live run's plan at arrival
+    /// (the keep-or-drop offer). Core stations (`false`, the default) cannot
+    /// be dropped — only consciously waived station classes opt in.
+    #[serde(default)]
+    pub optional: bool,
     /// Explorer slugs this station runs in its Explore phase.
     #[serde(default)]
     pub explorers: Vec<String>,

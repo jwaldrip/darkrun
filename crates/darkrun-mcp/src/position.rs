@@ -213,6 +213,18 @@ pub enum RunAction {
         /// The unresolved (agent-content) conflict paths.
         conflict_paths: Vec<String>,
     },
+    /// The agent has uncommitted work in the project tree (outside the
+    /// engine's own `.darkrun/` bookkeeping). The engine never authors the
+    /// agent's commits — a generic engine "wip" dump can't tell the story of
+    /// the work — so the tick blocks and hands the file list back: commit,
+    /// then retick. Purely mechanical; no human intervention needed.
+    SaveWip {
+        run: String,
+        /// The branch the uncommitted work sits on.
+        branch: String,
+        /// The agent's uncommitted paths (engine bookkeeping excluded).
+        dirty_files: Vec<String>,
+    },
     /// Nothing to do this tick (mid-wave; outstanding subagents still working).
     Noop { run: String, message: String },
 }
@@ -391,6 +403,19 @@ pub struct PromptContext {
     /// The unresolved conflict paths, for `MergeConflict`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflict_paths: Vec<String>,
+    /// The agent's uncommitted paths, for `SaveWip`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dirty_files: Vec<String>,
+    /// Whether the active station is OPTIONAL for this run — the Spec prompt
+    /// surfaces the keep-or-drop offer from this (`darkrun_station_drop`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub station_optional: bool,
+    /// The provider compare URL (pre-filled create-PR form) — the manual
+    /// fallback surfaced when no hosting client could open the PR itself.
+    /// For `ExternalReviewRequested` (station branch -> run-main) and
+    /// `PendingSeal` (run-main -> base).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare_url: Option<String>,
     /// A human-readable reason, for `Escalate` / `SafeRepair`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -824,6 +849,118 @@ fn next_in_plan(factory: &FactoryDef, state: &RunState, station: &str) -> Option
     let plan = run_plan(factory, state);
     let idx = plan.iter().position(|s| s == station)?;
     plan.get(idx + 1).cloned()
+}
+
+/// What a station drop changed: the dropped station and where the cursor
+/// re-derives to.
+#[derive(Debug, Clone, Serialize)]
+pub struct StationDropOutcome {
+    /// The run slug.
+    pub run: String,
+    /// The station removed from the plan.
+    pub dropped: String,
+    /// The station the cursor advances to (None = the run is at its end).
+    pub next_station: Option<String>,
+}
+
+/// Drop an OPTIONAL station from a live run's plan — the keep-or-drop decision
+/// offered at ARRIVAL (the predecessor's `drop_stage`). Only the ACTIVE,
+/// not-yet-started station can drop:
+///
+/// - `not_active` — the decision is made at arrival; a past or future station
+///   can't be dropped from afar.
+/// - `not_optional` — core stations never drop; only station classes the
+///   factory consciously marked `optional: true` may.
+/// - `already_started` — elaboration, a moved phase, or on-record units mean
+///   work exists; that's a reset, not a drop.
+///
+/// Dropping materializes the plan (a full-traversal run has an empty
+/// `state.plan`), removes the station, retires its (workless) branch +
+/// worktree, and re-derives the cursor. Cross-station references auto-ignore:
+/// a dropped station produces nothing, so its artifact is simply absent
+/// downstream (`inputs_waived` semantics).
+pub fn station_drop(store: &StateStore, slug: &str, station: &str) -> Result<StationDropOutcome> {
+    let mut run = store.read_run(slug)?;
+    let factory = resolve_factory_for(store, &run.frontmatter.factory)
+        .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
+    let def = factory.station(station).ok_or_else(|| {
+        McpError::InvalidInput(format!("unknown station '{station}'"))
+    })?;
+    let mut state = store
+        .read_state(slug)?
+        .ok_or_else(|| McpError::InvalidInput(format!("run '{slug}' has no state")))?;
+
+    let active = current_station(&factory, &state);
+    if active.as_deref() != Some(station) {
+        return Err(McpError::InvalidInput(format!(
+            "drop_station_not_active: '{station}' is not the run's active station              ({active:?}) — the keep-or-drop decision is made at arrival, not from afar"
+        )));
+    }
+    if !def.optional {
+        return Err(McpError::InvalidInput(format!(
+            "drop_station_not_optional: '{station}' is a core station — only stations              the factory marks `optional: true` can be dropped"
+        )));
+    }
+    let started = state
+        .stations
+        .get(station)
+        .map(|st| {
+            // The checkpoint slot is pre-seeded at ensure-time; only an
+            // ENTERED or DECIDED gate means the station actually ran.
+            let gate_touched = st
+                .checkpoint
+                .as_ref()
+                .map(|c| c.entered_at.is_some() || c.outcome.is_some())
+                .unwrap_or(false);
+            st.elaborated || !matches!(st.phase, StationPhase::Spec) || gate_touched
+        })
+        .unwrap_or(false)
+        || store
+            .read_units(slug)
+            .unwrap_or_default()
+            .iter()
+            .any(|u| u.station() == station);
+    if started {
+        return Err(McpError::InvalidInput(format!(
+            "drop_station_already_started: '{station}' has elaboration or units on              record — reset it (or finish it); a started station is never dropped"
+        )));
+    }
+
+    // Materialize the plan (an empty plan means full traversal), then remove.
+    let mut plan = run_plan(&factory, &state);
+    plan.retain(|s| s != station);
+    if plan.is_empty() {
+        return Err(McpError::InvalidInput(
+            "cannot drop the run's only remaining station".into(),
+        ));
+    }
+    state.plan = plan;
+    state.stations.remove(station);
+    let next = current_station(&factory, &state);
+    if let Some(n) = &next {
+        ensure_station(&mut state, &factory, n)?;
+        state.active_station = n.clone();
+        run.frontmatter.active_station = n.clone();
+    }
+    store.write_state(slug, &state)?;
+    store.write_run(&run)?;
+    // Retire the dropped station's (workless) branch + worktree, then publish.
+    crate::lifecycle::drop_station_branch(store, slug, station);
+    crate::events::emit(
+        store,
+        slug,
+        "darkrun.station.dropped",
+        serde_json::json!({ "station": station, "next": next }),
+    );
+    let _ = crate::commit::commit_state(
+        store,
+        &format!("darkrun: drop station '{station}' from {slug}"),
+    );
+    Ok(StationDropOutcome {
+        run: slug.to_string(),
+        dropped: station.to_string(),
+        next_station: next,
+    })
 }
 
 /// Mark a station's Spec as elaborated-with-the-operator, clearing the
@@ -1631,6 +1768,7 @@ pub fn action_tag(action: &RunAction) -> &'static str {
         RunAction::PendingSeal { .. } => "pending_seal",
         RunAction::Sealed { .. } => "sealed",
         RunAction::MergeConflict { .. } => "merge_conflict",
+        RunAction::SaveWip { .. } => "save_wip",
         RunAction::Noop { .. } => "noop",
     }
 }
@@ -1665,6 +1803,7 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         RunAction::RunReview { .. }
         | RunAction::PendingSeal { .. }
         | RunAction::Sealed { .. }
+        | RunAction::SaveWip { .. }
         | RunAction::Noop { .. } => None,
     };
 
@@ -1697,6 +1836,7 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                 ctx.locked_artifact = Some(def.artifact.clone());
                 // The gate is global: every station resolves the run mode's kind.
                 ctx.kind = Some(run.frontmatter.mode.gate());
+                ctx.station_optional = def.optional;
                 ctx.explorers = def.explorers.clone();
                 ctx.workers = def.workers.clone();
                 ctx.reviewers = def.reviewers.clone();
@@ -1872,17 +2012,52 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
         RunAction::Escalate { reason, .. } | RunAction::SafeRepair { reason, .. } => {
             ctx.reason = Some(reason.clone());
         }
-        RunAction::ExternalReviewRequested { target, .. } => {
+        RunAction::ExternalReviewRequested { station, target, .. } => {
             ctx.target = Some(target.clone());
             ctx.kind = Some(CheckpointKind::External);
+            // No PR was opened programmatically -> hand the operator the
+            // provider's pre-filled create-PR form for this station's branch.
+            if target.is_empty() {
+                let repo_root = cascade_repo_root(store);
+                ctx.compare_url = crate::hosting::compare_url(
+                    &repo_root,
+                    &crate::lifecycle::run_main_branch(slug),
+                    &crate::lifecycle::station_branch(slug, station),
+                );
+            }
         }
         RunAction::MergeConflict { branch, conflict_paths, .. } => {
             ctx.branch = Some(branch.clone());
             ctx.conflict_paths = conflict_paths.clone();
         }
+        RunAction::SaveWip { branch, dirty_files, .. } => {
+            ctx.branch = Some(branch.clone());
+            ctx.dirty_files = dirty_files.clone();
+        }
         RunAction::PendingSeal { kind, .. } => {
             ctx.seal = Some(kind.as_str().to_string());
             ctx.branch_status = branch_status_token(store, slug);
+            // The seal merge is run-main -> base; when no delivery PR exists,
+            // surface the provider's pre-filled form for the manual open.
+            let has_pr = store
+                .read_run(slug)
+                .ok()
+                .and_then(|r| r.frontmatter.external_refs.pr_url)
+                .is_some();
+            if !has_pr {
+                let repo_root = cascade_repo_root(store);
+                let base = store
+                    .read_state(slug)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.base_branch)
+                    .unwrap_or_else(|| crate::lifecycle::resolve_base_branch(store));
+                ctx.compare_url = crate::hosting::compare_url(
+                    &repo_root,
+                    &base,
+                    &crate::lifecycle::run_main_branch(slug),
+                );
+            }
         }
         RunAction::Sealed { .. } => {
             // Surface where run-main stands vs the default branch so the operator
@@ -2144,6 +2319,59 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     // sync conflict is left in-tree; the derive below catches it as a
     // MergeConflict action via `merge_conflict_action`.
     sync_downstream_before_land(store, slug);
+
+    // Pre-derive clean-tree gate (the predecessor's `save_wip`): when the
+    // AGENT has uncommitted work in the project tree — paths outside the
+    // engine's own `.darkrun/` bookkeeping — block the tick and hand the list
+    // back. The engine never authors the agent's commits: the agent knows what
+    // it just did and can write commits that tell the story; a generic engine
+    // "wip" dump never could. Runs AFTER the sync (so a mid-merge conflict
+    // routes to MergeConflict via derive, not here) and only in a git repo.
+    {
+        let repo_root = cascade_repo_root(store);
+        if !darkrun_git::is_merge_in_progress(&repo_root) {
+            if let Ok(git) = Git::open(&repo_root) {
+                let dirty = git
+                    .dirty_paths_excluding(&repo_root, &[".darkrun", ".gitignore"])
+                    .unwrap_or_default();
+                if !dirty.is_empty() {
+                    let dirty_count = dirty.len();
+                    let branch = git.current_branch().ok().flatten().unwrap_or_default();
+                    let action = RunAction::SaveWip {
+                        run: slug.to_string(),
+                        branch,
+                        dirty_files: dirty,
+                    };
+                    let prompt = render_prompt(store, slug, &action)?;
+                    if let Some(body) = &prompt {
+                        let _ = store.write_prompt(slug, "_run", action_tag(&action), body);
+                    }
+                    let position = Position {
+                        track: Track::Run,
+                        action: Some(action.clone()),
+                    };
+                    append_action_log(store, slug, &position.track, &action);
+                    crate::events::emit(
+                        store,
+                        slug,
+                        "darkrun.save_wip.blocked",
+                        serde_json::json!({ "files": dirty_count }),
+                    );
+                    // The engine's own state writes (drift sweep, journal) still
+                    // commit — commit_state stages ONLY `.darkrun`, never the
+                    // agent's work.
+                    let _ = crate::commit::commit_state(store, &format!("darkrun: tick {slug}"));
+                    return Ok(TickResult {
+                        run: slug.to_string(),
+                        position,
+                        action,
+                        prompt,
+                    });
+                }
+            }
+        }
+    }
+
     let position = derive_position(store, slug)?;
 
     let derived = match &position.action {
@@ -2178,10 +2406,26 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     // Advance the phase write-cache based on the derived action.
     advance_state(store, slug, &action)?;
 
+    // The run is done (sealed, or holding for its seal merge): flip the
+    // run-level delivery draft PR to ready-for-review — the human's next move
+    // is the merge, and a draft can't be merged. Once-guarded; best-effort.
+    if matches!(
+        action,
+        RunAction::Sealed { .. } | RunAction::PendingSeal { .. }
+    ) {
+        flip_run_pr_ready(store, slug, hosting);
+    }
+
     // Append the resolved action to the run's append-only audit journal — the
     // ordered trail the reflection pass and the operator read. Best-effort:
     // a journal write never fails a tick.
     append_action_log(store, slug, &position.track, &action);
+    crate::events::emit(
+        store,
+        slug,
+        "darkrun.manager.action",
+        serde_json::json!({ "action": action_tag(&action), "station": station_of(&action) }),
+    );
 
     // Commit early, commit often: every tick's state writes (phase advances,
     // gate stamps, the audit journal) commit on the engine's branch and push —
@@ -2221,6 +2465,7 @@ fn station_of(action: &RunAction) -> Option<&str> {
         RunAction::RunReview { .. }
         | RunAction::PendingSeal { .. }
         | RunAction::Sealed { .. }
+        | RunAction::SaveWip { .. }
         | RunAction::Noop { .. } => None,
     }
 }
@@ -2780,7 +3025,108 @@ pub fn run_start(
         &format!("darkrun: enter station {first_name}"),
     );
 
+    crate::events::emit(
+        store,
+        slug,
+        "darkrun.run.created",
+        serde_json::json!({ "factory": factory_name, "mode": format!("{mode:?}").to_lowercase() }),
+    );
+
+    // Open the run's DELIVERY draft PR (run-main -> base) the moment the run
+    // exists — the predecessor's intent-create draft. It stays draft for the
+    // whole run (reviewers see work-in-progress, nobody merges it early) and
+    // the engine flips it ready at seal, just before the operator's merge.
+    // Best-effort: no hosting client → no PR; the seal's compare-URL fallback
+    // covers the manual path.
+    open_run_draft_pr(store, slug);
+
     Ok(run)
+}
+
+/// Open the run-level draft PR (`darkrun/<slug>/main` -> base) and stamp its
+/// url + draft status on the run's `external_refs`. Best-effort and idempotent:
+/// hosting unavailable, an open failure, or an already-recorded PR all no-op.
+fn open_run_draft_pr(store: &StateStore, slug: &str) {
+    let repo_root = cascade_repo_root(store);
+    let hosting = crate::hosting::ApiHosting::resolve(&repo_root);
+    open_run_draft_pr_with(store, slug, &hosting);
+}
+
+/// [`open_run_draft_pr`] with an injected hosting client (the test seam).
+pub fn open_run_draft_pr_with<H: crate::hosting::Hosting>(
+    store: &StateStore,
+    slug: &str,
+    hosting: &H,
+) {
+    let Ok(mut run) = store.read_run(slug) else {
+        return;
+    };
+    if run.frontmatter.external_refs.pr_url.is_some() || !hosting.available() {
+        return;
+    }
+    let head = crate::lifecycle::run_main_branch(slug);
+    let base = store
+        .read_state(slug)
+        .ok()
+        .flatten()
+        .and_then(|s| s.base_branch)
+        .unwrap_or_else(|| crate::lifecycle::resolve_base_branch(store));
+    let req = crate::hosting::OpenRequest {
+        head,
+        base,
+        title: run.title.clone(),
+        body: format!(
+            "darkrun run `{slug}` — opened as a draft at run start; the engine \
+             marks it ready for review when the run seals. Merging it lands the \
+             run's work."
+        ),
+    };
+    if let Some(url) = hosting.open_draft(&req) {
+        run.frontmatter.external_refs.pr_url = Some(url);
+        run.frontmatter
+            .external_refs
+            .other
+            .insert("pr_status".into(), "draft".into());
+        let _ = store.write_run(&run);
+        let _ = crate::commit::commit_state_if_dirty(
+            store,
+            &format!("darkrun: open run draft PR for {slug}"),
+        );
+    }
+}
+
+/// Flip the run's delivery draft PR to **ready for review** — called when the
+/// run seals, just before the operator's merge. Guarded by the recorded
+/// `pr_status` so it flips exactly once; a failed flip is stamped `failed`
+/// (the operator readies it by hand — their merge is the close signal either
+/// way, so a flip failure never blocks the seal).
+fn flip_run_pr_ready<H: crate::hosting::Hosting>(store: &StateStore, slug: &str, hosting: &H) {
+    let Ok(mut run) = store.read_run(slug) else {
+        return;
+    };
+    let Some(url) = run.frontmatter.external_refs.pr_url.clone() else {
+        return;
+    };
+    let status = run
+        .frontmatter
+        .external_refs
+        .other
+        .get("pr_status")
+        .cloned()
+        .unwrap_or_default();
+    if status != "draft" {
+        return;
+    }
+    let new_status = if hosting.mark_ready(&url) { "ready" } else { "failed" };
+    run.frontmatter
+        .external_refs
+        .other
+        .insert("pr_status".into(), new_status.into());
+    let _ = store.write_run(&run);
+    let _ = crate::commit::commit_state_if_dirty(
+        store,
+        &format!("darkrun: run PR marked {new_status} for {slug}"),
+    );
 }
 
 /// Enter a station's branch + worktree (universal per-station fork) and record
@@ -3405,7 +3751,7 @@ mod tests {
         // keeps [build, prove], which filters to nothing, so right-sizing degrades
         // to the full plan rather than stranding the run with zero stations.
         let only = StationDef {
-            name: "frame".into(), label: None, kills: "wrong-thing".into(), artifact: "o.md".into(),
+            name: "frame".into(), label: None, optional: false, kills: "wrong-thing".into(), artifact: "o.md".into(),
             explorers: vec![],
             workers: vec![], fix_workers: vec![], reviewers: vec![], role_models: Default::default(),
             role_interpretations: Default::default(), worker_roles: Default::default(),
@@ -4908,6 +5254,295 @@ mod tests {
         git(&["commit", "-q", "-m", "init"]);
         let store = StateStore::new(&root);
         (dir, root, store)
+    }
+
+
+
+
+    // ── Station drop (the keep-or-drop offer) ───────────────────────────────
+
+    /// Walk the cursor to `station`'s arrival (Spec, unelaborated) by
+    /// completing every prior station in the plan.
+    fn arrive_at(store: &StateStore, run: &str, station: &str) {
+        let mut state = store.read_state(run).unwrap().unwrap();
+        let factory = resolve_factory_for(store, &store.read_run(run).unwrap().frontmatter.factory)
+            .unwrap();
+        let plan = if state.plan.is_empty() {
+            factory.stations.iter().map(|s| s.name.clone()).collect::<Vec<_>>()
+        } else {
+            state.plan.clone()
+        };
+        for name in &plan {
+            if name == station {
+                break;
+            }
+            ensure_station(&mut state, &factory, name).unwrap();
+            let st = state.stations.get_mut(name).unwrap();
+            st.status = Status::Completed;
+        }
+        ensure_station(&mut state, &factory, station).unwrap();
+        state.active_station = station.to_string();
+        store.write_state(run, &state).unwrap();
+    }
+
+    #[test]
+    fn station_drop_removes_the_optional_station_and_advances() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        arrive_at(&store, "r", "shape");
+        let out = station_drop(&store, "r", "shape").expect("drop");
+        assert_eq!(out.dropped, "shape");
+        assert_eq!(out.next_station.as_deref(), Some("build"));
+        let state = store.read_state("r").unwrap().unwrap();
+        assert!(!state.plan.is_empty(), "the plan materialized on drop");
+        assert!(!state.plan.iter().any(|s| s == "shape"));
+        assert!(!state.stations.contains_key("shape"));
+        assert_eq!(state.active_station, "build");
+        // The run doc tracks the new active station too.
+        assert_eq!(store.read_run("r").unwrap().frontmatter.active_station, "build");
+    }
+
+    #[test]
+    fn station_drop_refuses_core_inactive_and_started_stations() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+
+        // Not active: the run sits at frame; shape can't drop from afar.
+        let err = station_drop(&store, "r", "shape").unwrap_err();
+        assert!(format!("{err}").contains("drop_station_not_active"), "{err}");
+
+        // Not optional: frame is core.
+        let err = station_drop(&store, "r", "frame").unwrap_err();
+        assert!(format!("{err}").contains("drop_station_not_optional"), "{err}");
+
+        // Already started: shape with an elaborated spec refuses.
+        arrive_at(&store, "r", "shape");
+        {
+            let mut state = store.read_state("r").unwrap().unwrap();
+            state.stations.get_mut("shape").unwrap().elaborated = true;
+            store.write_state("r", &state).unwrap();
+        }
+        let err = station_drop(&store, "r", "shape").unwrap_err();
+        assert!(format!("{err}").contains("drop_station_already_started"), "{err}");
+    }
+
+    #[test]
+    fn station_drop_retires_the_workless_station_branch() {
+        let (_d, root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        arrive_at(&store, "r", "shape");
+        // Enter the station so its branch + worktree exist (workless fork).
+        crate::lifecycle::enter_station(&store, "r", "shape");
+        let branch_exists = |b: &str| {
+            std::process::Command::new("git")
+                .arg("-C").arg(&root)
+                .args(["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")])
+                .status().unwrap().success()
+        };
+        assert!(branch_exists("darkrun/r/shape"), "fork exists before drop");
+        station_drop(&store, "r", "shape").expect("drop");
+        assert!(!branch_exists("darkrun/r/shape"), "fork retired after drop");
+    }
+
+    #[test]
+    fn spec_prompt_offers_keep_or_drop_only_on_optional_stations() {
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        // frame (core): no offer.
+        let t = run_tick(&store, "r").expect("tick");
+        let prompt = t.prompt.expect("prompt");
+        assert!(!prompt.contains("Keep or drop"), "core station carries no offer");
+        // shape (optional): the offer renders.
+        arrive_at(&store, "r", "shape");
+        let t2 = run_tick(&store, "r").expect("tick");
+        let prompt2 = t2.prompt.expect("prompt");
+        assert!(prompt2.contains("Keep or drop"), "optional station offers the drop:\n{prompt2}");
+        assert!(prompt2.contains("darkrun_station_drop"), "{prompt2}");
+    }
+
+    // ── Run-level delivery PR: draft at start, ready at seal ───────────────
+
+    /// A recording mock: opens drafts, flips ready, remembers both.
+    struct DeliveryMock {
+        open_url: Option<&'static str>,
+        ready_ok: bool,
+        flipped: std::cell::RefCell<Vec<String>>,
+    }
+    impl crate::hosting::Hosting for DeliveryMock {
+        fn available(&self) -> bool {
+            self.open_url.is_some()
+        }
+        fn open_draft(&self, _req: &crate::hosting::OpenRequest) -> Option<String> {
+            self.open_url.map(str::to_string)
+        }
+        fn merge_state(&self, _pr_ref: &str) -> crate::hosting::MergeState {
+            crate::hosting::MergeState::Open
+        }
+        fn mark_ready(&self, pr_ref: &str) -> bool {
+            self.flipped.borrow_mut().push(pr_ref.to_string());
+            self.ready_ok
+        }
+    }
+
+    #[test]
+    fn run_draft_pr_opens_once_and_stamps_external_refs() {
+        let (_d, _root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        let mock = DeliveryMock {
+            open_url: Some("https://example.test/pull/7"),
+            ready_ok: true,
+            flipped: Default::default(),
+        };
+        open_run_draft_pr_with(&store, "r", &mock);
+        let run = store.read_run("r").unwrap();
+        assert_eq!(
+            run.frontmatter.external_refs.pr_url.as_deref(),
+            Some("https://example.test/pull/7")
+        );
+        assert_eq!(
+            run.frontmatter.external_refs.other.get("pr_status").map(String::as_str),
+            Some("draft")
+        );
+        // Idempotent: a second call never re-opens.
+        open_run_draft_pr_with(&store, "r", &mock);
+        let run2 = store.read_run("r").unwrap();
+        assert_eq!(run2.frontmatter.external_refs.pr_url, run.frontmatter.external_refs.pr_url);
+    }
+
+    #[test]
+    fn run_pr_flips_ready_exactly_once_at_seal() {
+        let (_d, _root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        let mock = DeliveryMock {
+            open_url: Some("https://example.test/pull/7"),
+            ready_ok: true,
+            flipped: Default::default(),
+        };
+        open_run_draft_pr_with(&store, "r", &mock);
+
+        flip_run_pr_ready(&store, "r", &mock);
+        assert_eq!(mock.flipped.borrow().len(), 1, "one flip");
+        let run = store.read_run("r").unwrap();
+        assert_eq!(
+            run.frontmatter.external_refs.other.get("pr_status").map(String::as_str),
+            Some("ready")
+        );
+        // Guarded: already-ready never re-flips.
+        flip_run_pr_ready(&store, "r", &mock);
+        assert_eq!(mock.flipped.borrow().len(), 1, "no second flip");
+    }
+
+    #[test]
+    fn run_pr_flip_failure_is_stamped_not_fatal() {
+        let (_d, _root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        let mock = DeliveryMock {
+            open_url: Some("https://example.test/pull/7"),
+            ready_ok: false,
+            flipped: Default::default(),
+        };
+        open_run_draft_pr_with(&store, "r", &mock);
+        flip_run_pr_ready(&store, "r", &mock);
+        let run = store.read_run("r").unwrap();
+        assert_eq!(
+            run.frontmatter.external_refs.other.get("pr_status").map(String::as_str),
+            Some("failed"),
+            "a failed flip is recorded for the operator, never fatal"
+        );
+    }
+
+    // ── Compare-URL fallback ────────────────────────────────────────────────
+
+    #[test]
+    fn compare_url_builds_provider_create_forms() {
+        let (_d, root, _store) = git_store();
+        let set_origin = |url: &str| {
+            let _ = std::process::Command::new("git")
+                .arg("-C").arg(&root)
+                .args(["remote", "remove", "origin"]).status();
+            assert!(std::process::Command::new("git")
+                .arg("-C").arg(&root)
+                .args(["remote", "add", "origin", url])
+                .status().unwrap().success());
+        };
+        set_origin("git@github.com:acme/widgets.git");
+        assert_eq!(
+            crate::hosting::compare_url(&root, "main", "darkrun/r/frame").as_deref(),
+            Some("https://github.com/acme/widgets/compare/main...darkrun/r/frame?expand=1")
+        );
+        set_origin("https://gitlab.com/acme/widgets.git");
+        let gl = crate::hosting::compare_url(&root, "main", "darkrun/r/frame").unwrap();
+        assert!(gl.starts_with("https://gitlab.com/acme/widgets/-/merge_requests/new?"), "{gl}");
+        assert!(gl.contains("source_branch%5D=darkrun%2Fr%2Fframe"), "{gl}");
+        assert!(gl.contains("target_branch%5D=main"), "{gl}");
+    }
+
+    #[test]
+    fn compare_url_is_none_without_a_recognized_origin() {
+        let (_d, root, _store) = git_store();
+        assert!(crate::hosting::compare_url(&root, "main", "x").is_none(), "no origin");
+    }
+
+    // ── Pre-derive clean-tree gate (save_wip) ───────────────────────────────
+
+    /// Uncommitted AGENT work (outside `.darkrun/`) blocks the tick with a
+    /// `save_wip` action listing the loose paths; committing clears the gate.
+    /// The engine never authors the agent's commits.
+    #[test]
+    fn tick_blocks_on_uncommitted_agent_work_with_save_wip() {
+        let (_d, root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+
+        // The agent leaves loose source work in the project tree.
+        std::fs::write(root.join("scratch.rs"), "fn main() {}\n").unwrap();
+        let t = run_tick(&store, "r").expect("tick");
+        match &t.action {
+            RunAction::SaveWip { dirty_files, branch, .. } => {
+                assert!(
+                    dirty_files.iter().any(|p| p == "scratch.rs"),
+                    "the loose path is listed: {dirty_files:?}"
+                );
+                assert!(!branch.is_empty(), "the holding branch is named");
+            }
+            other => panic!("expected SaveWip, got {other:?}"),
+        }
+        let prompt = t.prompt.expect("save_wip renders a prompt");
+        assert!(prompt.contains("scratch.rs"), "prompt lists the file:\n{prompt}");
+        assert!(prompt.contains("Save Work in Progress"), "{prompt}");
+
+        // Committing the work clears the gate — the next tick proceeds.
+        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "scratch"]] {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(&args)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let t2 = run_tick(&store, "r").expect("tick 2");
+        assert!(
+            !matches!(t2.action, RunAction::SaveWip { .. }),
+            "clean tree ticks past the gate: {:?}",
+            t2.action
+        );
+    }
+
+    /// Engine bookkeeping (`.darkrun/`, `.gitignore`) never trips the gate —
+    /// only the agent's own work does.
+    #[test]
+    fn engine_state_writes_do_not_trip_the_save_wip_gate() {
+        let (_d, _root, store) = git_store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        // The run's state dir is busy with engine writes (run.md, state.json…)
+        // — and `.darkrun/` is gitignored in this repo besides. A plain tick
+        // must derive a real action, not SaveWip.
+        let t = run_tick(&store, "r").expect("tick");
+        assert!(
+            !matches!(t.action, RunAction::SaveWip { .. }),
+            "engine state alone never blocks: {:?}",
+            t.action
+        );
     }
 
     /// #4: a station branch identical to run-main carries no merge debt, so the

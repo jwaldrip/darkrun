@@ -110,6 +110,54 @@ pub trait Hosting {
     fn review_comments(&self, _pr_ref: &str) -> Vec<ReviewComment> {
         Vec::new()
     }
+
+    /// Flip a draft change request to **ready for review**, returning `true`
+    /// on a confirmed flip. The engine calls this exactly when the work is
+    /// genuinely awaiting a human — the run-level draft PR flips at seal, just
+    /// before the operator's merge. Defaults to `false` (no-op) so a client
+    /// that can't flip leaves the draft for the human to ready by hand.
+    fn mark_ready(&self, _pr_ref: &str) -> bool {
+        false
+    }
+}
+
+/// Build the provider-specific **compare URL** for `base...head` — the
+/// last-resort fallback when no hosting client can open the PR/MR
+/// programmatically. The operator clicks it and lands on the provider's
+/// create-PR form with both branches pre-selected (no compare-then-create
+/// dance):
+///
+/// - GitHub: `https://<host>/<owner>/<repo>/compare/<base>...<head>?expand=1`
+///   (`expand=1` opens the create-PR form, not just the diff)
+/// - GitLab: `https://<host>/<owner>/<repo>/-/merge_requests/new?…` with the
+///   source + target branches pre-filled.
+///
+/// `None` when there is no parseable `origin` or the host isn't recognized
+/// (the caller then names the branches instead).
+pub fn compare_url(repo_root: &Path, base: &str, head: &str) -> Option<String> {
+    use darkrun_git::GitBackend as _;
+    let git = darkrun_git::Git::open(repo_root).ok()?;
+    let origin = git.remote_url("origin").ok().flatten()?;
+    let coords = darkrun_vcs::parse_remote_url(&origin).ok()?;
+    let provider = darkrun_vcs::Provider::from_host(&coords.host)?;
+    Some(match provider {
+        darkrun_vcs::Provider::GitHub => format!(
+            "https://{host}/{owner}/{repo}/compare/{base}...{head}?expand=1",
+            host = coords.host,
+            owner = coords.owner,
+            repo = coords.repo,
+        ),
+        darkrun_vcs::Provider::GitLab => format!(
+            "https://{host}/{owner}/{repo}/-/merge_requests/new?\
+             merge_request%5Bsource_branch%5D={head_enc}&\
+             merge_request%5Btarget_branch%5D={base_enc}",
+            host = coords.host,
+            owner = coords.owner,
+            repo = coords.repo,
+            head_enc = head.replace('/', "%2F"),
+            base_enc = base.replace('/', "%2F"),
+        ),
+    })
 }
 
 /// A pure-Rust synchronous [`HttpTransport`] over `ureq` (rustls, no C). The
@@ -144,6 +192,7 @@ impl HttpTransport for UreqTransport {
         let mut req = match request.method {
             Method::Get => self.agent.get(&request.url),
             Method::Post => self.agent.post(&request.url),
+            Method::Put => self.agent.put(&request.url),
         };
         for (k, v) in &request.headers {
             req = req.set(k, v);
@@ -355,6 +404,25 @@ impl Hosting for ApiHosting {
         }
     }
 
+    fn mark_ready(&self, pr_ref: &str) -> bool {
+        let Some((provider, coords, cred)) = self.ready() else {
+            return false;
+        };
+        let Some(number) = parse_ref_number(pr_ref) else {
+            return false;
+        };
+        let t = self.transport.as_ref();
+        match provider {
+            darkrun_vcs::Provider::GitHub => {
+                darkrun_vcs::github_mark_ready(t, cred, coords, number).is_ok()
+            }
+            darkrun_vcs::Provider::GitLab => match self.gitlab_project_id() {
+                Some(pid) => darkrun_vcs::gitlab_mark_ready(t, cred, pid, number).is_ok(),
+                None => false,
+            },
+        }
+    }
+
     fn review_comments(&self, pr_ref: &str) -> Vec<ReviewComment> {
         let Some((provider, coords, cred)) = self.ready() else {
             return Vec::new();
@@ -523,6 +591,8 @@ mod tests {
         fn add_paths(&self, _: &Path, _: &[String]) -> darkrun_git::Result<()> { unimplemented!() }
         fn add_all_under(&self, _: &Path, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
         fn status_dirty_under(&self, _: &Path, _: &str) -> darkrun_git::Result<bool> { unimplemented!() }
+        fn dirty_paths_excluding(&self, _: &Path, _: &[&str]) -> darkrun_git::Result<Vec<String>> { unimplemented!() }
+        fn changed_paths_between(&self, _: &str, _: &str) -> darkrun_git::Result<Vec<String>> { unimplemented!() }
         fn checkout_branch(&self, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
         fn commit(&self, _: &Path, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
         fn ls_tree(&self, _: &Path, _: &str, _: &str) -> darkrun_git::Result<Vec<String>> { unimplemented!() }

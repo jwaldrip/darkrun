@@ -28,6 +28,7 @@ const RUN_REVIEWERS: &[&str] = &[
     "regression-auditor",
     "security-auditor",
     "accessibility-auditor",
+    "runtime-verifier",
 ];
 const REFLECTIONS: &[&str] = &["architecture", "process", "quality", "velocity"];
 
@@ -64,7 +65,7 @@ fn valid_station() -> Station {
             name: "s1".into(),
             description: "a station".into(),
             kills: "a-risk".into(),
-            label: None,
+            label: None, optional: false,
             explorers: vec!["e1".into()],
             workers: vec!["w1".into(), "w2".into(), "w3".into()],
             fix_workers: vec![],

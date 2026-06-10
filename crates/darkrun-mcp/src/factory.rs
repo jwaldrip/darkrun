@@ -20,6 +20,8 @@ pub struct StationDef {
     /// Domain-facing display name shown over the fixed position (legal →
     /// `Intake`). `None` → the UI shows the position name.
     pub label: Option<String>,
+    /// Whether the station may be dropped from a live run's plan at arrival.
+    pub optional: bool,
     /// Human-readable summary of the risk this station eliminates.
     pub kills: String,
     /// The durable artifact the station locks on completion.
@@ -194,6 +196,7 @@ impl StationDef {
         StationDef {
             name: s.name().to_string(),
             label: s.frontmatter.label.clone(),
+            optional: s.frontmatter.optional,
             kills: s.frontmatter.kills.clone(),
             artifact: s.frontmatter.locked_artifact.clone(),
             explorers: s.frontmatter.explorers.clone(),
@@ -330,7 +333,7 @@ mod tests {
         };
         let station = Station {
             frontmatter: StationFrontmatter {
-                name: "build".into(), description: "d".into(), kills: "k".into(), label: None,
+                name: "build".into(), description: "d".into(), kills: "k".into(), label: None, optional: false,
                 explorers: vec![], workers: vec!["w".into()], fix_workers: vec![], reviewers: vec!["a11y".into()],
                 locked_artifact: "o.md".into(), inputs: vec![], inputs_waived: vec![],
             },
@@ -374,7 +377,7 @@ mod tests {
                 name: name.into(),
                 description: "d".into(),
                 kills: "k".into(),
-                label: None,
+                label: None, optional: false,
                 explorers: vec![],
                 workers: vec![],
                 fix_workers: fix.iter().map(|s| s.to_string()).collect(),

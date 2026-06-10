@@ -441,6 +441,26 @@ pub fn land_station(store: &StateStore, slug: &str, station: &str) -> LifecycleO
     )
 }
 
+/// Retire a DROPPED station's branch + worktree without landing anything —
+/// the keep-or-drop offer guarantees the station never started, so its fork
+/// carries no work (it sits at run-main's commit). Best-effort; no-op outside
+/// a git repo or when the branch never existed.
+pub fn drop_station_branch(store: &StateStore, slug: &str, station: &str) -> LifecycleOutcome {
+    let Some((git, root)) = open_git(store) else {
+        return LifecycleOutcome::noop("not a git repo");
+    };
+    let branch = station_branch(slug, station);
+    let wt_path = station_worktree_path(&root, slug, station);
+    let _ = git.remove_worktree(&format!("{slug}-{station}"), true);
+    let _ = std::fs::remove_dir_all(&wt_path);
+    if git.branch_exists(&branch).unwrap_or(false) {
+        let _ = git.delete_branch(&branch);
+        LifecycleOutcome::done(format!("dropped {branch}"))
+    } else {
+        LifecycleOutcome::noop(format!("{branch} not found; nothing to drop"))
+    }
+}
+
 /// Land a completed unit: engine-protected merge the unit branch -> its station
 /// branch, then remove the unit worktree + branch. Same crash-tolerance as
 /// [`land_station`], one level down (the parent is the station branch, not

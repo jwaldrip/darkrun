@@ -175,6 +175,7 @@ fn action_name(action: &RunAction) -> &'static str {
         RunAction::PendingSeal { .. } => "pending_seal",
         RunAction::Sealed { .. } => "sealed",
         RunAction::MergeConflict { .. } => "merge_conflict",
+        RunAction::SaveWip { .. } => "save_wip",
         RunAction::Noop { .. } => "noop",
     }
 }

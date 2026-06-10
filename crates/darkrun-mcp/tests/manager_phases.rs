@@ -105,6 +105,7 @@ fn action_station(a: &RunAction) -> Option<&str> {
         RunAction::RunReview { .. }
         | RunAction::PendingSeal { .. }
         | RunAction::Sealed { .. }
+        | RunAction::SaveWip { .. }
         | RunAction::Noop { .. } => None,
     }
 }

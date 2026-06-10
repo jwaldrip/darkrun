@@ -145,6 +145,43 @@ fn is_executable(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
+/// The paths whose blob (mode or content id) differs between two COMMIT
+/// trees — `git diff --name-only <a> <b>`. Pure tree walk; no worktree read.
+pub(crate) fn changed_paths_between_trees(
+    repo: &gix::Repository,
+    base_commit: gix::ObjectId,
+    head_commit: gix::ObjectId,
+) -> Result<Vec<String>> {
+    let tree_of = |id: gix::ObjectId| -> Result<BTreeMap<String, (u32, gix::ObjectId)>> {
+        let tree = repo
+            .find_object(id)
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?
+            .tree()
+            .map_err(gix_err)?;
+        let mut out = BTreeMap::new();
+        collect_tree(repo, &tree, "", &mut out)?;
+        Ok(out)
+    };
+    let base = tree_of(base_commit)?;
+    let head = tree_of(head_commit)?;
+    let mut paths: Vec<String> = Vec::new();
+    for (path, entry) in &head {
+        if base.get(path) != Some(entry) {
+            paths.push(path.clone());
+        }
+    }
+    for path in base.keys() {
+        if !head.contains_key(path) {
+            paths.push(path.clone());
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
 /// Recursively collect a tree's blob entries into `out` as `path → (mode, oid)`.
 fn collect_tree(
     repo: &gix::Repository,

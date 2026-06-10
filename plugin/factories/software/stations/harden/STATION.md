@@ -5,6 +5,7 @@ kills: works-in-dev-dies-in-prod
 explorers: [threat, operability]
 workers: [hardener, red_teamer, releaser]
 reviewers: [security, readiness]
+optional: true
 locked_artifact: release.md
 inputs: [frame.md, spec.md, design.md, proof.md, code]
 ---

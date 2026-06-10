@@ -199,6 +199,7 @@ impl HttpTransport for ReqwestTransport {
         let method = match request.method {
             darkrun_vcs::Method::Get => reqwest::Method::GET,
             darkrun_vcs::Method::Post => reqwest::Method::POST,
+            darkrun_vcs::Method::Put => reqwest::Method::PUT,
         };
         let mut builder = self.client.request(method, &request.url);
         for (k, v) in &request.headers {

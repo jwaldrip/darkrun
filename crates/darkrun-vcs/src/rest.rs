@@ -371,6 +371,98 @@ pub fn gitlab_mr_view(
     })
 }
 
+/// GitHub: flip a draft PR to ready-for-review. REST has no draft→ready
+/// endpoint — it's GraphQL-only (`markPullRequestReadyForReview`), keyed by
+/// the PR's GraphQL node id, so this is two calls: `GET /pulls/{n}` for the
+/// `node_id`, then the mutation. (The predecessor learned this the same way.)
+pub fn github_mark_ready(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    coords: &RepoCoords,
+    number: u64,
+) -> Result<()> {
+    let url = format!(
+        "{base}/repos/{owner}/{repo}/pulls/{number}",
+        base = Provider::GitHub.api_base(),
+        owner = coords.owner,
+        repo = coords.repo,
+    );
+    let request = authorize(HttpRequest::get(url), Provider::GitHub, cred);
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitHub, &response));
+    }
+    let v: serde_json::Value = response.json()?;
+    let node_id = v
+        .get("node_id")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| VcsError::Api {
+            provider: "github",
+            status: 200,
+            message: "pull view carries no node_id".into(),
+        })?;
+    let payload = serde_json::json!({
+        "query": "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+        "variables": { "id": node_id },
+    });
+    let gql = format!("{}/graphql", Provider::GitHub.api_base());
+    let request = authorize(HttpRequest::post(gql), Provider::GitHub, cred).json_body(&payload)?;
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitHub, &response));
+    }
+    let v: serde_json::Value = response.json()?;
+    if let Some(errors) = v.get("errors").and_then(|e| e.as_array()) {
+        if !errors.is_empty() {
+            return Err(VcsError::Api {
+                provider: "github",
+                status: 200,
+                message: format!("markPullRequestReadyForReview: {errors:?}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// GitLab: flip a draft MR to ready. GitLab marks drafts by a `Draft:` title
+/// prefix — `GET` the MR, strip the prefix, `PUT` the title back. No-op when
+/// the title is already un-prefixed.
+pub fn gitlab_mark_ready(
+    transport: &dyn HttpTransport,
+    cred: &Credential,
+    project_id: u64,
+    iid: u64,
+) -> Result<()> {
+    let url = format!(
+        "{base}/projects/{id}/merge_requests/{iid}",
+        base = Provider::GitLab.api_base(),
+        id = project_id,
+    );
+    let request = authorize(HttpRequest::get(url.clone()), Provider::GitLab, cred);
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitLab, &response));
+    }
+    let v: serde_json::Value = response.json()?;
+    let title = v.get("title").and_then(|x| x.as_str()).unwrap_or_default();
+    let stripped = title
+        .strip_prefix("Draft:")
+        .or_else(|| title.strip_prefix("Draft "))
+        .or_else(|| title.strip_prefix("WIP:"))
+        .map(str::trim_start);
+    let Some(ready_title) = stripped else {
+        return Ok(()); // already ready
+    };
+    let payload = serde_json::json!({ "title": ready_title });
+    let request =
+        authorize(HttpRequest::put(url), Provider::GitLab, cred).json_body(&payload)?;
+    let response = transport.execute(request)?;
+    if !response.is_success() {
+        return Err(api_error(Provider::GitLab, &response));
+    }
+    Ok(())
+}
+
 /// GitHub: `POST /repos/{o}/{r}/issues/{n}/comments` — post a comment.
 pub fn github_create_comment(
     transport: &dyn HttpTransport,

@@ -309,6 +309,116 @@ pub struct UnitUpdate {
 /// Structural edits (`depends_on`, `inputs`) require the unit be `pending` —
 /// the forward-only rule keeps the DAG stable once execution starts. A status
 /// change to `completed`/`active` stamps the matching timestamp.
+/// Unit-scope enforcement at completion (the predecessor's `validateUnitScope`):
+/// diff what the unit's isolated branch ACTUALLY touched against what the unit
+/// is ALLOWED to touch, block the completion on out-of-bounds writes, and
+/// back-fill `outputs[]` from a clean diff.
+///
+/// Scope model:
+/// - A **code-class** station (its `locked_artifact` is not a file path, e.g.
+///   `code`) has repo-wide scope — no violations, but the diff still
+///   auto-populates `outputs[]` so the unit's record reflects what it built.
+/// - A **document-class** station (artifact like `frame.md`) writes its work
+///   under the engine's `.darkrun/` run dir; the only repo-source paths it may
+///   touch are the unit's own declared `outputs`. Anything else is a violation.
+///
+/// No-op outside a git repo, or when the unit has no isolation branch (the
+/// scope read needs a branch diff to walk).
+fn enforce_unit_scope(store: &StateStore, run: &str, unit: &mut Unit) -> Result<()> {
+    use darkrun_git::GitBackend as _;
+    let station = unit.station().to_string();
+    if station.is_empty() {
+        return Ok(());
+    }
+    let repo_root = crate::position::cascade_repo_root(store);
+    let Ok(git) = darkrun_git::Git::open(&repo_root) else {
+        return Ok(());
+    };
+    let unit_branch = crate::lifecycle::unit_branch(run, &station, &unit.slug);
+    let station_branch = crate::lifecycle::station_branch(run, &station);
+    if !git.branch_exists(&unit_branch).unwrap_or(false)
+        || !git.branch_exists(&station_branch).unwrap_or(false)
+    {
+        return Ok(());
+    }
+    // What the unit touched: its branch's committed diff since the fork point,
+    // plus anything still uncommitted in its worktree.
+    let mut changed = git
+        .changed_paths_between(&station_branch, &unit_branch)
+        .unwrap_or_default();
+    let wt = crate::lifecycle::unit_worktree_path(&repo_root, run, &station, &unit.slug);
+    if wt.is_dir() {
+        changed.extend(
+            git.dirty_paths_excluding(&wt, &[]).unwrap_or_default(),
+        );
+    }
+    changed.sort();
+    changed.dedup();
+    if changed.is_empty() {
+        return Ok(());
+    }
+
+    // The repo-source paths (everything outside the engine's state dir).
+    let source: Vec<String> = changed
+        .iter()
+        .filter(|p| {
+            !p.starts_with(".darkrun/") && p.as_str() != ".darkrun" && p.as_str() != ".gitignore"
+        })
+        .cloned()
+        .collect();
+
+    // Station class: a pathish artifact (has an extension) is document-class;
+    // anything else (`code`) is repo-wide.
+    let artifact = store
+        .read_run(run)
+        .ok()
+        .and_then(|r| crate::factory::resolve_factory_at(&repo_root, &r.frontmatter.factory))
+        .and_then(|f| f.station(&station).map(|d| d.artifact.clone()))
+        .unwrap_or_default();
+    let document_class = artifact.contains('.');
+
+    if document_class {
+        let allowed = |p: &str| {
+            unit.frontmatter
+                .outputs
+                .iter()
+                .any(|o| p == o || p.starts_with(&format!("{o}/")))
+        };
+        let violations: Vec<&String> = source.iter().filter(|p| !allowed(p)).collect();
+        if !violations.is_empty() {
+            let list = violations
+                .iter()
+                .map(|v| format!("  - {v}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(McpError::InvalidInput(format!(
+                "cannot complete unit '{unit}': {n} file(s) were written outside the \
+                 station's scope (a `{artifact}` station works under `.darkrun/{run}/…`; \
+                 the only repo-source paths it may touch are the unit's declared outputs).\n\n\
+                 Out-of-bounds files:\n{list}\n\n\
+                 To resolve (in the unit worktree): (a) drop the unit's commits with \
+                 `git reset --hard $(git merge-base HEAD {station_branch})` if little has \
+                 landed; or (b) amend the bad file out of the latest commit with \
+                 `git rm <file> && git commit --amend --no-edit`; or (c) revert the bad \
+                 commit(s) with `git revert --no-edit <sha>`. NOTE: `git checkout HEAD -- \
+                 <file>` does NOT undo a committed file. Alternatively declare the path in \
+                 the unit's `outputs` (darkrun_unit_update) if the write is legitimate.",
+                unit = unit.slug,
+                n = violations.len(),
+            )));
+        }
+    }
+
+    // Clean scope → back-fill outputs[] from the repo-source diff so the
+    // unit's record reflects what it actually produced.
+    for p in source {
+        if !unit.frontmatter.outputs.contains(&p) {
+            unit.frontmatter.outputs.push(p);
+        }
+    }
+    Ok(())
+}
+
 pub fn update(store: &StateStore, run: &str, slug: &str, upd: UnitUpdate) -> Result<Unit> {
     let mut unit = get(store, run, slug)?;
     let pending = matches!(unit.frontmatter.status, Status::Pending);
@@ -356,6 +466,29 @@ pub fn update(store: &StateStore, run: &str, slug: &str, upd: UnitUpdate) -> Res
                 unit.frontmatter.started_at = Some(now);
             }
             Status::Completed => {
+                // Scope enforcement + output auto-population (the predecessor's
+                // `validateUnitScope`), BEFORE the completion is persisted: the
+                // unit's actual diff must stay inside its declared scope, and a
+                // clean diff back-fills `outputs[]` so hookless harnesses end
+                // up with a true output record. Violations block the completion
+                // with concrete revert instructions. No-op outside a git run.
+                if !matches!(unit.frontmatter.status, Status::Completed) {
+                    if let Err(e) = enforce_unit_scope(store, run, &mut unit) {
+                        crate::events::emit(
+                            store,
+                            run,
+                            "darkrun.unit.scope_violation",
+                            serde_json::json!({ "unit": slug }),
+                        );
+                        return Err(e);
+                    }
+                    crate::events::emit(
+                        store,
+                        run,
+                        "darkrun.unit.completed",
+                        serde_json::json!({ "unit": slug, "station": unit.station() }),
+                    );
+                }
                 if unit.frontmatter.started_at.is_none() {
                     unit.frontmatter.started_at = Some(now.clone());
                 }
@@ -1320,5 +1453,118 @@ mod tests {
         let back = get(&store, "r", "u1").unwrap();
         assert!(back.body.contains("limits bursts"));
         assert_eq!(back.frontmatter.quality_gates[0].name, "tests");
+    }
+
+    // ── Unit-scope enforcement at completion ───────────────────────────────
+
+    fn scoped_repo() -> (tempfile::TempDir, std::path::PathBuf, StateStore) {
+        let dir = tempdir().expect("tmp");
+        let root = dir.path().to_path_buf();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@darkrun.ai"]);
+        git(&["config", "user.name", "t"]);
+        std::fs::write(root.join(".gitignore"), ".darkrun/\n").unwrap();
+        std::fs::write(root.join("README.md"), "# x\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "init"]);
+        let store = StateStore::new(&root);
+        // A minimal software run so scope can resolve the station's artifact.
+        let run = darkrun_core::domain::Run {
+            slug: "r".into(),
+            frontmatter: darkrun_core::domain::RunFrontmatter {
+                factory: "software".into(),
+                ..Default::default()
+            },
+            title: "r".into(),
+            body: "# r\n".into(),
+        };
+        store.write_run(&run).unwrap();
+        (dir, root, store)
+    }
+
+    fn commit_in(wt: &std::path::Path, file: &str, contents: &str, msg: &str) {
+        std::fs::write(wt.join(file), contents).unwrap();
+        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", msg]] {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(wt)
+                .args(&args)
+                .status()
+                .unwrap()
+                .success());
+        }
+    }
+
+    #[test]
+    fn completion_blocks_a_document_station_unit_that_wrote_repo_source() {
+        let (_d, root, store) = scoped_repo();
+        crate::lifecycle::ensure_run_main(&store, "r");
+        crate::lifecycle::enter_station(&store, "r", "frame");
+        create(&store, "r", "u1", "frame", UnitSpec::default()).unwrap();
+        crate::lifecycle::enter_unit(&store, "r", "frame", "u1");
+        let wt = crate::lifecycle::unit_worktree_path(&root, "r", "frame", "u1");
+        // A frame unit (artifact frame.md = document-class) writes repo SOURCE.
+        commit_in(&wt, "src_sneaky.rs", "fn x() {}\n", "sneaky");
+        let err = update(&store, "r", "u1", UnitUpdate {
+            status: Some(Status::Completed),
+            ..Default::default()
+        })
+        .unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("outside the station's scope"), "{msg}");
+        assert!(msg.contains("src_sneaky.rs"), "{msg}");
+        // Declaring the path as an output legitimizes the write.
+        update(&store, "r", "u1", UnitUpdate {
+            outputs: Some(vec!["src_sneaky.rs".into()]),
+            ..Default::default()
+        })
+        .unwrap();
+        update(&store, "r", "u1", UnitUpdate {
+            status: Some(Status::Completed),
+            ..Default::default()
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn completion_backfills_outputs_from_a_code_station_units_diff() {
+        let (_d, root, store) = scoped_repo();
+        crate::lifecycle::ensure_run_main(&store, "r");
+        crate::lifecycle::enter_station(&store, "r", "build");
+        create(&store, "r", "u1", "build", UnitSpec::default()).unwrap();
+        crate::lifecycle::enter_unit(&store, "r", "build", "u1");
+        let wt = crate::lifecycle::unit_worktree_path(&root, "r", "build", "u1");
+        // A build unit (artifact `code` = repo-wide scope) builds real source.
+        commit_in(&wt, "limiter.rs", "pub fn limit() {}\n", "build the limiter");
+        let done = update(&store, "r", "u1", UnitUpdate {
+            status: Some(Status::Completed),
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(
+            done.frontmatter.outputs.contains(&"limiter.rs".to_string()),
+            "outputs back-filled from the diff: {:?}",
+            done.frontmatter.outputs
+        );
+    }
+
+    #[test]
+    fn completion_without_git_is_unaffected_by_scope() {
+        let (_d, store) = store1();
+        create(&store, "r", "u1", "frame", UnitSpec::default()).unwrap();
+        update(&store, "r", "u1", UnitUpdate {
+            status: Some(Status::Completed),
+            ..Default::default()
+        })
+        .unwrap();
     }
 }

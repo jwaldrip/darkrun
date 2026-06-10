@@ -157,6 +157,18 @@ impl GitBackend for Git {
         self.inner.add_all_under(worktree_path, prefix)
     }
 
+    fn dirty_paths_excluding(
+        &self,
+        worktree_path: &Path,
+        exclude_prefixes: &[&str],
+    ) -> Result<Vec<String>> {
+        self.inner.dirty_paths_excluding(worktree_path, exclude_prefixes)
+    }
+
+    fn changed_paths_between(&self, base_ref: &str, head_ref: &str) -> Result<Vec<String>> {
+        self.inner.changed_paths_between(base_ref, head_ref)
+    }
+
     fn status_dirty_under(&self, worktree_path: &Path, prefix: &str) -> Result<bool> {
         self.inner.status_dirty_under(worktree_path, prefix)
     }
