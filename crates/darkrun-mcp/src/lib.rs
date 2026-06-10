@@ -52,6 +52,7 @@ pub mod annotation;
 pub mod backlog;
 pub mod brief;
 pub mod change;
+pub mod commit;
 pub mod deadlock;
 pub mod debug;
 pub mod desktop;

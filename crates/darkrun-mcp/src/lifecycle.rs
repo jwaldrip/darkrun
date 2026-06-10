@@ -320,7 +320,14 @@ pub fn enter_station(store: &StateStore, slug: &str, station: &str) -> Lifecycle
 
     let branch = station_branch(slug, station);
     let wt_path = station_worktree_path(&root, slug, station);
-    fork_and_worktree(&git, &run_main, &branch, &wt_path, &format!("{slug}-{station}"))
+    let outcome = fork_and_worktree(&git, &run_main, &branch, &wt_path, &format!("{slug}-{station}"));
+    if outcome.performed {
+        // Publish the freshly-forked station branch immediately (early and
+        // often): origin carries the run's full hierarchy from birth, so the
+        // web browse can read the current station off its own branch.
+        let _ = crate::hosting::push_head_with_nff_recovery(&git, &wt_path, &branch);
+    }
+    outcome
 }
 
 /// Fork `child` off `parent` and attach a worktree at `wt_path` (registered as
@@ -649,7 +656,14 @@ fn merge_into_branch(
             // foreign clean checkout). No ref fast-update needed — the merge
             // commit advances `target` in place.
             let result = engine_protected_merge(git, &path, source, slug, message);
-            merge_result_outcome(result, source, target)
+            let outcome = merge_result_outcome(result, source, target);
+            if outcome.performed {
+                // Push every landed target — unit→station, station→run-main,
+                // run→base — so origin tracks the hierarchy as it advances.
+                // Best-effort with NFF recovery; a failure never undoes a land.
+                let _ = crate::hosting::push_head_with_nff_recovery(git, &path, target);
+            }
+            outcome
         }
         MergeSite::Temp { path: merge_wt } => {
             if let Some(parent) = merge_wt.parent() {
@@ -679,6 +693,11 @@ fn merge_into_branch(
                     match git.head_oid(&merge_wt) {
                         Ok(head) => {
                             let _ = git.set_branch_to(target, &head);
+                            // Push the landed target (best-effort, NFF-recovering)
+                            // so origin tracks the hierarchy as it advances.
+                            let _ = crate::hosting::push_head_with_nff_recovery(
+                                git, &merge_wt, target,
+                            );
                             LifecycleOutcome::done(format!("merged {source} -> {target}"))
                         }
                         Err(e) => LifecycleOutcome::noop(format!(
@@ -812,6 +831,35 @@ pub fn sync_branch_downstream(store: &StateStore, slug: &str, station: &str) -> 
     let has_origin = git.remote_url("origin").ok().flatten().is_some();
     if has_origin {
         let _ = git.fetch(&root, &base);
+        // Also refresh THIS run's branches — the cross-machine half. Without
+        // these, a run advanced from another machine never reaches this clone
+        // and every push rejects non-fast-forward forever.
+        let _ = git.fetch(&root, &run_main);
+        let _ = git.fetch(&root, &branch);
+    }
+
+    // Step 0: origin/run-main -> run-main, by PURE FAST-FORWARD only. When
+    // another machine advanced the run, its `.darkrun` state on origin is the
+    // NEWER truth — an engine-protected merge here would hold the local (stale)
+    // state authoritative and clobber the remote's progress back. A genuine
+    // divergence is left for the push path's NFF recovery instead.
+    if has_origin && git.branch_exists(&run_main).unwrap_or(false) {
+        let origin_rm = format!("origin/{run_main}");
+        let strictly_behind = git.is_ancestor(&run_main, &origin_rm).unwrap_or(false)
+            && !git.is_ancestor(&origin_rm, &run_main).unwrap_or(true);
+        if strictly_behind {
+            let on_run_main =
+                git.current_branch().ok().flatten().as_deref() == Some(run_main.as_str());
+            // Never move the ref under a dirty primary checkout of it.
+            if !on_run_main || git.is_clean().unwrap_or(false) {
+                let _ = git.set_branch_to(&run_main, &origin_rm);
+                if on_run_main {
+                    // Refresh the checked-out tree + index to the new tip.
+                    let _ = git.checkout_branch(&run_main);
+                }
+                performed = true;
+            }
+        }
     }
 
     // Step 1: base -> run-main (only when both exist and there's debt).

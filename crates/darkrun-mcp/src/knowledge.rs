@@ -53,6 +53,7 @@ pub fn record(store: &StateStore, topic: &str, body: &str) -> Result<Knowledge> 
         body.trim()
     );
     store.write_knowledge_raw(&topic, &doc)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: knowledge {topic}"));
     Ok(Knowledge {
         topic,
         created_at,

@@ -521,6 +521,9 @@ mod tests {
         fn merge_in_progress(&self, _: &Path) -> darkrun_git::Result<bool> { unimplemented!() }
         fn checkout_paths(&self, _: &Path, _: &str, _: &[String]) -> darkrun_git::Result<()> { unimplemented!() }
         fn add_paths(&self, _: &Path, _: &[String]) -> darkrun_git::Result<()> { unimplemented!() }
+        fn add_all_under(&self, _: &Path, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
+        fn status_dirty_under(&self, _: &Path, _: &str) -> darkrun_git::Result<bool> { unimplemented!() }
+        fn checkout_branch(&self, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
         fn commit(&self, _: &Path, _: &str) -> darkrun_git::Result<()> { unimplemented!() }
         fn ls_tree(&self, _: &Path, _: &str, _: &str) -> darkrun_git::Result<Vec<String>> { unimplemented!() }
         fn unresolved_paths(&self, _: &Path) -> darkrun_git::Result<Vec<String>> { unimplemented!() }

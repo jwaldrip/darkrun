@@ -237,6 +237,7 @@ pub fn accept(store: &StateStore, run: &str, path: &str) -> Result<bool> {
             crate::annotation::reanchor_artifact_version(store, &root, run, path, &bytes)?;
         }
         close_open_drift_feedback_for(store, run, path, "premise change accepted")?;
+        let _ = crate::commit::commit_state(store, &format!("darkrun: drift accept {path}"));
     }
     Ok(found)
 }

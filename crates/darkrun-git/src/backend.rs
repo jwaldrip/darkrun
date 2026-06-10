@@ -125,6 +125,28 @@ pub trait GitBackend {
     /// Stage `paths` in the working tree at `worktree_path` (`git add -- <paths>`).
     fn add_paths(&self, worktree_path: &Path, paths: &[String]) -> Result<()>;
 
+    /// Stage EVERY pending change under `prefix` — additions (untracked,
+    /// gitignore-respected), modifications, and deletions — relative to the
+    /// working tree at `worktree_path`. An empty prefix stages the whole tree.
+    /// The status-driven `git add -A -- <prefix>` the engine's commit-state
+    /// spine runs on every state mutation.
+    fn add_all_under(&self, worktree_path: &Path, prefix: &str) -> Result<()>;
+
+    /// Whether any pending change (tracked or untracked, gitignore-respected)
+    /// exists under `prefix` (`git status --porcelain -- <prefix>` non-empty).
+    /// Empty prefix = the whole tree. The dirty gate that keeps the engine's
+    /// if-dirty state commit from minting phantom empty commits. Read-only.
+    fn status_dirty_under(&self, worktree_path: &Path, prefix: &str) -> Result<bool>;
+
+    /// Switch the MAIN working tree to `branch` (`git checkout <branch>`).
+    ///
+    /// The caller must ensure the tree is clean ([`GitBackend::is_clean`]):
+    /// tracked files are replaced/removed to match the target, the index is
+    /// rebuilt from the target tree, and `HEAD` becomes a symbolic ref to the
+    /// branch. Never force-clobbers a dirty tree — callers surface that to the
+    /// operator with a clear error instead.
+    fn checkout_branch(&self, branch: &str) -> Result<()>;
+
     /// Commit the staged state in the working tree at `worktree_path` with
     /// `message` (`git commit --no-edit -m <message>`), finishing a merge.
     fn commit(&self, worktree_path: &Path, message: &str) -> Result<()>;

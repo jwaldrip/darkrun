@@ -812,6 +812,7 @@ pub fn elaborate_seal(store: &StateStore, slug: &str, station: &str) -> Result<(
         }
     }
     store.write_state(slug, &state)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: elaborate seal {station}"));
     Ok(())
 }
 
@@ -831,6 +832,7 @@ pub fn run_review_stamp(store: &StateStore, slug: &str, role: &str) -> Result<()
         Some(darkrun_core::domain::Stamp { at: Utc::now().to_rfc3339() }),
     );
     store.write_state(slug, &state)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: run review stamp {role}"));
     Ok(())
 }
 
@@ -2132,6 +2134,13 @@ pub fn run_tick_with_hosting<H: crate::hosting::Hosting>(
     // a journal write never fails a tick.
     append_action_log(store, slug, &position.track, &action);
 
+    // Commit early, commit often: every tick's state writes (phase advances,
+    // gate stamps, the audit journal) commit on the engine's branch and push —
+    // so origin always reflects the run's live position. Dirty-gated +
+    // best-effort: a no-op tick mints nothing; a push failure never fails
+    // the tick.
+    let _ = crate::commit::commit_state(store, &format!("darkrun: tick {slug}"));
+
     Ok(TickResult {
         run: slug.to_string(),
         position,
@@ -2629,6 +2638,40 @@ pub fn run_start(
         .cloned()
         .unwrap_or_else(|| factory_first.name.clone());
 
+    // ── Branch hierarchy FIRST (mirrors the predecessor's intent-create) ──
+    // Fork `darkrun/<slug>/main` off the base and CHECK IT OUT in the main
+    // working tree BEFORE any state is written, so every state write from here
+    // on lands on the run's own branch — committed and pushed as the run
+    // progresses, never on whatever branch the operator happened to be on.
+    // Non-git projects no-op cleanly (filesystem mode).
+    crate::lifecycle::ensure_run_main(store, slug);
+    {
+        let root = cascade_repo_root(store);
+        if let Ok(git) = Git::open(&root) {
+            let run_main = crate::lifecycle::run_main_branch(slug);
+            if git.branch_exists(&run_main).unwrap_or(false)
+                && git.current_branch().ok().flatten().as_deref() != Some(run_main.as_str())
+            {
+                // A dirty tree refuses the switch with a clear, actionable
+                // error — never silently carries uncommitted work across.
+                if !git.is_clean().unwrap_or(false) {
+                    return Err(McpError::InvalidInput(format!(
+                        "cannot start run '{slug}': the working tree has uncommitted or \
+                         untracked changes, and starting a run switches it to '{run_main}'. \
+                         Commit or stash them, then retry."
+                    )));
+                }
+                git.checkout_branch(&run_main).map_err(|e| {
+                    McpError::InvalidInput(format!(
+                        "cannot start run '{slug}': switching to '{run_main}' failed: {e}"
+                    ))
+                })?;
+            }
+        }
+        // The worktree pool must be ignored before the first worktree exists.
+        crate::commit::ensure_worktrees_gitignored(&root);
+    }
+
     let now = Utc::now().to_rfc3339();
     let resolved_title = title.clone().unwrap_or_else(|| slug.to_string());
     let frontmatter = RunFrontmatter {
@@ -2669,11 +2712,18 @@ pub fn run_start(
     ensure_station(&mut state, &factory, &first_name)?;
     store.write_state(slug, &state)?;
 
-    // Branch hierarchy (universal across modes): fork the run's stable base
-    // branch, then enter the first station. Best-effort + non-fatal — a non-git
-    // project no-ops cleanly, so run_start still succeeds.
-    crate::lifecycle::ensure_run_main(store, slug);
+    // Commit + push the freshly-seeded run state on run-main BEFORE forking the
+    // first station, so the station branch carries the run document from birth
+    // and origin sees the run the moment it exists (commit early, commit often).
+    let _ = crate::commit::commit_state(store, &format!("darkrun: create run {slug}"));
+
+    // Enter the first station (fork its branch + worktree off run-main).
     enter_station_and_record(store, slug, &first_name)?;
+    // The station-entry stamp (`Station.branch`) is state too — publish it.
+    let _ = crate::commit::commit_state_if_dirty(
+        store,
+        &format!("darkrun: enter station {first_name}"),
+    );
 
     Ok(run)
 }
@@ -4916,14 +4966,12 @@ mod tests {
         let git_root = |args: &[&str]| {
             std::process::Command::new("git").arg("-C").arg(&root).args(args).status().unwrap().success()
         };
-        // Advance run-main with a conflicting line via a temp worktree.
-        let rmwt = root.join(".darkrun/rm");
-        assert!(git_root(&["worktree", "add", "-q", rmwt.to_str().unwrap(), "darkrun/r/main"]));
-        std::fs::write(rmwt.join("conflict.txt"), "RUN-MAIN SIDE\n").unwrap();
-        let git_rm = |a: &[&str]| std::process::Command::new("git").arg("-C").arg(&rmwt).args(a).status().unwrap().success();
-        assert!(git_rm(&["add", "-A"]));
-        assert!(git_rm(&["commit", "-q", "-m", "run-main line"]));
-        assert!(git_root(&["worktree", "remove", "--force", rmwt.to_str().unwrap()]));
+        // Advance run-main with a conflicting line. run_start checked the run's
+        // main branch out at the ROOT tree (the commit-and-push spine), so the
+        // root commit IS the run-main side — no temp worktree needed.
+        std::fs::write(root.join("conflict.txt"), "RUN-MAIN SIDE\n").unwrap();
+        assert!(git_root(&["add", "-A"]));
+        assert!(git_root(&["commit", "-q", "-m", "run-main line"]));
         // The active station (frame) edits the same file differently → conflict.
         let wt = crate::lifecycle::station_worktree_path(&root, "r", "frame");
         std::fs::write(wt.join("conflict.txt"), "STATION SIDE\n").unwrap();

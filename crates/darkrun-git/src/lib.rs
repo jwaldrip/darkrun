@@ -131,6 +131,18 @@ impl GitBackend for Git {
         self.inner.add_paths(worktree_path, paths)
     }
 
+    fn add_all_under(&self, worktree_path: &Path, prefix: &str) -> Result<()> {
+        self.inner.add_all_under(worktree_path, prefix)
+    }
+
+    fn status_dirty_under(&self, worktree_path: &Path, prefix: &str) -> Result<bool> {
+        self.inner.status_dirty_under(worktree_path, prefix)
+    }
+
+    fn checkout_branch(&self, branch: &str) -> Result<()> {
+        self.inner.checkout_branch(branch)
+    }
+
     fn commit(&self, worktree_path: &Path, message: &str) -> Result<()> {
         self.inner.commit(worktree_path, message)
     }

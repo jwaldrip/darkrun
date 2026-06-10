@@ -303,6 +303,7 @@ pub fn create_with_origin(
         closure_reply: None,
     };
     store.write_feedback_raw(run, &id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(fb)
 }
 
@@ -352,6 +353,7 @@ pub fn create_external(
         closure_reply: None,
     };
     store.write_feedback_raw(run, &id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(Some(fb))
 }
 
@@ -410,6 +412,7 @@ pub fn close_with_reply(
         }
     }
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     // B9: the fix is resolved — land its isolation worktree (if any) back onto
     // the station branch and retire it. Idempotent + best-effort: a feedback that
     // never forked a fix worktree (non-git run, or resolved without code) no-ops.
@@ -434,6 +437,22 @@ pub fn set_status(
     }
     fb.status = status;
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
+    // Mid-loop fix durability (the predecessor's fix-chain checkpoint): while a
+    // fix is being WORKED, commit + push its worktree branch so the in-flight
+    // repair survives a restart / cross-machine pickup. Best-effort no-op when
+    // the fix has no worktree (filesystem mode / run-scope inline fix).
+    if matches!(fb.status, FeedbackStatus::Fixing) {
+        let root = crate::position::cascade_repo_root(store);
+        let wt = crate::lifecycle::fix_worktree_path(&root, run, &fb.station, id);
+        let branch = crate::lifecycle::fix_branch(run, &fb.station, id);
+        crate::commit::checkpoint_worktree(
+            store,
+            &wt,
+            &branch,
+            &format!("darkrun: checkpoint fix {id}"),
+        );
+    }
     Ok(fb)
 }
 
@@ -453,6 +472,7 @@ pub fn reject(store: &StateStore, run: &str, id: &str, reason: &str) -> Result<F
         fb.body.push_str(&format!("\n---\nRejected: {reason}\n"));
     }
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(fb)
 }
 
@@ -465,6 +485,7 @@ pub fn move_station(store: &StateStore, run: &str, id: &str, to_station: &str) -
     }
     fb.station = to_station.to_string();
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(fb)
 }
 
@@ -486,6 +507,7 @@ pub fn set_targets(
     }
     fb.invalidates = invalidates;
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(fb)
 }
 
@@ -502,6 +524,7 @@ pub fn set_severity(
     }
     fb.severity = Some(severity);
     store.write_feedback_raw(run, id, &serialize(&fb))?;
+    let _ = crate::commit::commit_state(store, "darkrun: feedback update");
     Ok(fb)
 }
 

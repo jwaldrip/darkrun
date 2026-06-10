@@ -81,6 +81,7 @@ pub fn record(
         body.trim()
     );
     store.write_brief_raw(slug, &id, &doc)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: brief {id}"));
     Ok(Brief {
         id,
         station: station.to_string(),

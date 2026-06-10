@@ -725,6 +725,137 @@ impl GitBackend for GixBackend {
         Ok(())
     }
 
+    fn add_all_under(&self, worktree_path: &Path, prefix: &str) -> Result<()> {
+        // Status-driven `git add -A -- <prefix>`: walk the SAME status iterator
+        // `is_clean` uses (untracked included, gitignore respected), filter to
+        // the prefix, then stage what exists on disk and drop what was deleted.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let iter = repo
+            .status(gix::progress::Discard)
+            .map_err(gix_err)?
+            .untracked_files(gix::status::UntrackedFiles::Files)
+            .into_iter(None)
+            .map_err(gix_err)?;
+        let prefix = prefix.trim_matches('/');
+        let dir_prefix = if prefix.is_empty() {
+            String::new()
+        } else {
+            format!("{prefix}/")
+        };
+        let mut add: Vec<String> = Vec::new();
+        let mut del: Vec<Vec<u8>> = Vec::new();
+        for item in iter {
+            let item = item.map_err(gix_err)?;
+            let loc = item.location().to_string();
+            if !prefix.is_empty() && loc != prefix && !loc.starts_with(&dir_prefix) {
+                continue;
+            }
+            if std::fs::symlink_metadata(worktree_path.join(&loc)).is_ok() {
+                add.push(loc);
+            } else {
+                del.push(loc.into_bytes());
+            }
+        }
+        self.add_paths(worktree_path, &add)?;
+        if !del.is_empty() {
+            let mut index = repo.open_index().map_err(gix_err)?;
+            let gone: std::collections::HashSet<&[u8]> =
+                del.iter().map(|p| p.as_slice()).collect();
+            index.remove_entries(|_, p, _| gone.contains(p.as_ref() as &[u8]));
+            index
+                .write(gix::index::write::Options::default())
+                .map_err(gix_err)?;
+        }
+        Ok(())
+    }
+
+    fn status_dirty_under(&self, worktree_path: &Path, prefix: &str) -> Result<bool> {
+        // First status item under `prefix` → dirty. Same iterator as
+        // `add_all_under`, stopped at the first hit.
+        let repo = gix::open(worktree_path).map_err(gix_err)?;
+        let iter = repo
+            .status(gix::progress::Discard)
+            .map_err(gix_err)?
+            .untracked_files(gix::status::UntrackedFiles::Files)
+            .into_iter(None)
+            .map_err(gix_err)?;
+        let prefix = prefix.trim_matches('/');
+        let dir_prefix = if prefix.is_empty() {
+            String::new()
+        } else {
+            format!("{prefix}/")
+        };
+        for item in iter {
+            let item = item.map_err(gix_err)?;
+            let loc = item.location().to_string();
+            if prefix.is_empty() || loc == prefix || loc.starts_with(&dir_prefix) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn checkout_branch(&self, branch: &str) -> Result<()> {
+        // `git checkout <branch>` for the MAIN tree, on a clean working tree
+        // (the caller's contract): remove files tracked in the current HEAD but
+        // absent in the target, materialize the target tree, rebuild the index
+        // from it, and flip HEAD to a symbolic ref of the branch.
+        let repo = self.repo()?;
+        let root = repo
+            .workdir()
+            .ok_or_else(|| GitError::Gix("checkout: repository has no work tree".into()))?
+            .to_path_buf();
+        let target = repo
+            .rev_parse_single(format!("refs/heads/{branch}").as_str())
+            .map_err(gix_err)?
+            .object()
+            .map_err(gix_err)?
+            .peel_to_commit()
+            .map_err(gix_err)?;
+        let target_tree = target.tree().map_err(gix_err)?;
+
+        // (1) delete tracked-in-old, absent-in-new files (then prune any dirs
+        // those deletions emptied — git does the same).
+        let mut new_paths = Vec::new();
+        collect_tree_paths(&repo, &target_tree, "", &mut new_paths)?;
+        let keep: std::collections::HashSet<&str> =
+            new_paths.iter().map(String::as_str).collect();
+        let mut old_paths = Vec::new();
+        if let Ok(head) = repo.head_commit() {
+            let old_tree = head.tree().map_err(gix_err)?;
+            collect_tree_paths(&repo, &old_tree, "", &mut old_paths)?;
+        }
+        for p in &old_paths {
+            if !keep.contains(p.as_str()) {
+                let abs = root.join(p);
+                let _ = std::fs::remove_file(&abs);
+                let mut dir = abs.parent().map(Path::to_path_buf);
+                while let Some(d) = dir {
+                    if d == root || std::fs::remove_dir(&d).is_err() {
+                        break;
+                    }
+                    dir = d.parent().map(Path::to_path_buf);
+                }
+            }
+        }
+
+        // (2) materialize the target tree + (3) the index from it.
+        checkout_tree_into(&repo, &target_tree, &root)?;
+        let tree_id = target_tree.id().detach();
+        let index = repo.index_from_tree(&tree_id).map_err(gix_err)?;
+        let mut idx_out = std::fs::File::create(repo.git_dir().join("index"))?;
+        index
+            .write_to(&mut idx_out, gix::index::write::Options::default())
+            .map_err(gix_err)?;
+
+        // (4) HEAD -> symbolic ref of the branch.
+        std::fs::write(
+            repo.git_dir().join("HEAD"),
+            format!("ref: refs/heads/{branch}\n"),
+        )?;
+        Ok(())
+    }
+
     fn commit(&self, worktree_path: &Path, message: &str) -> Result<()> {
         // gix has commit()/write_blob() but no `git write-tree`, so build the
         // tree from the staged index ourselves, then commit it on HEAD with the

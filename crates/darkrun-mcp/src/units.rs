@@ -62,6 +62,7 @@ pub fn create(
         body: format!("# {resolved_title}\n"),
     };
     store.write_unit(run, &unit)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: create unit {slug}"));
     Ok(unit)
 }
 
@@ -132,6 +133,7 @@ pub fn update(store: &StateStore, run: &str, slug: &str, upd: UnitUpdate) -> Res
     }
 
     store.write_unit(run, &unit)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: update unit {slug}"));
     Ok(unit)
 }
 
@@ -281,6 +283,28 @@ pub fn record_iteration(
         unit.frontmatter.worker = next;
     }
     store.write_unit(run, &unit)?;
+
+    // Commit early, commit often: the beat stamp publishes on the engine's
+    // branch, and the unit's WORKTREE checkpoints (commit + push its branch)
+    // so an in-flight Pass loop survives a restart or a cross-machine pickup —
+    // the work isn't on the station branch until the terminal land. Both
+    // best-effort.
+    let _ = crate::commit::commit_state(
+        store,
+        &format!("darkrun: beat {worker} on {slug} ({result:?})"),
+    );
+    let station = unit.station().to_string();
+    if !station.is_empty() {
+        let root = crate::position::cascade_repo_root(store);
+        let wt = crate::lifecycle::unit_worktree_path(&root, run, &station, slug);
+        let branch = crate::lifecycle::unit_branch(run, &station, slug);
+        crate::commit::checkpoint_worktree(
+            store,
+            &wt,
+            &branch,
+            &format!("darkrun: checkpoint {slug}"),
+        );
+    }
     Ok(unit)
 }
 
@@ -369,6 +393,7 @@ pub fn record_gate_result(
     unit.frontmatter.gate_results.retain(|r| r.name != gate);
     unit.frontmatter.gate_results.push(result);
     store.write_unit(run, &unit)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: gate {gate} on {slug}"));
     Ok(unit)
 }
 
@@ -419,6 +444,9 @@ pub fn stamp_role(
         map.insert(role.to_string(), Some(Stamp { at: now.clone() }));
         store.write_unit(run, &unit)?;
         outcome.stamped.push(unit.slug.clone());
+    }
+    if !outcome.stamped.is_empty() {
+        let _ = crate::commit::commit_state(store, &format!("darkrun: stamp {role}"));
     }
     Ok(outcome)
 }

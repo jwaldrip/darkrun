@@ -108,6 +108,10 @@ pub fn set_archived(store: &StateStore, slug: &str, archived: bool) -> Result<()
             }
         }
     }
+    let _ = crate::commit::commit_state(
+        store,
+        &format!("darkrun: {} {slug}", if archived { "archive" } else { "unarchive" }),
+    );
     Ok(())
 }
 
@@ -127,6 +131,7 @@ pub fn set_external_ref(
     run.frontmatter.external_refs.set(key, value);
     let refs = run.frontmatter.external_refs.clone();
     store.write_run(&run)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: external ref {key}"));
     Ok(refs)
 }
 

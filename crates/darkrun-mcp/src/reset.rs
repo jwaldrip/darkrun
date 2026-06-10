@@ -55,6 +55,12 @@ pub fn reset(
                     store.write_state(slug, &state)?;
                 }
             }
+            if confirm {
+                let _ = crate::commit::commit_state(
+                    store,
+                    &format!("darkrun: reset station {station}"),
+                );
+            }
             let note = if confirm {
                 format!("Wiped station `{station}` ({} unit(s)). Call darkrun_advance — the next tick re-enters it at Spec.", units.len())
             } else {
@@ -76,6 +82,9 @@ pub fn reset(
                 if dir.exists() {
                     std::fs::remove_dir_all(&dir).map_err(darkrun_core::CoreError::from)?;
                 }
+            }
+            if confirm {
+                let _ = crate::commit::commit_state(store, &format!("darkrun: reset run {slug}"));
             }
             let note = if confirm {
                 format!("Wiped the entire run `{slug}` ({} unit(s) and all state).", units.len())

@@ -170,6 +170,7 @@ pub fn submit(store: &StateStore, repo_root: &Path, run: &str, args: SubmitArgs)
         None => None,
     };
 
+    let _ = crate::commit::commit_state(store, "darkrun: annotation submit");
     Ok(SubmitResult {
         annotation,
         crop_path,
