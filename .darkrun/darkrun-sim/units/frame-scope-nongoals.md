@@ -30,6 +30,9 @@ reviews:
     at: 2026-06-09T23:10:04.256406+00:00
   value:
     at: 2026-06-09T23:09:26.862330+00:00
+approvals:
+  value:
+    at: 2026-06-10T06:41:51.201191+00:00
 ---
 
 # Lock full-brief scope and non-goals; separate protocol-green from build-green
