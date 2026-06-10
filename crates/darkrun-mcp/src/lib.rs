@@ -74,6 +74,7 @@ pub mod registry;
 pub mod reset;
 pub mod runs;
 pub mod scaffold;
+pub mod schemas;
 pub mod server;
 pub mod sessions;
 pub mod setup;

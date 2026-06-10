@@ -905,6 +905,9 @@ fn run_frontmatter_full_roundtrip_json() {
             ..Default::default()
         },
         created_by: Some("jason@example.com".into()),
+        composite: None,
+        sync: vec![],
+        composite_state: Default::default(),
     };
     let back = json_round(&fm);
     assert_eq!(back.created_by.as_deref(), Some("jason@example.com"));
@@ -937,6 +940,9 @@ fn run_frontmatter_full_roundtrip_yaml() {
         seal: None,
         external_refs: Default::default(),
         created_by: None,
+        composite: None,
+        sync: vec![],
+        composite_state: Default::default(),
     };
     let back = yaml_round(&fm);
     assert_eq!(back.status, Status::Completed);
@@ -2638,6 +2644,9 @@ fn run_with_full_git_policy_yaml_roundtrips() {
             seal: None,
             external_refs: Default::default(),
             created_by: None,
+            composite: None,
+            sync: vec![],
+            composite_state: Default::default(),
         },
         title: "Ship".into(),
         body: "# Ship\n".into(),

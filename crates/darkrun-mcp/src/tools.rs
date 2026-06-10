@@ -788,6 +788,57 @@ pub struct StationDropInput {
     pub station: String,
 }
 
+/// Input for `darkrun_run_composite` — create a multi-factory composite run.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct RunCompositeInput {
+    /// URL-safe run slug.
+    pub slug: String,
+    /// Optional human-readable title.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The parts (TWO or more): each a factory plus the station subset it
+    /// walks (empty = that factory's full line).
+    pub parts: Vec<CompositePartInput>,
+    /// Sync points: `then` handles hold until every `wait` handle completes.
+    /// Handles are `factory:station`.
+    #[serde(default)]
+    pub sync: Vec<SyncPointInput>,
+}
+
+/// One composite part on the create input.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct CompositePartInput {
+    /// The factory this part runs.
+    pub factory: String,
+    /// The station subset (empty = full line).
+    #[serde(default)]
+    pub stations: Vec<String>,
+}
+
+/// One sync point on the create input.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SyncPointInput {
+    /// `factory:station` handles that must complete first.
+    pub wait: Vec<String>,
+    /// `factory:station` handles released once `wait` completes.
+    pub then: Vec<String>,
+}
+
+/// Input for `darkrun_composite_stamp` — stamp the coordination ledger.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct CompositeStampInput {
+    /// The composite run slug.
+    pub slug: String,
+    /// The `factory:station` handle being stamped.
+    pub handle: String,
+    /// The progress note (`started`, `completed`, or free-form).
+    pub note: String,
+}
+
 /// Input for `darkrun_debug` — admin recovery ops on a wedged run.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -2112,6 +2163,57 @@ impl DarkrunServer {
         let store = self.store();
         match crate::position::station_drop(&store, &input.slug, &input.station) {
             Ok(out) => ok_json(&out),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Create a COMPOSITE run spanning two or more factories with sync points.
+    /// Composite runs are not single-walkable — each part is coordinated as its
+    /// own work and progress is stamped on the run's `composite_state` ledger.
+    #[tool(
+        name = "darkrun_run_composite",
+        description = "Create a composite run spanning TWO or more factories with sync points (wait/then on factory:station handles). The cursor surfaces the topology instead of walking; coordinate each part as its own run and stamp progress with darkrun_composite_stamp."
+    )]
+    pub fn darkrun_run_composite(
+        &self,
+        Parameters(input): Parameters<RunCompositeInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        let parts = input
+            .parts
+            .iter()
+            .map(|p| darkrun_core::domain::CompositePart {
+                factory: p.factory.clone(),
+                stations: p.stations.clone(),
+            })
+            .collect();
+        let sync = input
+            .sync
+            .iter()
+            .map(|sp| darkrun_core::domain::SyncPoint {
+                wait: sp.wait.clone(),
+                then: sp.then.clone(),
+            })
+            .collect();
+        match crate::runs::composite_start(&store, &input.slug, input.title.clone(), parts, sync) {
+            Ok(run) => ok_json(&run),
+            Err(e) => Ok(err_text(e)),
+        }
+    }
+
+    /// Stamp a `factory:station` handle on a composite run's coordination
+    /// ledger. Re-stamping a handle updates its note.
+    #[tool(
+        name = "darkrun_composite_stamp",
+        description = "Stamp a composite run's coordination ledger: record a progress note (started / completed / free-form) against a factory:station handle. Re-stamping updates."
+    )]
+    pub fn darkrun_composite_stamp(
+        &self,
+        Parameters(input): Parameters<CompositeStampInput>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let store = self.store();
+        match crate::runs::composite_stamp(&store, &input.slug, &input.handle, &input.note) {
+            Ok(run) => ok_json(&run),
             Err(e) => Ok(err_text(e)),
         }
     }

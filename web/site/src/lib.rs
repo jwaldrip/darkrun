@@ -25,6 +25,7 @@ pub mod layout;
 pub mod pages;
 pub mod remote;
 pub mod route;
+pub mod search;
 pub mod seo;
 pub mod theme_toggle;
 pub mod ui;

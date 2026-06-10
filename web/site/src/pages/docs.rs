@@ -7,6 +7,8 @@ use crate::ui::theme;
 
 use crate::content::{self, DOCS};
 use crate::route::Route;
+use crate::search::{use_json_ld, SearchBox};
+use crate::seo;
 use crate::ui::{Prose, SectionHead};
 
 /// `/docs` — the documentation index. Renders the first doc inline beside the
@@ -29,6 +31,10 @@ pub fn Docs() -> Element {
 #[component]
 pub fn DocPage(slug: String) -> Element {
     let doc = content::find(DOCS, &slug).copied();
+    use_json_ld(
+        doc.map(|d| seo::json_ld_article(&d, &format!("/docs/{slug}")))
+            .unwrap_or_default(),
+    );
     rsx! {
         DocsLayout { active: Some(slug.clone()),
             match doc {
@@ -58,6 +64,7 @@ fn DocsLayout(active: Option<String>, children: Element) -> Element {
     rsx! {
         div { style: "{frame}",
             nav { style: "{side}",
+                SearchBox {}
                 span {
                     style: format!(
                         "font-family:{};font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:{};margin-bottom:6px;",

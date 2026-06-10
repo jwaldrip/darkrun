@@ -32,6 +32,7 @@
 
 mod cascade;
 mod error;
+mod providers;
 
 use std::path::Path;
 
@@ -87,9 +88,16 @@ pub fn render<C: Serialize>(rel: &str, repo_root: impl AsRef<Path>, context: &C)
             rel: rel.to_string(),
             source,
         })?;
-    tmpl.render(value).map_err(|source| PromptError::Render {
+    let rendered = tmpl.render(value).map_err(|source| PromptError::Render {
         rel: rel.to_string(),
         source,
+    })?;
+    // Splice active provider behavior contracts (git, ticketing, spec,
+    // knowledge, design) into the phases they declare — the agent carries an
+    // integration's rules exactly where they apply, and nowhere else.
+    Ok(match providers::provider_block(&repo_root, rel) {
+        Some(block) => format!("{rendered}{block}"),
+        None => rendered,
     })
 }
 

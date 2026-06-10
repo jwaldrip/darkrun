@@ -29,6 +29,8 @@ nix.workspace = true
 image.workspace = true
 rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "schemars"] }
 rust-embed = { version = "8", features = ["interpolate-folder-path", "debug-embed"] }
+jsonschema = { version = "0.46.5", default-features = false, features = ["resolve-file"] }
+serde_yaml.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

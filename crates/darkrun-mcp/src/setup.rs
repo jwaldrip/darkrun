@@ -21,6 +21,11 @@ pub struct Settings {
     pub default_branch: String,
     /// Whether `.darkrun/settings.yml` was written this call.
     pub written: bool,
+    /// Schema problems in the EXISTING `.darkrun/settings.yml` (empty = valid
+    /// or absent) — validated against the published settings schema, provider
+    /// `$ref`s included, so a hand-edited file surfaces its mistakes here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub settings_problems: Vec<String>,
 }
 
 fn hosting_from_remote(remote: &str) -> &'static str {
@@ -72,6 +77,12 @@ pub fn setup(repo_root: &Path, apply: bool) -> std::io::Result<Settings> {
         .or_else(|| git.as_ref().and_then(|g| g.current_branch().ok().flatten()))
         .unwrap_or_else(|| "main".to_string());
 
+    // Validate the EXISTING settings file (post-write it's engine-authored and
+    // valid by construction; pre-write this catches hand edits gone wrong).
+    let settings_problems = std::fs::read_to_string(repo_root.join(".darkrun/settings.yml"))
+        .map(|raw| crate::schemas::validate_settings_yaml(&raw))
+        .unwrap_or_default();
+
     let mut written = false;
     if apply {
         let yml = format!(
@@ -89,6 +100,7 @@ pub fn setup(repo_root: &Path, apply: bool) -> std::io::Result<Settings> {
         ci: ci.to_string(),
         default_branch,
         written,
+        settings_problems,
     })
 }
 

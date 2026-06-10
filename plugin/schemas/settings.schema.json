@@ -1,0 +1,441 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://darkrun.ai/schemas/darkrun-settings.schema.json",
+	"title": "darkrun Settings",
+	"description": "Configuration schema for .darkrun/settings.yml. The environment fields (vcs, hosting, ci, default_branch) are written by darkrun_setup's auto-detection; providers declares external-system contracts spliced into prompts. Fields no engine code consumes are deliberately absent \u2014 the predecessor's settings carried config that nothing read, and the cleanup lesson is kept here.",
+	"type": "object",
+	"properties": {
+		"vcs": {
+			"type": "string",
+			"enum": [
+				"git",
+				"none"
+			],
+			"description": "Version control system detected for the project."
+		},
+		"hosting": {
+			"type": "string",
+			"enum": [
+				"github",
+				"gitlab",
+				"none"
+			],
+			"description": "The hosting provider driving PR/MR gates (discrete checkpoints, the delivery PR)."
+		},
+		"ci": {
+			"type": "string",
+			"description": "The CI system detected (github-actions, gitlab-ci, circleci, none, ...)."
+		},
+		"default_branch": {
+			"type": "string",
+			"description": "The repository default branch \u2014 the base the run-completion land targets."
+		},
+		"providers": {
+			"$ref": "#/definitions/providersConfig",
+			"description": "External-system provider configuration. Each provider's behavior contract is at plugin/providers/<kind>.md and is spliced into the relevant prompt phases when configured here. The git provider is always-on when in a git repo (no settings entry required)."
+		}
+	},
+	"additionalProperties": false,
+	"definitions": {
+		"providersConfig": {
+			"type": "object",
+			"description": "External-system provider configuration. Workflow providers (ticketing) get full operational control if the matching MCP tool is available, otherwise degrade to read-only-with-external_refs. Source providers (spec, knowledge, design) align darkrun run + units to external content; read-only by default.",
+			"properties": {
+				"spec": {
+					"$ref": "#/definitions/specProviderEntry",
+					"description": "Source provider \u2014 PRDs, RFCs, design docs (Notion, Confluence, Google Docs)."
+				},
+				"ticketing": {
+					"$ref": "#/definitions/ticketingProviderEntry",
+					"description": "Workflow provider \u2014 issue trackers (Jira, Linear, GitHub Issues, GitLab Issues)."
+				},
+				"design": {
+					"$ref": "#/definitions/designProviderEntry",
+					"description": "Source provider \u2014 design tools (Figma, Pencil, OpenPencil, Penpot, Excalidraw, Canva)."
+				},
+				"knowledge": {
+					"$ref": "#/definitions/knowledgeProviderEntry",
+					"description": "Source provider \u2014 organizational memory (Notion, Confluence, Google Docs). Distinct from spec: knowledge spans runs; spec is per-run."
+				}
+			},
+			"additionalProperties": false
+		},
+		"specProviderEntry": {
+			"type": "object",
+			"description": "A configured spec source provider.",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"notion",
+						"confluence",
+						"google-docs"
+					],
+					"description": "Specification provider type."
+				},
+				"config": {
+					"type": "object",
+					"description": "Provider-specific configuration \u2014 schema determined by provider type."
+				},
+				"instructions": {
+					"type": "string",
+					"description": "Inline provider instructions (appended to the plugin default for this provider type)."
+				}
+			},
+			"required": [
+				"type"
+			],
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "notion"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/notion.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "confluence"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/confluence.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "google-docs"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/google-docs.schema.json"
+							}
+						}
+					}
+				}
+			]
+		},
+		"ticketingProviderEntry": {
+			"type": "object",
+			"description": "A configured ticketing workflow provider.",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"jira",
+						"linear",
+						"github-issues",
+						"gitlab-issues"
+					],
+					"description": "Ticketing provider type."
+				},
+				"config": {
+					"type": "object",
+					"description": "Provider-specific configuration \u2014 schema determined by provider type."
+				},
+				"instructions": {
+					"type": "string",
+					"description": "Inline provider instructions (appended to the plugin default for this provider type)."
+				}
+			},
+			"required": [
+				"type"
+			],
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "jira"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/jira.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "linear"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/linear.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "github-issues"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/github-issues.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "gitlab-issues"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/gitlab-issues.schema.json"
+							}
+						}
+					}
+				}
+			]
+		},
+		"designProviderEntry": {
+			"type": "object",
+			"description": "A configured design source provider.",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"canva",
+						"openpencil",
+						"pencil",
+						"penpot",
+						"excalidraw",
+						"figma",
+						"auto"
+					],
+					"description": "Design provider type."
+				},
+				"config": {
+					"type": "object",
+					"description": "Provider-specific configuration \u2014 schema determined by provider type."
+				},
+				"instructions": {
+					"type": "string",
+					"description": "Inline provider instructions (appended to the plugin default for this provider type)."
+				}
+			},
+			"required": [
+				"type"
+			],
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "canva"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/canva.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "openpencil"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/openpencil.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "pencil"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/pencil.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "penpot"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/penpot.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "excalidraw"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/excalidraw.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "figma"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/figma.schema.json"
+							}
+						}
+					}
+				}
+			]
+		},
+		"knowledgeProviderEntry": {
+			"type": "object",
+			"description": "A configured knowledge source provider \u2014 organizational memory and cross-run context.",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"notion",
+						"confluence",
+						"google-docs"
+					],
+					"description": "Knowledge provider type (same tools as spec, different purpose)."
+				},
+				"config": {
+					"type": "object",
+					"description": "Provider-specific configuration \u2014 schema determined by provider type."
+				},
+				"instructions": {
+					"type": "string",
+					"description": "Inline provider instructions (appended to the plugin default for this provider type)."
+				}
+			},
+			"required": [
+				"type"
+			],
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "notion"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/notion.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "confluence"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/confluence.schema.json"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"type": {
+								"const": "google-docs"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"config": {
+								"$ref": "providers/google-docs.schema.json"
+							}
+						}
+					}
+				}
+			]
+		}
+	}
+}

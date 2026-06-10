@@ -728,6 +728,9 @@ fn roundtrip_run_full_frontmatter() {
         seal: None,
         external_refs: Default::default(),
         created_by: Some("jason@example.com".into()),
+        composite: None,
+        sync: vec![],
+        composite_state: Default::default(),
     };
     let doc = frontmatter::serialize(&fm, "# Body\n").expect("ser");
     let (back, _) = parse_run(&doc);

@@ -7,6 +7,8 @@ use crate::ui::theme;
 
 use crate::content::{self, POSTS};
 use crate::route::Route;
+use crate::search::use_json_ld;
+use crate::seo;
 use crate::ui::{Prose, SectionHead};
 
 /// `/blog` — the post index, newest first.
@@ -48,6 +50,11 @@ pub fn Blog() -> Element {
 /// `/blog/:slug` — a single post.
 #[component]
 pub fn Post(slug: String) -> Element {
+    use_json_ld(
+        content::find(POSTS, &slug)
+            .map(|p| seo::json_ld_article(p, &format!("/blog/{slug}")))
+            .unwrap_or_default(),
+    );
     match content::find(POSTS, &slug) {
         Some(post) => rsx! {
             div { style: "margin-bottom:8px;",

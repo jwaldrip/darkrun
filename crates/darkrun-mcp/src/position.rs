@@ -1221,6 +1221,47 @@ fn feedback_open(raw: &str) -> bool {
 /// (feedback) -> Track A (run), returning the first non-null action.
 pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     let run = store.read_run(slug)?;
+    // COMPOSITE runs are not single-walkable (predecessor parity): the cursor
+    // can't pick one factory's station to advance because the run spans
+    // several, each with its own line and sync points. Surface the topology
+    // and the coordination ledger instead of walking — the operator/agent
+    // drives the parts (each as its own run) and stamps `composite_state`.
+    if let Some(parts) = &run.frontmatter.composite {
+        let parts_line = parts
+            .iter()
+            .map(|p| {
+                if p.stations.is_empty() {
+                    p.factory.clone()
+                } else {
+                    format!("{} [{}]", p.factory, p.stations.join(", "))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let sync_line = if run.frontmatter.sync.is_empty() {
+            String::new()
+        } else {
+            let pts = run
+                .frontmatter
+                .sync
+                .iter()
+                .map(|sp| format!("wait [{}] then [{}]", sp.wait.join(", "), sp.then.join(", ")))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!(" Sync points: {pts}.")
+        };
+        return Ok(Position {
+            track: Track::Run,
+            action: Some(RunAction::Noop {
+                run: slug.to_string(),
+                message: format!(
+                    "Composite run — not single-walkable. Parts: {parts_line}.{sync_line} \
+                     Coordinate each part as its own run, honor the sync points, and record \
+                     progress on this run's `composite_state` ledger."
+                ),
+            }),
+        });
+    }
     let factory = resolve_factory_for(store, &run.frontmatter.factory)
         .ok_or_else(|| McpError::UnknownFactory(run.frontmatter.factory.clone()))?;
     let state = store.read_state(slug)?.unwrap_or_default();

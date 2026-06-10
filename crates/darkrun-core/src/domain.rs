@@ -446,12 +446,46 @@ pub struct RunFrontmatter {
     /// of sealing the moment the last station locks. `None` → seal immediately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seal: Option<SealKind>,
+    /// COMPOSITE runs: the per-part topology (factory + station subset each
+    /// part walks). A composite run is **not single-walkable** — the manager's
+    /// cursor steps around it and the operator/agent coordinates the parts.
+    /// `None` (the default) = a normal single-factory run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composite: Option<Vec<CompositePart>>,
+    /// Composite sync points: `then` parts may not start until every `wait`
+    /// entry (a `factory:station` handle) has completed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sync: Vec<SyncPoint>,
+    /// Composite progress notes, keyed by `factory:station` handle — the
+    /// coordination ledger the parts stamp as they advance.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub composite_state: std::collections::BTreeMap<String, String>,
     /// Durable pointers between this run and external systems — a ticket key, a
     /// PR/MR url, a design link, and any other named handles. Lets the run and
     /// the systems around it (issue tracker, hosting, design tool) reference one
     /// another (G2). Empty by default.
     #[serde(default, skip_serializing_if = "ExternalRefs::is_empty")]
     pub external_refs: ExternalRefs,
+}
+
+/// One part of a composite run: a factory and the stations of it this part walks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CompositePart {
+    /// The factory this part runs.
+    pub factory: String,
+    /// The station subset this part walks (empty = the factory's full line).
+    #[serde(default)]
+    pub stations: Vec<String>,
+}
+
+/// A composite sync point: `then` parts hold until every `wait` handle
+/// (`factory:station`) completes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SyncPoint {
+    /// The `factory:station` handles that must complete first.
+    pub wait: Vec<String>,
+    /// The `factory:station` handles released once `wait` is satisfied.
+    pub then: Vec<String>,
 }
 
 /// Cross-system handles attached to a run — durable pointers the engine keeps

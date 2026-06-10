@@ -276,4 +276,101 @@ mod tests {
     fn json_string_combined() {
         assert_eq!(json_string("\"\\\n"), "\"\\\"\\\\\\n\"");
     }
+    // ── JSON-LD ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn site_json_ld_is_valid_and_carries_org_website_and_search() {
+        let v: serde_json::Value = serde_json::from_str(&json_ld_site()).expect("valid JSON");
+        let graph = v["@graph"].as_array().expect("graph");
+        assert!(graph.iter().any(|n| n["@type"] == "Organization"));
+        let site = graph.iter().find(|n| n["@type"] == "WebSite").expect("WebSite");
+        assert_eq!(site["potentialAction"]["@type"], "SearchAction");
+    }
+
+    #[test]
+    fn index_html_embeds_the_same_site_json_ld() {
+        // The static block in index.html and the builder must agree — compared
+        // as parsed JSON so key order can't drift them apart.
+        let html = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/index.html"));
+        let start = html.find(r#"<script type="application/ld+json" id="ld-site">"#)
+            .expect("index.html carries the site JSON-LD block");
+        let rest = &html[start..];
+        let open = rest.find('>').unwrap() + 1;
+        let close = rest.find("</script>").unwrap();
+        let embedded: serde_json::Value =
+            serde_json::from_str(&rest[open..close]).expect("embedded block parses");
+        let built: serde_json::Value = serde_json::from_str(&json_ld_site()).unwrap();
+        assert_eq!(embedded, built, "index.html JSON-LD drifted from seo::json_ld_site()");
+    }
+
+    #[test]
+    fn article_json_ld_distinguishes_posts_from_docs() {
+        let post = crate::content::POSTS.first().expect("a post exists");
+        let v: serde_json::Value =
+            serde_json::from_str(&json_ld_article(post, "/blog/x")).unwrap();
+        assert_eq!(v["@type"], "BlogPosting");
+        assert!(v["datePublished"].is_string());
+
+        let doc = crate::content::DOCS.first().expect("a doc exists");
+        let v: serde_json::Value =
+            serde_json::from_str(&json_ld_article(doc, "/docs/x")).unwrap();
+        assert_eq!(v["@type"], "TechArticle");
+        assert!(v.get("datePublished").is_none());
+        assert_eq!(v["url"], format!("{SITE_URL}/docs/x"));
+    }
+
+}
+
+// ── JSON-LD structured data (schema.org) ────────────────────────────────────
+
+/// The site-level JSON-LD: an `Organization` + a `WebSite` carrying a
+/// `SearchAction` (the docs search). Embedded statically in `index.html` and
+/// kept in sync by a unit test, so the crawler-facing block and the builder
+/// can't drift apart.
+pub fn json_ld_site() -> String {
+    serde_json::json!({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Organization",
+                "@id": format!("{SITE_URL}/#org"),
+                "name": SITE_NAME,
+                "url": SITE_URL,
+                "logo": format!("{SITE_URL}/assets/favicon.png"),
+            },
+            {
+                "@type": "WebSite",
+                "@id": format!("{SITE_URL}/#website"),
+                "name": SITE_NAME,
+                "description": SITE_DESCRIPTION,
+                "url": SITE_URL,
+                "publisher": { "@id": format!("{SITE_URL}/#org") },
+                "potentialAction": {
+                    "@type": "SearchAction",
+                    "target": format!("{SITE_URL}/docs?q={{search_term_string}}"),
+                    "query-input": "required name=search_term_string",
+                },
+            },
+        ],
+    })
+    .to_string()
+}
+
+/// Per-document JSON-LD: a `BlogPosting` for dated posts, a `TechArticle` for
+/// docs/concepts/guides. Injected into `<head>` when the page mounts.
+pub fn json_ld_article(doc: &crate::content::Doc, path: &str) -> String {
+    let kind = if doc.date.is_empty() { "TechArticle" } else { "BlogPosting" };
+    let mut obj = serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": kind,
+        "headline": doc.title,
+        "description": doc.summary,
+        "url": format!("{SITE_URL}{path}"),
+        "author": { "@id": format!("{SITE_URL}/#org") },
+        "publisher": { "@id": format!("{SITE_URL}/#org") },
+    });
+    if !doc.date.is_empty() {
+        obj["datePublished"] = serde_json::Value::String(doc.date.to_string());
+    }
+    obj.to_string()
 }
