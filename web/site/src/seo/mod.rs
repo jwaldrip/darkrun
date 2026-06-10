@@ -57,10 +57,12 @@ pub fn feed_rss() -> String {
     let mut items = String::new();
     for post in POSTS {
         let link = format!("{SITE_URL}/blog/{}", post.slug);
+        let pub_date = post.date.to_rfc2822();
         items.push_str(&format!(
-            "    <item>\n      <title>{title}</title>\n      <link>{link}</link>\n      <guid>{link}</guid>\n      <description>{summary}</description>\n    </item>\n",
+            "    <item>\n      <title>{title}</title>\n      <link>{link}</link>\n      <guid>{link}</guid>\n      <pubDate>{pub_date}</pubDate>\n      <description>{summary}</description>\n    </item>\n",
             title = xml_escape(post.title),
             link = xml_escape(&link),
+            pub_date = xml_escape(&pub_date),
             summary = xml_escape(post.summary),
         ));
     }
