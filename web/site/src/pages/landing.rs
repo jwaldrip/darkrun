@@ -62,6 +62,22 @@ pub fn Landing() -> Element {
             DesktopSlideshow {}
         }
 
+        // The terminal status line: the run's position in one line, rendered
+        // here by the REAL engine renderer against seeded state.
+        section { style: "margin:8px 0 48px;",
+            SectionHead {
+                kicker: "the status line".to_string(),
+                title: "The whole run, one terminal line".to_string(),
+                lead: Some(
+                    "While the desktop is the control room, the status line rides your \
+                     terminal: position, phase, and a live second line of unit, feedback, \
+                     or reviewer chips. These are real renders, not mockups:"
+                        .to_string(),
+                ),
+            }
+            StatuslineDemo {}
+        }
+
         // Why you should use it: the value, not the feature list.
         section { style: "margin:8px 0 48px;",
             SectionHead {
@@ -180,6 +196,12 @@ fn DesktopSlideshow() -> Element {
             "Every repo's runs in one place — open a review or add a project.",
             asset!("/assets/desktop-browser.png"),
             asset!("/assets/desktop-browser-light.png"),
+        ),
+        (
+            "The status line",
+            "Meanwhile in your terminal: position, phase-track pips, and a live second line of unit, feedback, or reviewer chips — real renders from the engine.",
+            asset!("/assets/desktop-statusline.png"),
+            asset!("/assets/desktop-statusline-light.png"),
         ),
     ];
     let n = slides.len();
@@ -479,5 +501,101 @@ mod tests {
             .collect();
         assert_eq!(from_corpus, declared);
         assert!(!from_corpus.is_empty());
+    }
+}
+
+/// The status line, rendered by the REAL engine renderer. The fragments are
+/// generated from seeded run state by `gen_statusline_demo_html` (darkrun-cli)
+/// and committed at `content/statusline-demo.html` — this component never
+/// hand-fakes a chip. The panel is a terminal: it stays dark in both themes.
+#[component]
+fn StatuslineDemo() -> Element {
+    const FRAGMENTS: &str = include_str!("../../content/statusline-demo.html");
+    let scenarios: Vec<(&str, &str, &str)> = {
+        let mut out = Vec::new();
+        let metas = [
+            (
+                "manufacture",
+                "The pool, live",
+                "Second line: one chip per in-flight unit, one pip per worker beat — green advanced, yellow in-flight, red bounced.",
+            ),
+            (
+                "feedback",
+                "Feedback preempts",
+                "Open feedback takes the line over — severity-tinted chips (! blocker, ~ medium) until the fix track clears them.",
+            ),
+            (
+                "gated",
+                "Parked at your gate",
+                "Π is the doorway: the run is holding for your decision at the checkpoint, not failing.",
+            ),
+        ];
+        for (key, title, caption) in metas {
+            let marker = format!("<!--scenario:{key}-->");
+            if let Some(at) = FRAGMENTS.find(&marker) {
+                let rest = &FRAGMENTS[at + marker.len()..];
+                let end = rest.find("<!--scenario:").unwrap_or(rest.len());
+                out.push((title, caption, rest[..end].trim()));
+            }
+        }
+        out
+    };
+    let n = scenarios.len();
+    // Manual stepping, like the desktop slideshow above — the visitor drives.
+    let mut idx = use_signal(|| 0usize);
+    let cur = idx().min(n.saturating_sub(1));
+    let Some((title, caption, html)) = scenarios.get(cur).copied() else {
+        return rsx! {};
+    };
+
+    let term = format!(
+        "background:#0b0e13;border:1px solid #232a33;border-radius:10px;\
+         padding:14px 16px 12px;overflow-x:auto;",
+    );
+    let line = "margin:0;font:13px/1.7 'JetBrains Mono','SF Mono',Menlo,monospace;\
+                color:#c9d1d9;white-space:pre;";
+    let head = format!(
+        "display:flex;align-items:center;gap:7px;margin-bottom:10px;",
+    );
+    let dot = |c: &str| format!("width:10px;height:10px;border-radius:50%;background:{c};");
+    let cap = format!(
+        "display:flex;align-items:baseline;gap:10px;margin-top:10px;\
+         font-family:{sans};font-size:13px;color:{muted};",
+        sans = tokens::FONT_SANS,
+        muted = theme::TEXT_MUTED,
+    );
+    let cap_title = format!(
+        "font-weight:700;color:{text};white-space:nowrap;",
+        text = theme::TEXT,
+    );
+    let dots = "display:flex;gap:6px;margin-top:12px;justify-content:center;";
+    rsx! {
+        div {
+            div { style: "{term}",
+                div { style: "{head}",
+                    span { style: dot("#ff5f57") }
+                    span { style: dot("#febc2e") }
+                    span { style: dot("#28c840") }
+                }
+                pre { style: "{line}", dangerous_inner_html: "{html}" }
+            }
+            div { style: "{cap}",
+                span { style: "{cap_title}", "{title}" }
+                span { "{caption}" }
+            }
+            div { style: "{dots}",
+                for i in 0..n {
+                    button {
+                        style: format!(
+                            "appearance:none;border:none;cursor:pointer;width:8px;height:8px;\
+                             border-radius:50%;padding:0;background:{};",
+                            if i == cur { theme::ACCENT } else { theme::BORDER },
+                        ),
+                        aria_label: "show scenario {i + 1}",
+                        onclick: move |_| idx.set(i),
+                    }
+                }
+            }
+        }
     }
 }

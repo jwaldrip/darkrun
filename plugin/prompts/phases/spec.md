@@ -54,7 +54,7 @@ Write every Unit with `darkrun_unit_create`, with the full anatomy:
 - **`depends_on`** — every cross-Unit prerequisite, DECLARED, never left in prose. The wave scheduler sequences **only** on `depends_on`; a dependency mentioned in the body but not declared is invisible — the Unit gets co-scheduled with its own prerequisite and handed inputs that don't exist yet. A body that says "stub it until unit-X lands" is the symptom of a missing `depends_on` edge: declare the edge instead of writing the stub.
 - **`inputs` / `outputs`** — the paths consumed and produced. A sibling-produced input path requires that sibling in `depends_on`.
 - **`quality_gates`** — executable `{name, command}` checks proving the criteria. Required for any Unit that declares outputs. Each gate must pass **in the Unit's own isolated worktree at the time it runs** — a gate that needs a sibling's unmerged code, with no `depends_on` edge to order it, is not a gate, it's a Unit scheduled to fail. Circular gates (zero-match `! grep`, prose substrings against the Unit's own output) are rejected.
-- **`model`** — match the tier to the risk: `opus` for architectural or cascading-failure work, `sonnet` (default) for known patterns plus judgment, `haiku` only for purely mechanical edits.
+- **`model`** — match the tier to the risk: `fable` (the Mythos-family frontier) for novel architecture or the deepest reasoning, `opus` for architectural or cascading-failure work, `sonnet` (default) for known patterns plus judgment, `haiku` only for purely mechanical edits.
 
 {% if units %}
 ### Units already on record

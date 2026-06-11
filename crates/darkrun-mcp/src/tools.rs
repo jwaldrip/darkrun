@@ -375,7 +375,8 @@ pub struct UnitCreateInput {
     /// substrings against the unit's own output) are rejected.
     #[serde(default)]
     pub quality_gates: Option<Vec<QualityGateInput>>,
-    /// Optional model tier for the unit's subagents: `opus` (architectural /
+    /// Optional model tier for the unit's subagents: `fable` (frontier — novel
+    /// architecture / deepest reasoning), `opus` (architectural /
     /// cascading-failure risk), `sonnet` (default — known patterns + judgment),
     /// `haiku` (purely mechanical).
     #[serde(default)]

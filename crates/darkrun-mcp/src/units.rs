@@ -212,9 +212,10 @@ fn validate_spec(
     // Model tier: a known tier or nothing (the predecessor sanitized untrusted
     // frontmatter the same way — a typo'd tier silently became "no override").
     if let Some(m) = spec.model.as_deref() {
-        if !matches!(m, "opus" | "sonnet" | "haiku") {
+        if !matches!(m, "fable" | "opus" | "sonnet" | "haiku") {
             errors.push(format!(
-                "model '{m}' is not a tier — use opus (architectural risk), \
+                "model '{m}' is not a tier — use fable (frontier: novel \
+                 architecture / deepest reasoning), opus (architectural risk), \
                  sonnet (default), or haiku (purely mechanical)"
             ));
         }

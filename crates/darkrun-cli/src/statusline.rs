@@ -40,6 +40,7 @@ const C_SLUG: &str = "1;38;5;255"; // bright white bold — the run slug
 const C_FACTORY: &str = "38;5;245"; // grey — the factory (methodology) name
 const C_DONE: &str = "38;5;71"; // green — a completed station pip
 const C_PENDING: &str = "38;5;243"; // dim grey — a pending pip
+const C_TRACK_DONE: &str = "38;5;255"; // bright — a passed phase pip in the track
 const C_DIM: &str = "38;5;240"; // delimiters + the unit aggregate
 const C_SPEC: &str = "38;5;245"; // grey
 const C_REVIEW: &str = "38;5;75"; // blue
@@ -379,6 +380,36 @@ fn parse_git_url(url: &str) -> Option<(String, String, String)> {
 
 /// Render the status line. Returns `None` when there is no active Run, in which
 /// case the caller prints nothing.
+
+/// The in-station PHASE TRACK — a pip run right of the station name showing
+/// where the six-phase machine stands: `▰` bright for phases already passed,
+/// the active phase's pip in its hue (magenta when parked at a gate), `▱` dim
+/// for phases not yet reached. `UserGate` (the pre-execution hold) sits on the
+/// Manufacture slot it guards.
+fn phase_track(active: Option<StationPhase>, phase_code: &str, gated: bool) -> String {
+    let idx = match active {
+        Some(StationPhase::Spec) => 0,
+        Some(StationPhase::Review) => 1,
+        Some(StationPhase::UserGate) | Some(StationPhase::Manufacture) => 2,
+        Some(StationPhase::Audit) => 3,
+        Some(StationPhase::Reflect) => 4,
+        Some(StationPhase::Checkpoint) => 5,
+        None => return String::new(),
+    };
+    let mut track = String::new();
+    for i in 0..6 {
+        if i < idx {
+            track.push_str(&paint(C_TRACK_DONE, PIP_DONE));
+        } else if i == idx {
+            let hue = if gated { C_CHECKPOINT } else { phase_code };
+            track.push_str(&paint(hue, PIP_DONE));
+        } else {
+            track.push_str(&paint(C_PENDING, PIP_PENDING));
+        }
+    }
+    track
+}
+
 pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
     let root = repo_override
         .or_else(read_cwd_from_stdin)
@@ -491,8 +522,15 @@ pub fn render(repo_override: Option<PathBuf>) -> Option<String> {
     };
     let sep = paint(C_DIM, "·");
 
+    // The in-station phase track rides just right of the station name.
+    let track = phase_track(active_phase, phase_code, gated);
+    let track_disp = if track.is_empty() {
+        String::new()
+    } else {
+        format!(" {track}")
+    };
     let mut line = format!(
-        "{brand} {sep} {slug_disp} {sep} {factory_disp} {pipeline} {station_disp} {flow} {phase_disp}"
+        "{brand} {sep} {slug_disp} {sep} {factory_disp} {pipeline} {station_disp}{track_disp} {flow} {phase_disp}"
     );
     if total > 0 {
         line.push_str(&format!(
@@ -627,7 +665,7 @@ pub fn uninstall(global: bool, repo: &Path) -> Result<(), Dyn> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
+    use super::{C_TRACK_DONE, 
         fallback_path, install, osc8, paint, parse_git_url, phase_chrome, read_json,
         render, settings_path, uninstall, web_base, write_json,
         ITEM_LEADER, PIP_DONE, PIP_PENDING,
@@ -1162,4 +1200,227 @@ mod tests {
         });
         store.write_state("r", &state).unwrap();
     }
+
+    /// GENERATOR (run on demand, not in CI): renders the real statusline for
+    /// three demo scenarios and writes them as HTML fragments the website
+    /// embeds (`web/site/content/statusline-demo.html`). Regenerate with:
+    ///
+    /// ```sh
+    /// cargo test -p darkrun-cli --bin darkrun gen_statusline_demo_html -- --ignored
+    /// ```
+    #[test]
+    #[ignore = "writes website content; run explicitly to regenerate"]
+    fn gen_statusline_demo_html() {
+        use darkrun_core::domain::{IterationResult, Status, Unit, UnitFrontmatter, UnitIteration};
+        use darkrun_core::StateStore;
+
+        let mk_unit = |slug: &str, iters: Vec<(&str, Option<IterationResult>)>| Unit {
+            slug: slug.into(),
+            frontmatter: UnitFrontmatter {
+                status: Status::InProgress,
+                station: Some("build".into()),
+                started_at: Some("2026-06-10T16:00:00Z".into()),
+                iterations: iters
+                    .into_iter()
+                    .map(|(w, r)| UnitIteration {
+                        worker: w.into(),
+                        started_at: None,
+                        completed_at: None,
+                        result: r,
+                        note: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            title: slug.into(),
+            body: String::new(),
+        };
+
+        // 1: Manufacture pool — two units mid-pass (one bounced).
+        let d1 = tempfile::tempdir().unwrap();
+        let s1 = StateStore::new(d1.path());
+        seed_run_at_phase(&s1, "build", StationPhase::Manufacture);
+        s1.write_unit("r", &mk_unit("u-03", vec![
+            ("test_author", Some(IterationResult::Advance)),
+            ("builder", Some(IterationResult::Advance)),
+        ])).unwrap();
+        s1.write_unit("r", &mk_unit("u-07", vec![
+            ("test_author", Some(IterationResult::Advance)),
+            ("builder", Some(IterationResult::Reject)),
+        ])).unwrap();
+        let line1 = render(Some(d1.path().to_path_buf())).unwrap();
+
+        // 2: Open feedback preempts the pool — severity chips.
+        let d2 = tempfile::tempdir().unwrap();
+        let s2 = StateStore::new(d2.path());
+        seed_run_at_phase(&s2, "build", StationPhase::Manufacture);
+        s2.write_feedback_raw("r", "fb-01",
+            "---\nstatus: pending\nseverity: blocker\n---\nbroken\n").unwrap();
+        s2.write_feedback_raw("r", "fb-02",
+            "---\nstatus: pending\nseverity: medium\n---\nnit\n").unwrap();
+        let line2 = render(Some(d2.path().to_path_buf())).unwrap();
+
+        // 3: Parked at the operator gate — the Π doorway.
+        let d3 = tempfile::tempdir().unwrap();
+        let s3 = StateStore::new(d3.path());
+        seed_run_at_phase(&s3, "build", StationPhase::Checkpoint);
+        {
+            use darkrun_core::domain::{Checkpoint, CheckpointKind};
+            let mut state = s3.read_state("r").unwrap().unwrap();
+            let st = state.stations.get_mut("build").unwrap();
+            st.checkpoint = Some(Checkpoint {
+                kind: CheckpointKind::Ask,
+                entered_at: Some("t".into()),
+                outcome: None,
+            });
+            s3.write_state("r", &state).unwrap();
+        }
+        let line3 = render(Some(d3.path().to_path_buf())).unwrap();
+
+        let out = format!(
+            "<!-- GENERATED by gen_statusline_demo_html — do not hand-edit. -->\n\
+             <!--scenario:manufacture-->\n{}\n\
+             <!--scenario:feedback-->\n{}\n\
+             <!--scenario:gated-->\n{}\n",
+            ansi_to_html(&line1),
+            ansi_to_html(&line2),
+            ansi_to_html(&line3),
+        );
+        let dest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/site/content/statusline-demo.html");
+        std::fs::write(&dest, out).unwrap();
+        eprintln!("wrote {}", dest.display());
+    }
+
+    /// Minimal ANSI -> HTML for the generator: SGR 0/1/9, 256-color fg/bg,
+    /// truecolor fg; OSC-8 hyperlinks stripped.
+    fn ansi_to_html(text: &str) -> String {
+        fn pal(i: u8) -> String {
+            const BASE: [&str; 16] = [
+                "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc",
+                "#11a8cd", "#e5e5e5", "#666666", "#f14c4c", "#23d18b", "#f5f543",
+                "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
+            ];
+            match i {
+                0..=15 => BASE[i as usize].to_string(),
+                16..=231 => {
+                    let n = i - 16;
+                    let f = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
+                    format!("#{:02x}{:02x}{:02x}", f(n / 36), f((n / 6) % 6), f(n % 6))
+                }
+                _ => {
+                    let v = 8 + (i - 232) * 10;
+                    format!("#{v:02x}{v:02x}{v:02x}")
+                }
+            }
+        }
+        // Strip OSC-8 link sequences.
+        let mut s = String::new();
+        let mut rest = text;
+        while let Some(at) = rest.find("\u{1b}]8;;") {
+            s.push_str(&rest[..at]);
+            let tail = &rest[at + 5..];
+            let end = tail.find("\u{1b}\\").map(|e| e + 2).unwrap_or(0);
+            rest = &tail[end..];
+        }
+        s.push_str(rest);
+
+        let mut out = String::new();
+        let (mut fg, mut bg): (Option<String>, Option<String>) = (None, None);
+        let (mut bold, mut strike) = (false, false);
+        let mut chars = s.chars().peekable();
+        let mut buf = String::new();
+        let flush = |out: &mut String, buf: &mut String, fg: &Option<String>,
+                     bg: &Option<String>, bold: bool, strike: bool| {
+            if buf.is_empty() {
+                return;
+            }
+            let esc: String = buf
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            let mut style = String::new();
+            if let Some(c) = fg { style.push_str(&format!("color:{c};")); }
+            if let Some(c) = bg { style.push_str(&format!("background:{c};")); }
+            if bold { style.push_str("font-weight:700;"); }
+            if strike { style.push_str("text-decoration:line-through;"); }
+            if style.is_empty() {
+                out.push_str(&esc);
+            } else {
+                out.push_str(&format!("<span style=\"{style}\">{esc}</span>"));
+            }
+            buf.clear();
+        };
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' && chars.peek() == Some(&'[') {
+                flush(&mut out, &mut buf, &fg, &bg, bold, strike);
+                chars.next();
+                let mut code = String::new();
+                for d in chars.by_ref() {
+                    if d == 'm' { break; }
+                    code.push(d);
+                }
+                let nums: Vec<u8> = code.split(';').filter_map(|n| n.parse().ok()).collect();
+                let mut i = 0;
+                if nums.is_empty() { fg = None; bg = None; bold = false; strike = false; }
+                while i < nums.len() {
+                    match nums[i] {
+                        0 => { fg = None; bg = None; bold = false; strike = false; }
+                        1 => bold = true,
+                        9 => strike = true,
+                        38 if nums.get(i + 1) == Some(&5) => {
+                            fg = Some(pal(nums[i + 2])); i += 2;
+                        }
+                        38 if nums.get(i + 1) == Some(&2) => {
+                            fg = Some(format!("#{:02x}{:02x}{:02x}", nums[i + 2], nums[i + 3], nums[i + 4]));
+                            i += 4;
+                        }
+                        48 if nums.get(i + 1) == Some(&5) => {
+                            bg = Some(pal(nums[i + 2])); i += 2;
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+            } else {
+                buf.push(c);
+            }
+        }
+        flush(&mut out, &mut buf, &fg, &bg, bold, strike);
+        out.replace('\n', "<br/>")
+    }
+
+
+    #[test]
+    fn phase_track_pips_ride_the_station_name() {
+        use darkrun_core::StateStore;
+        // Manufacture (index 2): two passed + the manufacture-hued pip + three empty.
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+        seed_run_at_phase(&store, "build", StationPhase::Manufacture);
+        let line = render(Some(dir.path().to_path_buf())).expect("renders");
+        let first = line.split('\n').next().unwrap();
+        assert_eq!(first.matches(PIP_DONE).count(), 3, "3 filled track pips: {first}");
+        assert_eq!(first.matches(PIP_PENDING).count(), 3, "3 empty track pips: {first}");
+        assert!(first.contains(C_TRACK_DONE), "passed pips are bright: {first}");
+
+        // Gated checkpoint (index 5): five passed + the magenta gate pip, none empty.
+        let d2 = tempfile::tempdir().unwrap();
+        let s2 = StateStore::new(d2.path());
+        seed_run_at_phase(&s2, "build", StationPhase::Checkpoint);
+        {
+            use darkrun_core::domain::{Checkpoint, CheckpointKind};
+            let mut state = s2.read_state("r").unwrap().unwrap();
+            s2.write_state("r", &{
+                let st = state.stations.get_mut("build").unwrap();
+                st.checkpoint = Some(Checkpoint { kind: CheckpointKind::Ask, entered_at: Some("t".into()), outcome: None });
+                state.clone()
+            }).unwrap();
+        }
+        let line2 = render(Some(d2.path().to_path_buf())).expect("renders");
+        let first2 = line2.split('\n').next().unwrap();
+        assert_eq!(first2.matches(PIP_DONE).count(), 6, "all six filled at the gate: {first2}");
+        assert_eq!(first2.matches(PIP_PENDING).count(), 0, "{first2}");
+    }
+
 }

@@ -102,7 +102,7 @@ impl Harness {
                 mcp_resources: true,
                 browser_ui: true,
                 model_provider: "anthropic",
-                model_tiers: &["haiku", "sonnet", "opus"],
+                model_tiers: &["haiku", "sonnet", "opus", "fable"],
                 subagents: Subagents {
                     supported: true,
                     tool_names: &["Agent", "Task"],
@@ -241,7 +241,7 @@ impl Harness {
                 mcp_resources: true,
                 browser_ui: false,
                 model_provider: "anthropic",
-                model_tiers: &["haiku", "sonnet", "opus"],
+                model_tiers: &["haiku", "sonnet", "opus", "fable"],
                 subagents: Subagents {
                     supported: true,
                     tool_names: &["/spawn"],
@@ -373,9 +373,11 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// Translate a canonical model tier (`haiku`/`sonnet`/`opus`, as the factory
-    /// corpus names them) into this harness's provider vocabulary. Unknown tiers
-    /// pass through unchanged.
+    /// Translate a canonical model tier (`haiku`/`sonnet`/`opus`/`fable`, as
+    /// the factory corpus names them) into this harness's provider vocabulary.
+    /// `fable` is the Mythos-family frontier tier — the deepest reasoning the
+    /// provider offers; harnesses without a distinct frontier collapse it onto
+    /// their top tier. Unknown tiers fall back to the balanced middle.
     pub fn map_model(&self, tier: &str) -> &'static str {
         let t = tier.trim().to_ascii_lowercase();
         match self.model_provider {
@@ -384,12 +386,13 @@ impl Capabilities {
                 "haiku" => "haiku",
                 "sonnet" => "sonnet",
                 "opus" => "opus",
+                "fable" | "mythos" => "fable",
                 _ => "sonnet",
             },
             // Google collapses to flash (cheap) / pro (everything else).
             "google" => match t.as_str() {
                 "haiku" => "flash",
-                "sonnet" | "opus" => "pro",
+                "sonnet" | "opus" | "fable" | "mythos" => "pro",
                 _ => "pro",
             },
             // OpenAI (Codex) maps tiers to reasoning-effort levels — the model
@@ -397,14 +400,14 @@ impl Capabilities {
             "openai" => match t.as_str() {
                 "haiku" => "low",
                 "sonnet" => "medium",
-                "opus" => "high",
+                "opus" | "fable" | "mythos" => "high",
                 _ => "medium",
             },
             // Multi-provider harnesses use abstract fast/balanced/powerful tiers.
             _ => match t.as_str() {
                 "haiku" => "fast",
                 "sonnet" => "balanced",
-                "opus" => "powerful",
+                "opus" | "fable" | "mythos" => "powerful",
                 _ => "balanced",
             },
         }
@@ -710,6 +713,18 @@ mod tests {
             assert_eq!(cli.contains(&h), !helper.is_empty(), "{}", h.key());
         }
     }
+
+    #[test]
+    fn fable_tier_maps_to_each_providers_frontier() {
+        assert_eq!(Harness::ClaudeCode.capabilities().map_model("fable"), "fable");
+        assert_eq!(Harness::ClaudeCode.capabilities().map_model("mythos"), "fable");
+        assert_eq!(Harness::GeminiCli.capabilities().map_model("fable"), "pro");
+        assert_eq!(Harness::Codex.capabilities().map_model("fable"), "high");
+        assert_eq!(Harness::Opencode.capabilities().map_model("fable"), "powerful");
+        // The tier list advertises it where the provider distinguishes it.
+        assert!(Harness::ClaudeCode.capabilities().model_tiers.contains(&"fable"));
+    }
+
 }
 
 #[cfg(test)]
