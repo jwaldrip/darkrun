@@ -1922,22 +1922,38 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
                 .ok()
                 .flatten()
                 .and_then(|s| s.stations.get(mstation).and_then(|st| st.verifier_nonce.clone()));
+            // Thread each wave unit's most-recent handoff note into the dispatch
+            // so the next worker reads what the last beat did, or why it bounced.
+            let wave_units = store.read_units(slug).unwrap_or_default();
             // Resolve the model for this beat: the worker's own override, else
             // the factory default. (A per-unit override would win, but the wave
-            // can span units, so the role/factory resolution is the dispatch hint.)
+            // can span units, so the role/factory resolution is the dispatch
+            // hint.) Then ESCALATE one tier per recorded rejection in the wave
+            // — a beat that bounced re-runs with more model, not more retries —
+            // capping at the top of the ladder (haiku → sonnet → opus → fable).
             if let Ok(run) = store.read_run(slug) {
                 if let Some(factory) = resolve_factory_for(store, &run.frontmatter.factory) {
                     let by_role = factory
                         .station(mstation)
                         .and_then(|d| d.role_models.get(worker).cloned());
-                    ctx.model = by_role.or_else(|| {
+                    let base = by_role.or_else(|| {
                         Some(factory.default_model.clone()).filter(|m| !m.is_empty())
                     });
+                    let rejects = wave_units
+                        .iter()
+                        .filter(|u| wave.contains(&u.slug))
+                        .map(|u| {
+                            u.frontmatter
+                                .iterations
+                                .iter()
+                                .filter(|it| matches!(it.result, Some(IterationResult::Reject)))
+                                .count()
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    ctx.model = base.map(|b| escalate_tier(&b, rejects));
                 }
             }
-            // Thread each wave unit's most-recent handoff note into the dispatch
-            // so the next worker reads what the last beat did, or why it bounced.
-            let wave_units = store.read_units(slug).unwrap_or_default();
             // …and each wave unit's FULL SPEC. The worker subagent has no other
             // context: the body written at decompose time only steers the beat
             // if the dispatch carries it (slug-only dispatch = thin work).
@@ -2121,6 +2137,22 @@ fn build_prompt_context(store: &StateStore, slug: &str, action: &RunAction) -> R
 /// [`PromptContext`], and calls [`darkrun_prompts::render`] — so a project
 /// override at `<repo_root>/.darkrun/prompts/<key>.md` transparently replaces
 /// the embedded default. Returns `Ok(None)` when the action has no template key.
+
+/// Climb the model ladder `steps` tiers up from `base`, capping at the top —
+/// the reject-escalation rule: a bounced beat re-runs with more model. An
+/// unknown base passes through unchanged (a provider-specific name the
+/// factory pinned deliberately is not second-guessed).
+fn escalate_tier(base: &str, steps: usize) -> String {
+    const LADDER: [&str; 4] = ["haiku", "sonnet", "opus", "fable"];
+    if steps == 0 {
+        return base.to_string();
+    }
+    match LADDER.iter().position(|t| *t == base.trim().to_ascii_lowercase()) {
+        Some(at) => LADDER[(at + steps).min(LADDER.len() - 1)].to_string(),
+        None => base.to_string(),
+    }
+}
+
 pub fn render_prompt(store: &StateStore, slug: &str, action: &RunAction) -> Result<Option<String>> {
     let tag = action_tag(action);
     let key = match darkrun_prompts::template_key_for_action(tag) {
@@ -3763,7 +3795,9 @@ mod tests {
         };
         let ctx = build_prompt_context(&store, "r", &action).expect("context");
 
-        assert_eq!(ctx.model.as_deref(), Some("sonnet"), "falls back to the factory default model");
+        // The factory default (sonnet) resolves — then the wave's one recorded
+        // Reject escalates the dispatch a tier (reject-escalation).
+        assert_eq!(ctx.model.as_deref(), Some("opus"), "default + one bounce = one tier up");
         let result_of = |slug: &str| ctx.handoffs.iter().find(|h| h.unit == slug).map(|h| h.result.as_str());
         assert_eq!(result_of("u-adv"), Some("advance"));
         assert_eq!(result_of("u-rej"), Some("reject"));
@@ -5326,6 +5360,77 @@ mod tests {
     }
 
 
+
+
+
+    // ── Reject-escalation on the model ladder ───────────────────────────────
+
+    #[test]
+    fn escalate_tier_climbs_and_caps() {
+        assert_eq!(escalate_tier("sonnet", 0), "sonnet");
+        assert_eq!(escalate_tier("sonnet", 1), "opus");
+        assert_eq!(escalate_tier("sonnet", 2), "fable");
+        assert_eq!(escalate_tier("sonnet", 9), "fable", "caps at the top");
+        assert_eq!(escalate_tier("haiku", 1), "sonnet");
+        assert_eq!(escalate_tier("fable", 1), "fable");
+        // A deliberate provider-specific pin passes through unchanged.
+        assert_eq!(escalate_tier("gemini-2.5-pro", 3), "gemini-2.5-pro");
+    }
+
+    /// A bounced beat re-dispatches one tier up: with one Reject recorded on
+    /// a wave unit, the Manufacture dispatch's model hint climbs sonnet -> opus.
+    #[test]
+    fn a_rejected_beat_escalates_the_dispatch_model() {
+        use darkrun_core::domain::{Unit, UnitFrontmatter, UnitIteration};
+        let (_d, store) = store();
+        run_start(&store, "r", "software", None, Mode::Solo, "full").expect("start");
+        let mk = |slug: &str, results: Vec<IterationResult>| Unit {
+            slug: slug.into(),
+            frontmatter: UnitFrontmatter {
+                status: Status::InProgress,
+                station: Some("build".into()),
+                started_at: Some("t".into()),
+                iterations: results
+                    .into_iter()
+                    .map(|r| UnitIteration {
+                        worker: "builder".into(),
+                        started_at: None,
+                        completed_at: None,
+                        result: Some(r),
+                        note: Some("n".into()),
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            title: slug.into(),
+            body: String::new(),
+        };
+        let action = RunAction::Manufacture {
+            run: "r".into(),
+            station: "build".into(),
+            worker: "builder".into(),
+            units: vec!["u1".into()],
+        };
+        // No rejects: the factory default rides the dispatch.
+        store.write_unit("r", &mk("u1", vec![IterationResult::Advance])).unwrap();
+        let ctx = build_prompt_context(&store, "r", &action).expect("context");
+        assert_eq!(ctx.model.as_deref(), Some("sonnet"), "base tier first");
+        // One reject on the wave: the next dispatch climbs to opus.
+        store
+            .write_unit("r", &mk("u1", vec![IterationResult::Advance, IterationResult::Reject]))
+            .unwrap();
+        let ctx2 = build_prompt_context(&store, "r", &action).expect("context");
+        assert_eq!(ctx2.model.as_deref(), Some("opus"), "one bounce climbs a tier");
+        // Two rejects: the climb continues to fable (and caps there).
+        store
+            .write_unit("r", &mk("u1", vec![
+                IterationResult::Reject,
+                IterationResult::Reject,
+            ]))
+            .unwrap();
+        let ctx3 = build_prompt_context(&store, "r", &action).expect("context");
+        assert_eq!(ctx3.model.as_deref(), Some("fable"), "two bounces = two tiers");
+    }
 
 
     // ── Station drop (the keep-or-drop offer) ───────────────────────────────
