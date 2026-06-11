@@ -279,73 +279,78 @@ fn DesktopSlideshow() -> Element {
 /// column divider and borders land on exact columns instead of hand-counted
 /// spaces.
 fn cc_header_html() -> String {
+    // The box spans the terminal like the real banner does: at the banner's
+    // 12px mono (~7.2px/char) the demo panel's ~851px inner width holds 116
+    // columns with a hair of slack — wider would put a scrollbar on the panel.
+    const TOTAL: usize = 116;
     const LW: usize = 40; // left cell inner width (centered)
-    const RW: usize = 60; // right cell inner width (flush left)
-    const BORDER: &str = "#3d444d";
-    const DIM: &str = "#8b949e";
-    const FAINT: &str = "#58606a";
+    const RW: usize = TOTAL - LW - 7; // right cell inner width (flush left)
+    // The whole box is clay, like the terminal renders it: border and title
+    // in the dimmer weight, the section headings bold-bright.
+    const BORDER: &str = "#b1664c";
     const CLAY: &str = "#d97757";
+    const DIM: &str = "#9aa4ad";
+    const FAINT: &str = "#646d76";
     const TEXT: &str = "#e6edf3";
-    let span = |c: &str, b: bool, s: &str| {
-        let weight = if b { "font-weight:700;" } else { "" };
-        format!("<span style=\"color:{c};{weight}\">{s}</span>")
+    const B: &str = "font-weight:700;";
+    const I: &str = "font-style:italic;";
+    let span = |c: &str, extra: &str, s: &str| {
+        format!("<span style=\"color:{c};{extra}\">{s}</span>")
     };
 
-    // (text, color, bold) per cell row. Logo offsets survive the centering:
-    // {:^} biases the extra space right, keeping the three lines' relative
-    // columns exactly as the terminal draws them.
-    let left: [(&str, &str, bool); 10] = [
-        ("", DIM, false),
-        ("Welcome back Jason!", TEXT, true),
-        ("", DIM, false),
-        ("\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}", CLAY, false),
-        ("\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2598}", CLAY, false),
-        ("\u{2598}\u{2598} \u{259d}\u{259d}", CLAY, false),
-        ("", DIM, false),
-        ("Fable 5 with high effort \u{b7} Claude Max", DIM, false),
-        ("~/dev/acme-checkout", FAINT, false),
-        ("", DIM, false),
+    // (text, color, extra css) per cell row. Logo offsets survive the
+    // centering: {:^} biases the extra space right, keeping the three lines'
+    // relative columns exactly as the terminal draws them.
+    let left: [(&str, &str, &str); 10] = [
+        ("", DIM, ""),
+        ("Welcome back Jason!", TEXT, B),
+        ("", DIM, ""),
+        ("\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}", CLAY, ""),
+        ("\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2598}", CLAY, ""),
+        ("\u{2598}\u{2598} \u{259d}\u{259d}", CLAY, ""),
+        ("", DIM, ""),
+        ("Fable 5 with high effort \u{b7} Claude Max", DIM, ""),
+        ("~/dev/acme-checkout", FAINT, ""),
+        ("", DIM, ""),
     ];
     let rule: String = "\u{2500}".repeat(RW);
-    let right: [(&str, &str, bool); 10] = [
-        ("Tips for getting started", TEXT, true),
-        ("Run /init to create a CLAUDE.md file with instructions", DIM, false),
-        ("for Claude", DIM, false),
-        (&rule, FAINT, false),
-        ("What's new", TEXT, true),
-        ("Sub-agents can now spawn their own sub-agents (up to 5", DIM, false),
-        ("levels deep)", DIM, false),
-        ("Fixed Fable 5 model names with a [1m] suffix not being", DIM, false),
-        ("normalized", DIM, false),
-        ("/release-notes for more", DIM, false),
+    let right: [(&str, &str, &str); 10] = [
+        ("Tips for getting started", CLAY, B),
+        ("Run /init to create a CLAUDE.md file with instructions for Claude", DIM, ""),
+        (&rule, FAINT, ""),
+        ("What's new", CLAY, B),
+        ("Fixed Fable 5 model names with a `[1m]` suffix not being normalized", DIM, ""),
+        ("\u{2014} Fable 5 includes 1M context, so the suffix is now stripped", DIM, ""),
+        ("Fixed a spurious \"sandbox dependencies missing\" startup warning on", DIM, ""),
+        ("Windows when sandbox was enabled in settings", DIM, ""),
+        ("Sub-agents can now spawn their own sub-agents (up to 5 levels deep)", DIM, ""),
+        ("/release-notes for more", DIM, I),
     ];
 
-    let total = LW + RW + 7; // │·cell·│·cell·│ → 2 + LW + 3 + RW + 2
     let title = "Claude Code v2.1.173";
     let mut lines = Vec::with_capacity(left.len() + 2);
     lines.push(format!(
-        "{open}{name} {ver} {fill}",
-        open = span(BORDER, false, "\u{256d}\u{2500}\u{2500}\u{2500} "),
-        name = span(TEXT, true, "Claude Code"),
-        ver = span(DIM, false, &title["Claude Code ".len()..]),
+        "{open}{name}{fill}",
+        open = span(BORDER, "", "\u{256d}\u{2500}\u{2500}\u{2500} "),
+        name = span(CLAY, "", title),
         fill = span(
             BORDER,
-            false,
-            &format!("{}\u{256e}", "\u{2500}".repeat(total - title.len() - 7)),
+            "",
+            &format!(" {}\u{256e}", "\u{2500}".repeat(TOTAL - title.len() - 7)),
         ),
     ));
-    for ((lt, lc, lb), (rt, rc, rb)) in left.iter().zip(right.iter()) {
+    for ((lt, lc, lx), (rt, rc, rx)) in left.iter().zip(right.iter()) {
         lines.push(format!(
             "{v} {l} {v} {r} {v}",
-            v = span(BORDER, false, "\u{2502}"),
-            l = span(lc, *lb, &format!("{lt:^LW$}")),
-            r = span(rc, *rb, &format!("{rt:<RW$}")),
+            v = span(BORDER, "", "\u{2502}"),
+            l = span(lc, lx, &format!("{lt:^LW$}")),
+            r = span(rc, rx, &format!("{rt:<RW$}")),
         ));
     }
     lines.push(span(
         BORDER,
-        false,
-        &format!("\u{2570}{}\u{256f}", "\u{2500}".repeat(total - 2)),
+        "",
+        &format!("\u{2570}{}\u{256f}", "\u{2500}".repeat(TOTAL - 2)),
     ));
     lines.join("\n")
 }
