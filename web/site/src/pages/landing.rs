@@ -562,7 +562,13 @@ fn StatuslineDemo() -> Element {
         "font-weight:700;color:{text};white-space:nowrap;",
         text = theme::TEXT,
     );
-    let dots = "display:flex;gap:6px;margin-top:12px;justify-content:center;";
+    let navbtn = format!(
+        "appearance:none;cursor:pointer;background:{raised};border:1px solid {border};\
+         color:{text};border-radius:999px;width:30px;height:30px;line-height:1;font-size:16px;",
+        raised = theme::SURFACE_RAISED,
+        border = theme::BORDER,
+        text = theme::TEXT,
+    );
     rsx! {
         div {
             div { style: "{term}",
@@ -577,17 +583,31 @@ fn StatuslineDemo() -> Element {
                 span { style: "{cap_title}", "{title}" }
                 span { "{caption}" }
             }
-            div { style: "{dots}",
-                for i in 0..n {
-                    button {
-                        style: format!(
-                            "appearance:none;border:none;cursor:pointer;width:8px;height:8px;\
-                             border-radius:50%;padding:0;background:{};",
-                            if i == cur { theme::ACCENT } else { theme::BORDER },
-                        ),
-                        aria_label: "show scenario {i + 1}",
-                        onclick: move |_| idx.set(i),
+            // The same left/right stepper as the desktop slideshow above.
+            div {
+                style: "display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;",
+                button {
+                    style: "{navbtn}", "aria-label": "previous scenario",
+                    onclick: move |_| idx.set((cur + n - 1) % n),
+                    "\u{2039}"
+                }
+                div { style: "display:flex;align-items:center;gap:7px;",
+                    for i in 0..n {
+                        button {
+                            style: format!(
+                                "appearance:none;border:none;cursor:pointer;width:8px;height:8px;\
+                                 border-radius:50%;padding:0;background:{};",
+                                if i == cur { theme::ACCENT } else { theme::BORDER },
+                            ),
+                            aria_label: "show scenario {i + 1}",
+                            onclick: move |_| idx.set(i),
+                        }
                     }
+                }
+                button {
+                    style: "{navbtn}", "aria-label": "next scenario",
+                    onclick: move |_| idx.set((cur + 1) % n),
+                    "\u{203a}"
                 }
             }
         }
