@@ -36,11 +36,14 @@ const BRAND: &str = "\x1b[1;38;5;81mdark\x1b[0m\x1b[38;5;81mrun\x1b[0m";
 
 // Palette (xterm-256). The phase hues double as the design system's semantic
 // accents (see [[darkrun-brand]]).
-const C_SLUG: &str = "1;38;5;255"; // bright white bold — the run slug
+// The slug and passed-track pips use BOLD DEFAULT-FG (no color): the terminal
+// supplies its own theme's strong foreground, so they read on light terminals
+// too — a fixed bright-white (255) disappears on a white background.
+const C_SLUG: &str = "1"; // bold default-fg — the run slug
 const C_FACTORY: &str = "38;5;245"; // grey — the factory (methodology) name
 const C_DONE: &str = "38;5;71"; // green — a completed station pip
 const C_PENDING: &str = "38;5;243"; // dim grey — a pending pip
-const C_TRACK_DONE: &str = "38;5;255"; // bright — a passed phase pip in the track
+const C_TRACK_DONE: &str = "1"; // bold default-fg — a passed phase pip in the track
 const C_DIM: &str = "38;5;240"; // delimiters + the unit aggregate
 const C_SPEC: &str = "38;5;245"; // grey
 const C_REVIEW: &str = "38;5;75"; // blue
@@ -1414,7 +1417,16 @@ mod tests {
         let first = line.split('\n').next().unwrap();
         assert_eq!(first.matches(PIP_DONE).count(), 3, "3 filled track pips: {first}");
         assert_eq!(first.matches(PIP_PENDING).count(), 3, "3 empty track pips: {first}");
-        assert!(first.contains(C_TRACK_DONE), "passed pips are bright: {first}");
+        // Passed pips paint in bold DEFAULT-FG (`ESC[1m▰`) — never a fixed
+        // bright-white, which would vanish on a light terminal.
+        assert!(
+            first.contains(&format!("\x1b[{C_TRACK_DONE}m{PIP_DONE}")),
+            "passed pips are bold default-fg: {first}"
+        );
+        assert!(
+            !first.contains("38;5;255"),
+            "no fixed bright-white on line one (invisible on light terminals): {first}"
+        );
 
         // Gated checkpoint (index 5): five passed + the magenta gate pip, none empty.
         let d2 = tempfile::tempdir().unwrap();
