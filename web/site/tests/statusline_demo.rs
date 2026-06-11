@@ -6,13 +6,30 @@
 const FRAGMENTS: &str = include_str!("../content/statusline-demo.html");
 
 #[test]
-fn all_three_scenarios_are_present() {
+fn all_three_scenarios_are_present_in_both_themes() {
     for key in ["manufacture", "feedback", "gated"] {
         assert!(
             FRAGMENTS.contains(&format!("<!--scenario:{key}-->")),
             "missing scenario {key}"
         );
+        assert!(
+            FRAGMENTS.contains(&format!("<!--scenario:{key}-light-->")),
+            "missing light variant of {key}"
+        );
     }
+}
+
+#[test]
+fn light_variants_deepen_the_washy_accent() {
+    // On a white terminal the cyan accent (256-color 81, #5fd7ff) washes out;
+    // the light fragments carry the deepened accent instead.
+    let light_at = FRAGMENTS.find("<!--scenario:manufacture-light-->").unwrap();
+    let light = &FRAGMENTS[light_at..];
+    assert!(light.contains("#0087af"), "deepened accent in light fragments");
+    assert!(
+        !light.contains("#5fd7ff"),
+        "no washy cyan left in the light fragments"
+    );
 }
 
 #[test]

@@ -278,7 +278,7 @@ fn DesktopSlideshow() -> Element {
 /// left cell centers per line ({:^}), the right cell pads flush ({:<}), so the
 /// column divider and borders land on exact columns instead of hand-counted
 /// spaces.
-fn cc_header_html() -> String {
+fn cc_header_html(light: bool) -> String {
     // The box spans the terminal like the real banner does: at the banner's
     // 12px mono (~7.2px/char) the demo panel's ~851px inner width holds 116
     // columns with a hair of slack — wider would put a scrollbar on the panel.
@@ -286,12 +286,14 @@ fn cc_header_html() -> String {
     const LW: usize = 40; // left cell inner width (centered)
     const RW: usize = TOTAL - LW - 7; // right cell inner width (flush left)
     // The whole box is clay, like the terminal renders it: border and title
-    // in the dimmer weight, the section headings bold-bright.
-    const BORDER: &str = "#b1664c";
-    const CLAY: &str = "#d97757";
-    const DIM: &str = "#9aa4ad";
-    const FAINT: &str = "#646d76";
-    const TEXT: &str = "#e6edf3";
+    // in the dimmer weight, the section headings bold-bright. The light
+    // palette deepens the clay and flips the text the way Claude Code's own
+    // light theme does on a white terminal.
+    let (border, clay, dim, faint, text) = if light {
+        ("#b1664c", "#c15f3c", "#57606a", "#8b949e", "#1f2328")
+    } else {
+        ("#b1664c", "#d97757", "#9aa4ad", "#646d76", "#e6edf3")
+    };
     const B: &str = "font-weight:700;";
     const I: &str = "font-style:italic;";
     let span = |c: &str, extra: &str, s: &str| {
@@ -302,39 +304,39 @@ fn cc_header_html() -> String {
     // centering: {:^} biases the extra space right, keeping the three lines'
     // relative columns exactly as the terminal draws them.
     let left: [(&str, &str, &str); 10] = [
-        ("", DIM, ""),
-        ("Welcome back Jason!", TEXT, B),
-        ("", DIM, ""),
-        ("\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}", CLAY, ""),
-        ("\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2598}", CLAY, ""),
-        ("\u{2598}\u{2598} \u{259d}\u{259d}", CLAY, ""),
-        ("", DIM, ""),
-        ("Fable 5 with high effort \u{b7} Claude Max", DIM, ""),
-        ("~/dev/acme-checkout", FAINT, ""),
-        ("", DIM, ""),
+        ("", dim, ""),
+        ("Welcome back Jason!", text, B),
+        ("", dim, ""),
+        ("\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}", clay, ""),
+        ("\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2598}", clay, ""),
+        ("\u{2598}\u{2598} \u{259d}\u{259d}", clay, ""),
+        ("", dim, ""),
+        ("Fable 5 with high effort \u{b7} Claude Max", dim, ""),
+        ("~/dev/acme-checkout", faint, ""),
+        ("", dim, ""),
     ];
     let rule: String = "\u{2500}".repeat(RW);
     let right: [(&str, &str, &str); 10] = [
-        ("Tips for getting started", CLAY, B),
-        ("Run /init to create a CLAUDE.md file with instructions for Claude", DIM, ""),
-        (&rule, FAINT, ""),
-        ("What's new", CLAY, B),
-        ("Fixed Fable 5 model names with a `[1m]` suffix not being normalized", DIM, ""),
-        ("\u{2014} Fable 5 includes 1M context, so the suffix is now stripped", DIM, ""),
-        ("Fixed a spurious \"sandbox dependencies missing\" startup warning on", DIM, ""),
-        ("Windows when sandbox was enabled in settings", DIM, ""),
-        ("Sub-agents can now spawn their own sub-agents (up to 5 levels deep)", DIM, ""),
-        ("/release-notes for more", DIM, I),
+        ("Tips for getting started", clay, B),
+        ("Run /init to create a CLAUDE.md file with instructions for Claude", dim, ""),
+        (&rule, faint, ""),
+        ("What's new", clay, B),
+        ("Fixed Fable 5 model names with a `[1m]` suffix not being normalized", dim, ""),
+        ("\u{2014} Fable 5 includes 1M context, so the suffix is now stripped", dim, ""),
+        ("Fixed a spurious \"sandbox dependencies missing\" startup warning on", dim, ""),
+        ("Windows when sandbox was enabled in settings", dim, ""),
+        ("Sub-agents can now spawn their own sub-agents (up to 5 levels deep)", dim, ""),
+        ("/release-notes for more", dim, I),
     ];
 
     let title = "Claude Code v2.1.173";
     let mut lines = Vec::with_capacity(left.len() + 2);
     lines.push(format!(
         "{open}{name}{fill}",
-        open = span(BORDER, "", "\u{256d}\u{2500}\u{2500}\u{2500} "),
-        name = span(CLAY, "", title),
+        open = span(border, "", "\u{256d}\u{2500}\u{2500}\u{2500} "),
+        name = span(clay, "", title),
         fill = span(
-            BORDER,
+            border,
             "",
             &format!(" {}\u{256e}", "\u{2500}".repeat(TOTAL - title.len() - 7)),
         ),
@@ -342,13 +344,13 @@ fn cc_header_html() -> String {
     for ((lt, lc, lx), (rt, rc, rx)) in left.iter().zip(right.iter()) {
         lines.push(format!(
             "{v} {l} {v} {r} {v}",
-            v = span(BORDER, "", "\u{2502}"),
+            v = span(border, "", "\u{2502}"),
             l = span(lc, lx, &format!("{lt:^LW$}")),
             r = span(rc, rx, &format!("{rt:<RW$}")),
         ));
     }
     lines.push(span(
-        BORDER,
+        border,
         "",
         &format!("\u{2570}{}\u{256f}", "\u{2500}".repeat(TOTAL - 2)),
     ));
@@ -501,15 +503,21 @@ fn Quickstart() -> Element {
         ),
     };
 
+    // The block is a terminal, like the statusline demo's panel: black on the
+    // dark theme, white on the light one (.dr-qs-block, theme-keyed rules).
     let block = format!(
-        "background:{sink};border:1px solid {border};border-radius:10px;padding:18px 20px;\
-         font-family:{mono};font-size:13.5px;line-height:1.7;color:{text};overflow-x:auto;\
+        "border-radius:10px;padding:18px 20px;\
+         font-family:{mono};font-size:13.5px;line-height:1.7;overflow-x:auto;\
          white-space:pre;margin:0;",
-        sink = theme::SURFACE_BASE,
-        border = theme::BORDER,
         mono = tokens::FONT_MONO,
-        text = theme::TEXT,
     );
+    const QS_CSS: &str = r#"
+.dr-qs-block{background:#0b0e13;border:1px solid #232a33;color:#c9d1d9;}
+:root[data-theme="light"] .dr-qs-block{background:#ffffff;border-color:#d0d7de;color:#1f2328;}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]) .dr-qs-block{background:#ffffff;border-color:#d0d7de;color:#1f2328;}
+}
+"#;
     let seg_wrap = format!(
         "display:inline-flex;flex-wrap:wrap;gap:3px;border:1px solid {border};\
          border-radius:999px;padding:3px;background:{raised};",
@@ -548,7 +556,8 @@ fn Quickstart() -> Element {
                 }
             }
         }
-        pre { style: "{block}", "{code}" }
+        style { "{QS_CSS}" }
+        pre { class: "dr-qs-block", style: "{block}", "{code}" }
         p { style: "{note}",
             "The manager scaffolds a right-sized run and walks the line; you review in the "
             "desktop app (Claude Code) or inline. Full per-harness setup and capabilities in "
@@ -579,14 +588,55 @@ mod tests {
     }
 }
 
+/// The terminal panel's theme-keyed chrome: a dark terminal on the dark site
+/// theme, a light (Terminal.app-style) one on the light theme. The statusline
+/// fragments themselves are theme-safe — chips carry their own boxes, hues are
+/// palette-fixed, and the slug/pips paint in default-fg, which `.dr-sl-line`'s
+/// `color` supplies per theme exactly like a real terminal would. Only the
+/// banner needs a per-theme render (`cc_header_html(light)`), toggled via the
+/// shared `.dr-themed-*` classes.
+const SL_CSS: &str = r#"
+.dr-sl-term{background:#0b0e13;border:1px solid #232a33;border-radius:10px;padding:14px 16px 12px;overflow-x:auto;}
+.dr-sl-banner{margin:0 0 12px;font:12px/1.2 'JetBrains Mono','SF Mono',Menlo,monospace;white-space:pre;}
+.dr-sl-line{margin:0;font:13px/1.7 'JetBrains Mono','SF Mono',Menlo,monospace;color:#c9d1d9;white-space:pre;}
+.dr-sl-prompt{display:flex;align-items:baseline;gap:9px;border:1px solid #2f3742;border-radius:8px;padding:8px 12px;margin-bottom:7px;font:13px/1.5 'JetBrains Mono','SF Mono',Menlo,monospace;}
+.dr-sl-mark{color:#8b949e;}
+.dr-sl-hint{color:#58606a;font-style:italic;}
+:root[data-theme="light"] .dr-sl-term{background:#ffffff;border-color:#d0d7de;}
+:root[data-theme="light"] .dr-sl-line{color:#1f2328;}
+:root[data-theme="light"] .dr-sl-prompt{border-color:#d0d7de;}
+:root[data-theme="light"] .dr-sl-mark{color:#57606a;}
+:root[data-theme="light"] .dr-sl-hint{color:#8b949e;}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]) .dr-sl-term{background:#ffffff;border-color:#d0d7de;}
+  :root:not([data-theme="dark"]) .dr-sl-line{color:#1f2328;}
+  :root:not([data-theme="dark"]) .dr-sl-prompt{border-color:#d0d7de;}
+  :root:not([data-theme="dark"]) .dr-sl-mark{color:#57606a;}
+  :root:not([data-theme="dark"]) .dr-sl-hint{color:#8b949e;}
+}
+"#;
+
 /// The status line, rendered by the REAL engine renderer. The fragments are
 /// generated from seeded run state by `gen_statusline_demo_html` (darkrun-cli)
 /// and committed at `content/statusline-demo.html` — this component never
-/// hand-fakes a chip. The panel is a terminal: it stays dark in both themes.
+/// hand-fakes a chip. The terminal panel follows the site theme (see
+/// [`SL_CSS`]): dark terminal on dark, light terminal on light.
 #[component]
 fn StatuslineDemo() -> Element {
     const FRAGMENTS: &str = include_str!("../../content/statusline-demo.html");
-    let scenarios: Vec<(&str, &str, &str)> = {
+    // Pull one fragment per `<!--scenario:KEY-->` marker.
+    let frag = |key: &str| -> &'static str {
+        let marker = format!("<!--scenario:{key}-->");
+        FRAGMENTS
+            .find(&marker)
+            .map(|at| {
+                let rest = &FRAGMENTS[at + marker.len()..];
+                let end = rest.find("<!--scenario:").unwrap_or(rest.len());
+                rest[..end].trim()
+            })
+            .unwrap_or("")
+    };
+    let scenarios: Vec<(&str, &str, &str, &str)> = {
         let mut out = Vec::new();
         let metas = [
             (
@@ -606,11 +656,13 @@ fn StatuslineDemo() -> Element {
             ),
         ];
         for (key, title, caption) in metas {
-            let marker = format!("<!--scenario:{key}-->");
-            if let Some(at) = FRAGMENTS.find(&marker) {
-                let rest = &FRAGMENTS[at + marker.len()..];
-                let end = rest.find("<!--scenario:").unwrap_or(rest.len());
-                out.push((title, caption, rest[..end].trim()));
+            let dark = frag(key);
+            if !dark.is_empty() {
+                // The light variant deepens the accent hues for a white
+                // terminal; fall back to the dark render if absent.
+                let light_frag = frag(&format!("{key}-light"));
+                let light = if light_frag.is_empty() { dark } else { light_frag };
+                out.push((title, caption, dark, light));
             }
         }
         out
@@ -619,29 +671,17 @@ fn StatuslineDemo() -> Element {
     // Manual stepping, like the desktop slideshow above — the visitor drives.
     let mut idx = use_signal(|| 0usize);
     let cur = idx().min(n.saturating_sub(1));
-    let Some((title, caption, html)) = scenarios.get(cur).copied() else {
+    let Some((title, caption, html_dark, html_light)) = scenarios.get(cur).copied() else {
         return rsx! {};
     };
 
-    let term = format!(
-        "background:#0b0e13;border:1px solid #232a33;border-radius:10px;\
-         padding:14px 16px 12px;overflow-x:auto;",
-    );
-    let line = "margin:0;font:13px/1.7 'JetBrains Mono','SF Mono',Menlo,monospace;\
-                color:#c9d1d9;white-space:pre;";
-    // Claude Code chrome: the rounded input box the status line lives under,
-    // so the line reads in situ rather than floating in a bare terminal.
-    let promptbox = "display:flex;align-items:baseline;gap:9px;\
-                     border:1px solid #2f3742;border-radius:8px;\
-                     padding:8px 12px;margin-bottom:7px;\
-                     font:13px/1.5 'JetBrains Mono','SF Mono',Menlo,monospace;";
     // Claude Code's boxed session-start banner. Terminal text is a character
     // grid: the box is composed column-exact in `cc_header_html`, and the pre
-    // gets a tight line-height so the logo's block glyphs stack the way a
-    // terminal cell grid renders them.
-    let header_line = "margin:0 0 12px;font:12px/1.2 'JetBrains Mono','SF Mono',Menlo,monospace;\
-                       color:#c9d1d9;white-space:pre;";
-    let header_html = cc_header_html();
+    // gets a tight line-height (`.dr-sl-banner`) so the logo's block glyphs
+    // stack the way a terminal cell grid renders them. One render per theme,
+    // toggled by the shared `.dr-themed-*` classes.
+    let header_dark = cc_header_html(false);
+    let header_light = cc_header_html(true);
     let head = format!(
         "display:flex;align-items:center;gap:7px;margin-bottom:10px;",
     );
@@ -665,23 +705,33 @@ fn StatuslineDemo() -> Element {
     );
     rsx! {
         div {
-            div { style: "{term}",
+            style { "{SL_CSS}" }
+            div { class: "dr-sl-term",
                 div { style: "{head}",
                     span { style: dot("#ff5f57") }
                     span { style: dot("#febc2e") }
                     span { style: dot("#28c840") }
                 }
                 pre {
-                    style: "{header_line}",
-                    dangerous_inner_html: "{header_html}",
+                    class: "dr-sl-banner dr-themed-dark",
+                    dangerous_inner_html: "{header_dark}",
                 }
-                div { style: "{promptbox}",
-                    span { style: "color:#8b949e;", ">" }
-                    span { style: "color:#58606a;font-style:italic;",
-                        "Try \"darkrun resume\""
-                    }
+                pre {
+                    class: "dr-sl-banner dr-themed-light",
+                    dangerous_inner_html: "{header_light}",
                 }
-                pre { style: "{line}", dangerous_inner_html: "{html}" }
+                div { class: "dr-sl-prompt",
+                    span { class: "dr-sl-mark", ">" }
+                    span { class: "dr-sl-hint", "Try \"darkrun resume\"" }
+                }
+                pre {
+                    class: "dr-sl-line dr-themed-dark",
+                    dangerous_inner_html: "{html_dark}",
+                }
+                pre {
+                    class: "dr-sl-line dr-themed-light",
+                    dangerous_inner_html: "{html_light}",
+                }
             }
             div { style: "{cap}",
                 span { style: "{cap_title}", "{title}" }
