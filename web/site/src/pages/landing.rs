@@ -270,6 +270,86 @@ fn DesktopSlideshow() -> Element {
     }
 }
 
+/// Claude Code's boxed session-start banner, composed for the demo's fiction
+/// (the `checkout-flow` run in `~/dev/acme-checkout`). Pure presentation
+/// chrome — the status line beneath it stays a real engine render.
+///
+/// Composed programmatically because terminal text is a character grid: the
+/// left cell centers per line ({:^}), the right cell pads flush ({:<}), so the
+/// column divider and borders land on exact columns instead of hand-counted
+/// spaces.
+fn cc_header_html() -> String {
+    const LW: usize = 40; // left cell inner width (centered)
+    const RW: usize = 60; // right cell inner width (flush left)
+    const BORDER: &str = "#3d444d";
+    const DIM: &str = "#8b949e";
+    const FAINT: &str = "#58606a";
+    const CLAY: &str = "#d97757";
+    const TEXT: &str = "#e6edf3";
+    let span = |c: &str, b: bool, s: &str| {
+        let weight = if b { "font-weight:700;" } else { "" };
+        format!("<span style=\"color:{c};{weight}\">{s}</span>")
+    };
+
+    // (text, color, bold) per cell row. Logo offsets survive the centering:
+    // {:^} biases the extra space right, keeping the three lines' relative
+    // columns exactly as the terminal draws them.
+    let left: [(&str, &str, bool); 10] = [
+        ("", DIM, false),
+        ("Welcome back Jason!", TEXT, true),
+        ("", DIM, false),
+        ("\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}", CLAY, false),
+        ("\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2598}", CLAY, false),
+        ("\u{2598}\u{2598} \u{259d}\u{259d}", CLAY, false),
+        ("", DIM, false),
+        ("Fable 5 with high effort \u{b7} Claude Max", DIM, false),
+        ("~/dev/acme-checkout", FAINT, false),
+        ("", DIM, false),
+    ];
+    let rule: String = "\u{2500}".repeat(RW);
+    let right: [(&str, &str, bool); 10] = [
+        ("Tips for getting started", TEXT, true),
+        ("Run /init to create a CLAUDE.md file with instructions", DIM, false),
+        ("for Claude", DIM, false),
+        (&rule, FAINT, false),
+        ("What's new", TEXT, true),
+        ("Sub-agents can now spawn their own sub-agents (up to 5", DIM, false),
+        ("levels deep)", DIM, false),
+        ("Fixed Fable 5 model names with a [1m] suffix not being", DIM, false),
+        ("normalized", DIM, false),
+        ("/release-notes for more", DIM, false),
+    ];
+
+    let total = LW + RW + 7; // │·cell·│·cell·│ → 2 + LW + 3 + RW + 2
+    let title = "Claude Code v2.1.173";
+    let mut lines = Vec::with_capacity(left.len() + 2);
+    lines.push(format!(
+        "{open}{name} {ver} {fill}",
+        open = span(BORDER, false, "\u{256d}\u{2500}\u{2500}\u{2500} "),
+        name = span(TEXT, true, "Claude Code"),
+        ver = span(DIM, false, &title["Claude Code ".len()..]),
+        fill = span(
+            BORDER,
+            false,
+            &format!("{}\u{256e}", "\u{2500}".repeat(total - title.len() - 7)),
+        ),
+    ));
+    for ((lt, lc, lb), (rt, rc, rb)) in left.iter().zip(right.iter()) {
+        lines.push(format!(
+            "{v} {l} {v} {r} {v}",
+            v = span(BORDER, false, "\u{2502}"),
+            l = span(lc, *lb, &format!("{lt:^LW$}")),
+            r = span(rc, *rb, &format!("{rt:<RW$}")),
+        ));
+    }
+    lines.push(span(
+        BORDER,
+        false,
+        &format!("\u{2570}{}\u{256f}", "\u{2500}".repeat(total - 2)),
+    ));
+    lines.join("\n")
+}
+
 /// The software factory's own declared station names, in pipeline order.
 ///
 /// Sourced from the embedded corpus so the landing line is genuinely *that
@@ -550,6 +630,13 @@ fn StatuslineDemo() -> Element {
                      border:1px solid #2f3742;border-radius:8px;\
                      padding:8px 12px;margin-bottom:7px;\
                      font:13px/1.5 'JetBrains Mono','SF Mono',Menlo,monospace;";
+    // Claude Code's boxed session-start banner. Terminal text is a character
+    // grid: the box is composed column-exact in `cc_header_html`, and the pre
+    // gets a tight line-height so the logo's block glyphs stack the way a
+    // terminal cell grid renders them.
+    let header_line = "margin:0 0 12px;font:12px/1.2 'JetBrains Mono','SF Mono',Menlo,monospace;\
+                       color:#c9d1d9;white-space:pre;";
+    let header_html = cc_header_html();
     let head = format!(
         "display:flex;align-items:center;gap:7px;margin-bottom:10px;",
     );
@@ -578,6 +665,10 @@ fn StatuslineDemo() -> Element {
                     span { style: dot("#ff5f57") }
                     span { style: dot("#febc2e") }
                     span { style: dot("#28c840") }
+                }
+                pre {
+                    style: "{header_line}",
+                    dangerous_inner_html: "{header_html}",
                 }
                 div { style: "{promptbox}",
                     span { style: "color:#8b949e;", ">" }
