@@ -1,6 +1,6 @@
 {
   "name": "@darkrun/win32-x64",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "darkrun native binary for Windows (x86_64).",
   "license": "FSL-1.1-ALv2",
   "repository": "https://github.com/darkrun-ai/darkrun",

@@ -2,6 +2,25 @@
 
 All notable changes to darkrun are recorded here. Versions follow semver.
 
+## [0.4.0](https://github.com/darkrun-ai/darkrun/compare/v0.3.0...v0.4.0) (2026-06-11)
+
+
+### Features
+
+* **site:** Claude Code's boxed session-start banner on the statusline demo ([5963c7c](https://github.com/darkrun-ai/darkrun/commit/5963c7c89fd95d6b2d7c3a7dc24805c1dddce74c))
+* **site:** left/right stepper on the statusline demo ([d9c1c07](https://github.com/darkrun-ai/darkrun/commit/d9c1c074ddb331a7c8cf9fbe874e615ab763af40))
+* **site:** left/right stepper on the statusline demo ([#50](https://github.com/darkrun-ai/darkrun/issues/50)) ([27dcedf](https://github.com/darkrun-ai/darkrun/commit/27dcedf7314f1228418af0734b75222ea4319f04))
+* **site:** render the statusline demo in situ, under Claude Code's prompt box ([6c42eab](https://github.com/darkrun-ai/darkrun/commit/6c42eab09a1f759b7ed58c46915b69e58107a3d0))
+* **site:** the terminal panels follow the site theme ([4752490](https://github.com/darkrun-ai/darkrun/commit/47524906b4debf190be78ce582589ab82683ed37))
+
+
+### Bug Fixes
+
+* **site:** clay banner box, sized to the panel ([50fb85d](https://github.com/darkrun-ai/darkrun/commit/50fb85d60ed5400e1956dd7b6b5e188f52f6ade7))
+* **site:** statusline stepper dots use the shared accent pill; drop the redundant slideshow slide ([eea29bd](https://github.com/darkrun-ai/darkrun/commit/eea29bd6b26f5f4d64a98f511872a9036acd35dc))
+* **statusline:** read on light terminals — bold default-fg for slug and passed pips ([73be50f](https://github.com/darkrun-ai/darkrun/commit/73be50f3d28598ea2b1e742aee4e7e4e4aa03dd9))
+* **ui:** saturate the tab count pill at 99+ ([8f5588a](https://github.com/darkrun-ai/darkrun/commit/8f5588a6b0310defe1f3421765ed476e5d89d19b))
+
 ## [0.3.0](https://github.com/darkrun-ai/darkrun/compare/v0.2.1...v0.3.0) (2026-06-11)
 
 
