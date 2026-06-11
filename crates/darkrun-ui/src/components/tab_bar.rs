@@ -113,8 +113,9 @@ pub fn TabBar(
                                          border-radius:999px;padding:1px 7px;line-height:1.4;",
                                         mono = tokens::FONT_MONO,
                                     );
+                                    let shown = count_display(n);
                                     rsx! {
-                                        span { class: "dr-tab-count", style: "{pill}", "{n}" }
+                                        span { class: "dr-tab-count", style: "{pill}", "{shown}" }
                                     }
                                 }
                             }
@@ -124,6 +125,12 @@ pub fn TabBar(
             }
         }
     }
+}
+
+/// Past 99 the exact number stops informing and starts stretching the tab
+/// bar — saturate the pill at `99+`.
+fn count_display(n: u32) -> String {
+    if n > 99 { "99+".to_string() } else { n.to_string() }
 }
 
 #[cfg(test)]
@@ -150,5 +157,13 @@ mod tests {
         let t = TabItem::with_count("knowledge", "Knowledge", 2);
         assert_eq!(t.id, "knowledge");
         assert_eq!(t.label, "Knowledge");
+    }
+
+    #[test]
+    fn count_pill_saturates_at_99() {
+        assert_eq!(count_display(0), "0");
+        assert_eq!(count_display(99), "99");
+        assert_eq!(count_display(100), "99+");
+        assert_eq!(count_display(4729), "99+");
     }
 }
