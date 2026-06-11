@@ -191,12 +191,8 @@ fn DesktopSlideshow() -> Element {
             asset!("/assets/desktop-browser.png"),
             asset!("/assets/desktop-browser-light.png"),
         ),
-        (
-            "The status line",
-            "Meanwhile in your terminal: position, phase-track pips, and a live second line of unit, feedback, or reviewer chips — real renders from the engine.",
-            asset!("/assets/desktop-statusline.png"),
-            asset!("/assets/desktop-statusline-light.png"),
-        ),
+        // The status line gets its own live-render demo section below, so it
+        // no longer rides this slideshow as a screenshot.
     ];
     let n = slides.len();
     let mut idx = use_signal(|| 0usize);
@@ -605,13 +601,12 @@ fn StatuslineDemo() -> Element {
                 }
                 div { style: "display:flex;align-items:center;gap:7px;",
                     for i in 0..n {
+                        // Same classed dots as the desktop slideshow: the active
+                        // scenario is the wide accent pill (.dr-dot/.is-active).
                         button {
-                            style: format!(
-                                "appearance:none;border:none;cursor:pointer;width:8px;height:8px;\
-                                 border-radius:50%;padding:0;background:{};",
-                                if i == cur { theme::ACCENT } else { theme::BORDER },
-                            ),
-                            aria_label: "show scenario {i + 1}",
+                            class: if i == cur { "dr-dot is-active" } else { "dr-dot" },
+                            "aria-label": "show scenario {i + 1}",
+                            "aria-current": if i == cur { "true" } else { "false" },
                             onclick: move |_| idx.set(i),
                         }
                     }
