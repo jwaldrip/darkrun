@@ -1,6 +1,6 @@
 {
   "name": "@darkrun/linux-x64",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "darkrun native binary for Linux (x86_64).",
   "license": "FSL-1.1-ALv2",
   "repository": "https://github.com/darkrun-ai/darkrun",

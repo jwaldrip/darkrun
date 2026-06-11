@@ -2,6 +2,34 @@
 
 All notable changes to darkrun are recorded here. Versions follow semver.
 
+## [0.3.0](https://github.com/darkrun-ai/darkrun/compare/v0.2.1...v0.3.0) (2026-06-11)
+
+
+### Features
+
+* **desktop:** live per-tick session mirror ([a9f565d](https://github.com/darkrun-ai/darkrun/commit/a9f565d50819a71fb1d0546bab096ff24fbb7ccf))
+* **desktop:** live per-tick session mirror ([#46](https://github.com/darkrun-ai/darkrun/issues/46)) ([ac76fe0](https://github.com/darkrun-ai/darkrun/commit/ac76fe085336010beaca96fc4258f94fe2741e6e))
+* **engine:** composite runs — multi-factory topology with sync points ([adcfef6](https://github.com/darkrun-ai/darkrun/commit/adcfef68e6c9bf7aeef5dc6022835ef59573f50d))
+* **engine:** reject-escalation up the model ladder ([4b7ce33](https://github.com/darkrun-ai/darkrun/commit/4b7ce33cbf4ee9cc80d4b09adc1a1b4bf7a6b31a))
+* **engine:** reject-escalation up the model ladder ([#49](https://github.com/darkrun-ai/darkrun/issues/49)) ([b63792b](https://github.com/darkrun-ai/darkrun/commit/b63792bda5c2c6fa477d9c5787b0e4a56c2ee60c))
+* **engine:** save_wip clean-tree gate + unit-scope enforcement at completion ([603c106](https://github.com/darkrun-ai/darkrun/commit/603c1069e2e47241049ac71a184c0a4478a185c2))
+* **engine:** session-event stream + OTLP telemetry export ([17873e5](https://github.com/darkrun-ai/darkrun/commit/17873e5c66eab59f5b00c89b4eb409919473e661))
+* **engine:** station drop — the keep-or-drop offer at arrival ([e55f7fb](https://github.com/darkrun-ai/darkrun/commit/e55f7fb008c73455506eb85685894e0cee264876))
+* **factory:** runtime-verifier run reviewer (the predecessor's strongest gate) ([08d8e45](https://github.com/darkrun-ai/darkrun/commit/08d8e45b0775e60ce7aae045bab3cfe73d4e3602))
+* **hosting:** run-level draft PR with ready-at-seal flip + compare-URL fallback ([08d8e45](https://github.com/darkrun-ai/darkrun/commit/08d8e45b0775e60ce7aae045bab3cfe73d4e3602))
+* **providers:** behavior contracts spliced into prompts + schema-validated settings ([99f2687](https://github.com/darkrun-ai/darkrun/commit/99f26873b330f51073d6ac25c35c5989fdf87da6))
+* **site+desktop:** refreshed desktop screenshots + the harness that makes them reproducible ([7df1a90](https://github.com/darkrun-ai/darkrun/commit/7df1a90642ed6604aafd612242bfc311dde9b5a8))
+* **site:** docs search + JSON-LD structured data ([3e0ceaa](https://github.com/darkrun-ai/darkrun/commit/3e0ceaa93691d2bda46a6bbd0b44df8a81f5c1ea))
+* **statusline+site:** phase-track pips + the status line on the website + the fable tier ([5a7ae9a](https://github.com/darkrun-ai/darkrun/commit/5a7ae9ac7af4421911b2c84a97f80bcb0da48286))
+
+
+### Bug Fixes
+
+* **api:** make openapi.json a fixed point of release-please's rewrite ([f3bbf95](https://github.com/darkrun-ai/darkrun/commit/f3bbf957a4ae51d0746dfed79006678250a596e0))
+* **api:** make openapi.json a fixed point of release-please's rewrite ([#42](https://github.com/darkrun-ai/darkrun/issues/42)) ([c964465](https://github.com/darkrun-ai/darkrun/commit/c96446584c9e1c5f84953ec92df57a909e4999a1))
+* **desktop:** project identity self-heal, --worktree launch, choosable clone path ([c0efbbf](https://github.com/darkrun-ai/darkrun/commit/c0efbbf82d718677187fde831bf26e79a791bcb6))
+* **site:** make the feed-date suggestions compile + emit valid formats ([88f4061](https://github.com/darkrun-ai/darkrun/commit/88f40619b36a4df2f03515140385072dba8dc2b6))
+
 ## [0.2.1](https://github.com/darkrun-ai/darkrun/compare/v0.2.0...v0.2.1) (2026-06-08)
 
 
