@@ -49,8 +49,15 @@ pub use net::{ensure_noninteractive, network_deadline, with_deadline};
 /// registry keys projects on — every worktree of a repo is ONE project.
 pub fn project_root_of(path: &std::path::Path) -> std::path::PathBuf {
     if let Ok(repo) = gix::open(path) {
-        let git_dir = repo.git_dir().to_path_buf();
-        let common = repo.common_dir().to_path_buf();
+        // gix reports the common dir as recorded in the worktree's `commondir`
+        // file, which is usually RELATIVE — e.g. `<git_dir>/../..`. Normalize
+        // the dot-dots LEXICALLY before comparing or taking a parent:
+        // `PathBuf::parent` strips components textually, so on an
+        // un-normalized `…/worktrees/<name>/../..` it fabricates a bogus root
+        // (`…/worktrees/<name>/..`) — which registered every worktree as its
+        // own project instead of grouping it under the repo.
+        let git_dir = normalize_dots(repo.git_dir());
+        let common = normalize_dots(repo.common_dir().as_ref());
         if git_dir != common {
             if let Some(main) = common.parent() {
                 return main.to_path_buf();
@@ -61,6 +68,24 @@ pub fn project_root_of(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     path.to_path_buf()
+}
+
+/// Lexically resolve `.` / `..` components. No filesystem access and no
+/// symlink resolution, so the result stays textually comparable with the raw
+/// paths callers hash for project identity.
+fn normalize_dots(p: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
 }
 // `has_no_merge_debt` + `is_merge_in_progress` are defined below in this module.
 

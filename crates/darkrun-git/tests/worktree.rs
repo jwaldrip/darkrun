@@ -2529,3 +2529,37 @@ fn gix_diff_unified_matches_git_shape() {
     let index_line = git_diff.lines().find(|l| l.starts_with("index ")).unwrap();
     assert!(diff.contains(index_line), "index line matches git: want `{index_line}` in\n{diff}");
 }
+
+// ---------------------------------------------------------------------------
+// project_root_of — project identity across worktrees
+// ---------------------------------------------------------------------------
+
+/// A linked worktree resolves to the MAIN checkout's working dir — textually
+/// equal to the raw main path (no `..` residue, no symlink rewriting), since
+/// the discovery registry hashes this path for project identity. Regression:
+/// gix reports the common dir as `<git_dir>/../..`, and an un-normalized
+/// lexical `parent()` fabricated a bogus root, registering every worktree as
+/// its own project in the desktop sidebar.
+#[test]
+fn project_root_of_maps_a_linked_worktree_to_the_main_checkout() {
+    let (_keep, root) = init_repo();
+    // git records REAL paths in the worktree's gitdir/commondir files, so
+    // compare canonicalized (macOS tempdirs live behind the /var symlink).
+    let root = root.canonicalize().expect("canonical repo root");
+    let wt = root.join(".claude").join("worktrees").join("breezy");
+    git(&root, &["worktree", "add", "-q", "-b", "wt-breezy", wt.to_str().unwrap()]);
+
+    let resolved = darkrun_git::project_root_of(&wt);
+    assert_eq!(resolved, root, "worktree resolves to the main checkout");
+    assert!(
+        !resolved.to_string_lossy().contains(".."),
+        "no dot-dot residue: {resolved:?}"
+    );
+
+    // The main checkout maps to itself; a non-repo dir passes through
+    // untouched (gix::open does not discover upward — callers hand this
+    // function checkout roots).
+    assert_eq!(darkrun_git::project_root_of(&root), root);
+    let plain = root.join(".claude");
+    assert_eq!(darkrun_git::project_root_of(&plain), plain);
+}
