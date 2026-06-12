@@ -1354,17 +1354,7 @@ impl DarkrunServer {
         // The desktop is the only interactive surface darkrun drives. The
         // structured state is returned too, for the agent.
         let _ = crate::sessions::create_show(&self.sessions, &store, &slug);
-        // F5: treat a recently-dropped app as still present (grace window) so a
-        // backgrounded tab or a network blip doesn't respawn the desktop.
-        let desktop = if self.sessions.presence().is_present() {
-            // A desktop is connected (or within the grace window); its home
-            // poller navigates to the run.
-            serde_json::json!({ "status": "connected" })
-        } else if let Some(addr) = self.announced_addr {
-            self.launch_desktop(addr.port(), &slug)
-        } else {
-            serde_json::json!({ "status": "no_engine_port" })
-        };
+        let desktop = self.surface_desktop(&slug);
         ok_json(&serde_json::json!({
             "run": run,
             "state": state,
@@ -1388,6 +1378,38 @@ impl DarkrunServer {
         params: Parameters<RunShowRef>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         self.darkrun_run_inspect(params)
+    }
+
+    /// Surface the desktop for `slug`: reuse a connected app, else launch one
+    /// pointed at the run. F5: presence carries a grace window, so a
+    /// backgrounded window or a network blip doesn't respawn the desktop.
+    fn surface_desktop(&self, slug: &str) -> serde_json::Value {
+        if self.sessions.presence().is_present() {
+            // A desktop is connected (or within the grace window); the live
+            // mirror pushes the raised session to it.
+            serde_json::json!({ "status": "connected" })
+        } else if let Some(addr) = self.announced_addr {
+            self.launch_desktop(addr.port(), slug)
+        } else {
+            serde_json::json!({ "status": "no_engine_port" })
+        }
+    }
+
+    /// Return an awaiting-session handle with the desktop surface status
+    /// merged in. Every gate that waits on the operator goes through this: a
+    /// raised session nobody can see is a hang, so raising one launches the
+    /// desktop when it isn't already connected.
+    fn ok_awaiting_surfaced<T: serde::Serialize>(
+        &self,
+        slug: &str,
+        awaiting: &T,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let desktop = self.surface_desktop(slug);
+        let mut v = serde_json::to_value(awaiting).unwrap_or(serde_json::Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("desktop".to_string(), desktop);
+        }
+        ok_json(&v)
     }
 
     /// Launch the desktop app pointed at `slug` over the engine's announced
@@ -2582,7 +2604,7 @@ impl DarkrunServer {
             input.multi_select,
             input.image_urls,
         ) {
-            Ok(awaiting) => ok_json(&awaiting),
+            Ok(awaiting) => self.ok_awaiting_surfaced(&input.slug, &awaiting),
             Err(e) => Ok(err_text(e)),
         }
     }
@@ -2634,7 +2656,7 @@ impl DarkrunServer {
             input.context,
             archetypes,
         ) {
-            Ok(awaiting) => ok_json(&awaiting),
+            Ok(awaiting) => self.ok_awaiting_surfaced(&input.slug, &awaiting),
             Err(e) => Ok(err_text(e)),
         }
     }
@@ -2688,7 +2710,7 @@ impl DarkrunServer {
             &input.prompt,
             options,
         ) {
-            Ok(awaiting) => ok_json(&awaiting),
+            Ok(awaiting) => self.ok_awaiting_surfaced(&input.slug, &awaiting),
             Err(e) => Ok(err_text(e)),
         }
     }

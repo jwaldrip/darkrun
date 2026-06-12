@@ -5629,6 +5629,10 @@ fn question_tool_creates_awaiting_session() {
     assert_eq!(v["awaiting_answer"], true);
     assert_eq!(v["session_path"], "/api/session/q-01");
     assert_eq!(v["ws_path"], "/ws/session/q-01");
+    // Raising a gate SURFACES the desktop: the response always reports how
+    // (connected / launched / no_engine_port) — a session nobody can see is a
+    // hang. No engine port is announced in tests, so no app spawns.
+    assert_eq!(v["desktop"]["status"], "no_engine_port");
 }
 
 #[test]
