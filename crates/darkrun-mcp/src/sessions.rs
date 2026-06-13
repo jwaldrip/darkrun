@@ -422,10 +422,83 @@ pub fn create_question(
 ///     still routes to `q-NN`;
 ///   - the `current` focus pointer (a minimal review naming the run) makes the
 ///     home screen NAVIGATE to the run if the desktop isn't already on it.
-fn surface_interactive(registry: &SessionRegistry, run: &str, payload: SessionPayload) {
+pub(crate) fn surface_interactive(registry: &SessionRegistry, run: &str, payload: SessionPayload) {
     registry.upsert(payload.clone());
     registry.upsert_under(run, payload);
     registry.upsert_under(CURRENT_SESSION, focus_pointer(run));
+}
+
+/// Raise (idempotently) the setup picker for one run-creation selection —
+/// factory, mode, or size — so the operator chooses it visually in the desktop,
+/// the way the predecessor surfaced studio/mode selection. The session id is
+/// stable per `(slug, kind)` so re-raising on each tick upserts the same
+/// session rather than spawning duplicates. The answer (routed back to this id)
+/// writes the choice onto the run's `pending.json` (see the picker handler).
+///
+/// Idempotent and engine-driven: both `darkrun_run_new`/`darkrun_advance` and
+/// the post-answer re-surface hook call this to keep the chain moving.
+pub(crate) fn raise_setup_picker(registry: &SessionRegistry, slug: &str, title: Option<&str>, kind: &str) {
+    use darkrun_api::session::{PickerKind, PickerOption};
+    let opt = |id: &str, label: &str, desc: &str| PickerOption {
+        id: id.to_string(),
+        label: label.to_string(),
+        description: Some(desc.to_string()),
+        secondary: None,
+    };
+    let (pk, prompt, options) = match kind {
+        "factory" => (
+            PickerKind::Factory,
+            "Which factory should drive this run?".to_string(),
+            crate::factory::list_factories()
+                .into_iter()
+                .map(|f| {
+                    let stations = f
+                        .stations
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(" \u{2192} ");
+                    PickerOption {
+                        id: f.name.clone(),
+                        label: f.name.clone(),
+                        description: (!stations.is_empty()).then_some(stations),
+                        secondary: None,
+                    }
+                })
+                .collect(),
+        ),
+        "mode" => (
+            PickerKind::Mode,
+            "Which review mode? (how much oversight the work needs)".to_string(),
+            vec![
+                opt("solo", "solo", "Each station asks for local review before advancing. Default."),
+                opt("team", "team", "Each station opens a PR/MR the team reviews and merges. Needs gh/glab."),
+                opt("dark", "dark", "Pre-elaborate up front, then run without stopping for review."),
+            ],
+        ),
+        "size" => (
+            PickerKind::Size,
+            "How should this run be right-sized? (the station plan)".to_string(),
+            vec![
+                opt("full", "full", "The whole Frame \u{2192} Harden line. Default."),
+                opt("quick", "quick", "Build + Prove, for small self-contained work."),
+                opt("bugfix", "bugfix", "Specify + Build + Prove."),
+                opt("refactor", "refactor", "Shape + Build + Prove."),
+            ],
+        ),
+        _ => return,
+    };
+    let payload = PickerSessionPayload {
+        session_id: format!("setup-{slug}-{kind}"),
+        status: SessionStatus::Pending,
+        run_slug: Some(slug.to_string()),
+        kind: pk,
+        title: title.unwrap_or("New run").to_string(),
+        prompt,
+        options,
+        selection: None,
+    };
+    surface_interactive(registry, slug, SessionPayload::Picker(payload));
 }
 
 /// A minimal Review payload under [`CURRENT_SESSION`] that names `run` — just
