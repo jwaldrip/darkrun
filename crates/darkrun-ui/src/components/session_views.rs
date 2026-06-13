@@ -236,7 +236,24 @@ fn heading(text: &str) -> Element {
     rsx! { h2 { style: "{style}", "{text}" } }
 }
 
-/// The prompt / context block shared by question and direction.
+/// Scoped CSS for the rendered-markdown blocks (prompt context + option
+/// descriptions): readable list/paragraph spacing and an inline-code chip. Kept
+/// local to the views so the markdown subset styles consistently wherever it
+/// renders.
+const MD_CSS: &str = "\
+.dr-md .dr-md-p{margin:0 0 8px;line-height:1.5;}\
+.dr-md .dr-md-p:last-child{margin-bottom:0;}\
+.dr-md .dr-md-ul{margin:6px 0;padding-left:18px;display:flex;flex-direction:column;gap:5px;}\
+.dr-md .dr-md-ul li{line-height:1.45;}\
+.dr-md .dr-md-code{font-family:var(--dr-font-mono);font-size:0.92em;\
+background:var(--dr-surface-base);border:1px solid var(--dr-border);\
+border-radius:4px;padding:0.5px 5px;}\
+.dr-md strong{font-weight:700;color:var(--dr-text);}";
+
+/// The prompt / context block shared by question and direction. The prompt is a
+/// single bold line; the context renders its markdown (bullets, bold, inline
+/// code) so an agent-authored preamble reads as formatted prose rather than raw
+/// `**` / `-` / backticks.
 fn prompt_block(prompt: &str, context: Option<&str>) -> Element {
     let prompt_style = format!(
         "margin:0;font-family:{sans};font-size:16px;font-weight:600;color:{text};line-height:1.35;",
@@ -244,19 +261,21 @@ fn prompt_block(prompt: &str, context: Option<&str>) -> Element {
         text = tokens::var::TEXT,
     );
     let ctx_style = format!(
-        "margin:6px 0 0;font-family:{sans};font-size:13px;color:{muted};line-height:1.45;",
+        "margin:8px 0 0;font-family:{sans};font-size:13px;color:{muted};",
         sans = tokens::FONT_SANS,
         muted = tokens::var::TEXT_MUTED,
     );
+    let ctx_html = context
+        .filter(|c| !c.is_empty())
+        .map(crate::markdown::to_html);
     rsx! {
         div {
+            style { "{MD_CSS}" }
             if !prompt.is_empty() {
                 p { style: "{prompt_style}", "{prompt}" }
             }
-            if let Some(c) = context {
-                if !c.is_empty() {
-                    p { style: "{ctx_style}", "{c}" }
-                }
+            if let Some(html) = ctx_html {
+                div { class: "dr-md", style: "{ctx_style}", dangerous_inner_html: "{html}" }
             }
         }
     }
@@ -306,8 +325,18 @@ pub fn QuestionView(
     on_submit: Option<EventHandler<MouseEvent>>,
 ) -> Element {
     let mode_label = if multi_select { "select any" } else { "select one" };
-    let grid = "display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));\
-                gap:12px;margin-top:14px;";
+    // Only show the image slots when at least one option actually carries a
+    // mockup; a purely textual question (no mockups) renders clean text cards
+    // instead of a wall of "no preview" placeholders. Text cards are also
+    // narrower, so the grid packs more per row.
+    let show_mockups = options
+        .iter()
+        .any(|o| o.image_url.is_some() || o.image_url_light.is_some());
+    let min = if show_mockups { "200px" } else { "240px" };
+    let grid = format!(
+        "display:grid;grid-template-columns:repeat(auto-fill,minmax({min},1fr));\
+         gap:12px;margin-top:14px;",
+    );
     let has_selection = !selected.is_empty();
 
     rsx! {
@@ -342,7 +371,7 @@ pub fn QuestionView(
 
             div { style: "{grid}",
                 for opt in options.iter() {
-                    {option_card(opt, selected.iter().any(|s| s == &opt.id), answered, on_toggle)}
+                    {option_card(opt, selected.iter().any(|s| s == &opt.id), answered, show_mockups, on_toggle)}
                 }
             }
 
@@ -358,11 +387,15 @@ pub fn QuestionView(
     }
 }
 
-/// One option card. Selected cards take an accent border + check chip.
+/// One option card. Selected cards take an accent border + check chip. The
+/// image slot renders only when `show_mockups` is set (the question carries at
+/// least one mockup); otherwise the card is text-only. The description renders
+/// its markdown subset.
 fn option_card(
     opt: &OptionCard,
     selected: bool,
     answered: bool,
+    show_mockups: bool,
     on_toggle: Option<EventHandler<String>>,
 ) -> Element {
     let border = if selected { tokens::var::ACCENT } else { tokens::var::BORDER };
@@ -407,7 +440,9 @@ fn option_card(
                     }
                 }
             },
-            {themed_image_or_placeholder(opt.image_url.as_deref(), opt.image_url_light.as_deref(), &opt.label, "4 / 3")}
+            if show_mockups {
+                {themed_image_or_placeholder(opt.image_url.as_deref(), opt.image_url_light.as_deref(), &opt.label, "4 / 3")}
+            }
             div { style: "{label_style}",
                 span { "{opt.label}" }
                 if selected {
@@ -415,7 +450,13 @@ fn option_card(
                 }
             }
             if let Some(d) = opt.description.clone() {
-                p { style: "{desc_style}", "{d}" }
+                if !d.is_empty() {
+                    div {
+                        class: "dr-md",
+                        style: "{desc_style}",
+                        dangerous_inner_html: crate::markdown::to_html(&d),
+                    }
+                }
             }
         }
     }

@@ -1823,15 +1823,24 @@ fn question_session(cfg: ConnConfig, q: QuestionSessionPayload) -> Element {
             | darkrun_api::common::SessionStatus::Approved
     );
     let seed = q.answer.as_ref().map(|a| a.selected.clone()).unwrap_or_default();
+    // Rewrite any file:// mockup / reference urls into the engine's HTTP asset
+    // route so the webview can load them (it cannot read file://).
+    let run = q.run_slug.clone().unwrap_or_default();
+    let mut options = map::option_cards(&q.options);
+    for o in &mut options {
+        o.image_url = o.image_url.as_deref().map(|u| cfg.asset_url(&run, u));
+        o.image_url_light = o.image_url_light.as_deref().map(|u| cfg.asset_url(&run, u));
+    }
+    let image_urls: Vec<String> = q.image_urls.iter().map(|u| cfg.asset_url(&run, u)).collect();
     rsx! {
         QuestionSession {
             cfg,
             prompt: q.prompt.clone(),
             context: q.context.clone(),
             title: q.title.clone(),
-            options: map::option_cards(&q.options),
+            options,
             multi_select: q.multi_select,
-            image_urls: q.image_urls.clone(),
+            image_urls,
             seed_selected: seed,
             answered,
         }
@@ -1927,13 +1936,20 @@ fn direction_session(cfg: ConnConfig, d: DirectionSessionPayload) -> Element {
         .as_ref()
         .map(|a| a.comments.clone())
         .unwrap_or_default();
+    // file:// mockup urls -> engine HTTP asset route (see `question_session`).
+    let run = d.run_slug.clone().unwrap_or_default();
+    let mut archetypes = map::archetype_cards(&d.archetypes);
+    for a in &mut archetypes {
+        a.image_url = cfg.asset_url(&run, &a.image_url);
+        a.image_url_light = a.image_url_light.as_deref().map(|u| cfg.asset_url(&run, u));
+    }
     rsx! {
         DirectionSession {
             cfg,
             prompt: d.prompt.clone(),
             context: d.context.clone(),
             title: d.title.clone(),
-            archetypes: map::archetype_cards(&d.archetypes),
+            archetypes,
             seed_chosen: d.chosen_archetype.clone(),
             seed_pins,
             seed_comments,

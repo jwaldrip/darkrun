@@ -82,6 +82,25 @@ impl ConnConfig {
         format!("{}:{}", self.host, self.port)
     }
 
+    /// Rewrite a `file://` image URL pointing inside a run's
+    /// `.darkrun/<slug>/assets/` directory into this engine's HTTP asset route,
+    /// so the webview (served over a custom protocol, which cannot load
+    /// `file://`) can fetch it. Non-`file://` URLs (already `http(s)`/relative)
+    /// and paths outside the run's assets dir pass through unchanged.
+    pub fn asset_url(&self, run_slug: &str, url: &str) -> String {
+        let Some(rest) = url.strip_prefix("file://") else {
+            return url.to_string();
+        };
+        let needle = format!("/.darkrun/{run_slug}/assets/");
+        match rest.find(&needle) {
+            Some(idx) => {
+                let rel = &rest[idx + needle.len()..];
+                format!("http://{}/api/runs/{run_slug}/asset/{rel}", self.authority())
+            }
+            None => url.to_string(),
+        }
+    }
+
     /// The WebSocket URL for the session feed.
     pub fn ws_url(&self) -> String {
         format!(
@@ -939,5 +958,37 @@ mod async_client_tests {
         }];
         assert_eq!(find_engine_for_project(&engines, std::path::Path::new("/repo")), Some(7));
         assert_eq!(find_engine_for_project(&engines, std::path::Path::new("/other")), None);
+    }
+}
+
+#[cfg(test)]
+mod asset_url_tests {
+    use super::ConnConfig;
+
+    fn cfg() -> ConnConfig {
+        ConnConfig { host: "127.0.0.1".into(), port: 59298, session_id: "s".into() }
+    }
+
+    #[test]
+    fn rewrites_file_urls_under_the_runs_assets_dir() {
+        let c = cfg();
+        let file = "file:///Users/me/dev/proj/.claude/worktrees/wt/.darkrun/darkrun-sim/assets/options-dark.jpg";
+        assert_eq!(
+            c.asset_url("darkrun-sim", file),
+            "http://127.0.0.1:59298/api/runs/darkrun-sim/asset/options-dark.jpg"
+        );
+    }
+
+    #[test]
+    fn passes_through_non_file_and_out_of_tree_urls() {
+        let c = cfg();
+        // Already an http(s) url — untouched.
+        assert_eq!(c.asset_url("r", "https://img/a.png"), "https://img/a.png");
+        // A file:// url NOT under this run's assets dir — untouched (can't serve it).
+        let other = "file:///etc/passwd";
+        assert_eq!(c.asset_url("r", other), other);
+        // Right shape but a different run slug — not this run's asset.
+        let elsewhere = "file:///x/.darkrun/other-run/assets/a.png";
+        assert_eq!(c.asset_url("r", elsewhere), elsewhere);
     }
 }

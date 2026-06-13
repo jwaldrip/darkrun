@@ -43,6 +43,55 @@ pub async fn health() -> Response {
     (StatusCode::OK, Json(json!({ "status": "ok" }))).into_response()
 }
 
+/// `GET /api/runs/:slug/asset/*path` — serve a file from the run's
+/// `.darkrun/<slug>/assets/` directory (the mockups/screenshots an agent
+/// generated for a visual question or design direction). The desktop webview
+/// is served over a custom protocol and cannot load `file://` paths, so it
+/// rewrites those into this HTTP route.
+///
+/// Path-safety: the joined path is lexically resolved and MUST stay within the
+/// run's assets dir — any `..` that would escape it is a `403`. `404` for a
+/// missing file. Read-only; only the assets subtree is reachable.
+pub async fn get_run_asset(
+    State(state): State<AppState>,
+    Path((slug, rest)): Path<(String, String)>,
+) -> Response {
+    use std::path::{Component, PathBuf};
+
+    let assets_root = state.store.run_dir(&slug).join("assets");
+    // Lexically resolve the requested sub-path; reject any escape.
+    let mut safe = PathBuf::new();
+    for comp in PathBuf::from(&rest).components() {
+        match comp {
+            Component::Normal(c) => safe.push(c),
+            Component::CurDir => {}
+            // Anything that could climb out (ParentDir, RootDir, Prefix) is a
+            // traversal attempt.
+            _ => return (StatusCode::FORBIDDEN, "invalid asset path").into_response(),
+        }
+    }
+    let path = assets_root.join(&safe);
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(b) => b,
+        Err(_) => return not_found("asset", &rest),
+    };
+    let mime = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("avif") => "image/avif",
+        _ => "application/octet-stream",
+    };
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, mime)],
+        bytes,
+    )
+        .into_response()
+}
+
 /// `GET /api/session/:id` — return the interactive session payload as JSON for
 /// the desktop app to render. `404` when no such session is registered.
 pub async fn get_session(State(state): State<AppState>, Path(id): Path<String>) -> Response {

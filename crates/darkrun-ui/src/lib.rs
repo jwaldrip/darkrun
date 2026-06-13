@@ -53,6 +53,7 @@ pub mod components;
 pub mod flow;
 pub mod graph;
 pub mod kinds;
+pub mod markdown;
 pub mod selection;
 pub mod theme;
 pub mod tokens;

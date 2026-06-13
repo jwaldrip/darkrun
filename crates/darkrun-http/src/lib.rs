@@ -99,6 +99,7 @@ pub fn build_router(app: AppState) -> Router {
         .route("/health", get(handlers::health))
         .route("/api/runs", get(runs::list_runs))
         .route("/api/runs/{slug}", get(runs::get_run))
+        .route("/api/runs/{slug}/asset/{*path}", get(handlers::get_run_asset))
         .route("/api/session/{id}", get(handlers::get_session))
         .route(
             "/api/session/{id}/heartbeat",

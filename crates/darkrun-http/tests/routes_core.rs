@@ -1506,3 +1506,35 @@ async fn unit_reset_route_sets_the_flag_then_404s_unknown() {
     let resp = send(app, post_json("/api/unit/run/nope/reset", &json!({}))).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+// ── Run asset serving ────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn run_asset_serves_a_file_and_guards_traversal() {
+    let state = test_state();
+    // Seed an asset under the run's assets dir.
+    let assets = state.store.run_dir("r").join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("mock.png"), b"\x89PNG\r\n\x1a\n payload").unwrap();
+
+    // It serves with the right content type.
+    let resp = send(build_router(state.clone()), get("/api/runs/r/asset/mock.png")).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap().to_str().unwrap(),
+        "image/png"
+    );
+    assert_eq!(&body_bytes(resp).await, b"\x89PNG\r\n\x1a\n payload");
+
+    // A missing file is 404.
+    let miss = send(build_router(state.clone()), get("/api/runs/r/asset/nope.png")).await;
+    assert_eq!(miss.status(), StatusCode::NOT_FOUND);
+
+    // A traversal attempt is rejected (encoded `..` decodes in the path).
+    let esc = send(build_router(state), get("/api/runs/r/asset/..%2f..%2fsecret")).await;
+    assert!(
+        esc.status() == StatusCode::FORBIDDEN || esc.status() == StatusCode::NOT_FOUND,
+        "traversal must not escape the assets dir: {}",
+        esc.status()
+    );
+}
