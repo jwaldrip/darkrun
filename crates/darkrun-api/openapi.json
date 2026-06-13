@@ -2131,7 +2131,12 @@
               },
               {
                 "const": "mode",
-                "description": "Pick a sizing mode.",
+                "description": "Pick a review mode (team/solo/dark).",
+                "type": "string"
+              },
+              {
+                "const": "size",
+                "description": "Pick the run's right-sizing (full/quick/bugfix/refactor) — the station plan.",
                 "type": "string"
               },
               {
@@ -6114,7 +6119,12 @@
               },
               {
                 "const": "mode",
-                "description": "Pick a sizing mode.",
+                "description": "Pick a review mode (team/solo/dark).",
+                "type": "string"
+              },
+              {
+                "const": "size",
+                "description": "Pick the run's right-sizing (full/quick/bugfix/refactor) — the station plan.",
                 "type": "string"
               },
               {

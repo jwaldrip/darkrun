@@ -594,6 +594,7 @@ pub fn parse_picker_kind(raw: &str) -> Option<PickerKind> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "factory" => Some(PickerKind::Factory),
         "mode" => Some(PickerKind::Mode),
+        "size" => Some(PickerKind::Size),
         "station" => Some(PickerKind::Station),
         "confirm" => Some(PickerKind::Confirm),
         "url_input" | "urlinput" | "url" => Some(PickerKind::UrlInput),

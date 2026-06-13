@@ -609,8 +609,10 @@ pub struct DirectionSessionPayload {
 pub enum PickerKind {
     /// Pick a factory.
     Factory,
-    /// Pick a sizing mode.
+    /// Pick a review mode (team/solo/dark).
     Mode,
+    /// Pick the run's right-sizing (full/quick/bugfix/refactor) — the station plan.
+    Size,
     /// Pick a station.
     Station,
     /// Confirm a destructive action.
