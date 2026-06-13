@@ -1221,6 +1221,24 @@ fn feedback_open(raw: &str) -> bool {
 /// (feedback) -> Track A (run), returning the first non-null action.
 pub fn derive_position(store: &StateStore, slug: &str) -> Result<Position> {
     let run = store.read_run(slug)?;
+    // A run still being CONFIGURED (factory/mode/size elicited via pickers) has
+    // no plan/state to walk — surface the setup status instead. `darkrun_advance`
+    // intercepts this case before deriving; this guard is for the other readers
+    // (run_inspect, the run-detail API) so they don't choke on the bare run.
+    if let Some(setup) = &run.frontmatter.setup {
+        let selecting = setup.first_unset().unwrap_or("(ready to start)");
+        return Ok(Position {
+            track: Track::Run,
+            action: Some(RunAction::Noop {
+                run: slug.to_string(),
+                message: format!(
+                    "Run is being set up — choosing its {selecting}. \
+                     The operator picks factory \u{2192} mode \u{2192} size in the desktop, \
+                     then darkrun_advance starts the run."
+                ),
+            }),
+        });
+    }
     // COMPOSITE runs are not single-walkable (predecessor parity): the cursor
     // can't pick one factory's station to advance because the run spans
     // several, each with its own line and sync points. Surface the topology
@@ -3013,6 +3031,70 @@ fn mint_verifier_nonce(st: &mut Station, slug: &str, station: &str, now: &str) {
 /// `mode` is the global review posture (team/solo/dark) — it decides every
 /// station's gate. `size` is the orthogonal right-sizing axis: `full`/unknown
 /// walks every factory station; `quick`/`bugfix`/`refactor` collapse to a subset.
+/// Create a run in SETUP: write a bare `run.md` (so the run exists and LISTS
+/// immediately) carrying a [`RunSetup`] block seeded with whatever selections
+/// were already provided, and fork its branch — but NOT the plan/state, which
+/// need the factory/size the operator hasn't chosen yet. The cursor elicits the
+/// rest, then [`run_start`] materializes the full run and drops the block.
+pub fn run_create_pending(
+    store: &StateStore,
+    slug: &str,
+    title: Option<String>,
+    setup: darkrun_core::domain::RunSetup,
+) -> Result<Run> {
+    ensure_run_branch(store, slug)?;
+    let resolved_title = title.clone().unwrap_or_else(|| slug.to_string());
+    let created_by = darkrun_git::current_identity_email(cascade_repo_root(store))
+        .ok()
+        .flatten();
+    let run = Run {
+        slug: slug.to_string(),
+        frontmatter: RunFrontmatter {
+            title: title.clone(),
+            // factory/mode stay at their defaults (empty/solo) until chosen;
+            // the `setup` block is the source of truth while configuring.
+            status: Status::Pending,
+            started_at: Some(Utc::now().to_rfc3339()),
+            created_by,
+            setup: Some(setup),
+            ..Default::default()
+        },
+        title: resolved_title.clone(),
+        body: format!("# {resolved_title}\n"),
+    };
+    store.write_run(&run)?;
+    let _ = crate::commit::commit_state(store, &format!("darkrun: create run {slug} (setup)"));
+    Ok(run)
+}
+
+/// Fork `darkrun/<slug>/main` off the base and check it out (the branch half of
+/// [`run_start`], shared with [`run_create_pending`]). Non-git projects no-op.
+fn ensure_run_branch(store: &StateStore, slug: &str) -> Result<()> {
+    crate::lifecycle::ensure_run_main(store, slug);
+    let root = cascade_repo_root(store);
+    if let Ok(git) = Git::open(&root) {
+        let run_main = crate::lifecycle::run_main_branch(slug);
+        if git.branch_exists(&run_main).unwrap_or(false)
+            && git.current_branch().ok().flatten().as_deref() != Some(run_main.as_str())
+        {
+            if !git.is_clean().unwrap_or(false) {
+                return Err(McpError::InvalidInput(format!(
+                    "cannot start run '{slug}': the working tree has uncommitted or \
+                     untracked changes, and starting a run switches it to '{run_main}'. \
+                     Commit or stash them, then retry."
+                )));
+            }
+            git.checkout_branch(&run_main).map_err(|e| {
+                McpError::InvalidInput(format!(
+                    "cannot start run '{slug}': switching to '{run_main}' failed: {e}"
+                ))
+            })?;
+        }
+    }
+    crate::commit::ensure_worktrees_gitignored(&root);
+    Ok(())
+}
+
 pub fn run_start(
     store: &StateStore,
     slug: &str,

@@ -26,7 +26,7 @@ use darkrun_git::GitBackend;
 use darkrun_http::SessionRegistry;
 
 use crate::factory::{list_factories, resolve_factory};
-use crate::position::{checkpoint_decide, run_start, run_tick};
+use crate::position::{checkpoint_decide, run_create_pending, run_start, run_tick};
 use crate::sessions::{self, ArchetypeSpec, PickerOptionSpec, QuestionOptionSpec};
 use crate::{brief, feedback, human_write, knowledge, proof, reflection, runs, units};
 
@@ -1311,67 +1311,82 @@ impl DarkrunServer {
         &self,
         Parameters(input): Parameters<RunStartInput>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
+        // NAME FIRST: a call with no slug returns the pre-elaboration
+        // instruction, not an error. The agent prelaborates the request into a
+        // concise title + url-safe slug, then calls back with them — the only
+        // input run creation needs (the branch + run dir key off the slug).
         if input.slug.trim().is_empty() {
-            return Ok(err_text("slug must not be empty"));
+            return ok_json(&serde_json::json!({
+                "status": "needs_name",
+                "note": "Prelaborate the request into a concise human title and a url-safe \
+                         kebab-case slug (derive it from the title), then call \
+                         darkrun_run_new { slug, title }. Don't pass factory / mode / size — \
+                         the engine elicits those next as visual pickers.",
+            }));
         }
         let store = self.store();
-        // Any unset selection (factory / mode / size) is ELICITED from the
-        // operator via a visual picker — the engine drives the chain, so the
-        // skill stays thin. A fully-specified call (all three given) skips
-        // straight to materializing the run.
-        if input.factory.trim().is_empty()
-            || input.mode.trim().is_empty()
-            || input.size.trim().is_empty()
+        // The fast path for a fully-specified call (a script, darkrun-dark,
+        // tests): all three axes given -> start the run directly, no pickers.
+        if !input.factory.trim().is_empty()
+            && !input.mode.trim().is_empty()
+            && !input.size.trim().is_empty()
         {
-            return self.begin_run_setup(&store, &input);
+            return match run_start(
+                &store,
+                &input.slug,
+                &input.factory,
+                input.title.clone(),
+                Mode::from_label(&input.mode),
+                &input.size,
+            ) {
+                Ok(run) => ok_json(&run),
+                Err(e) => Ok(err_text(e)),
+            };
         }
-        match run_start(
-            &store,
-            &input.slug,
-            &input.factory,
-            input.title.clone(),
-            Mode::from_label(&input.mode),
-            &input.size,
-        ) {
-            Ok(run) => ok_json(&run),
-            Err(e) => Ok(err_text(e)),
-        }
+        // The normal (name-only) path: create the run NOW so it exists and lists
+        // immediately, then elicit factory -> mode -> size via pickers.
+        self.begin_run_setup(&store, &input)
     }
 
-    /// Open (or resume) the engine-driven setup elicitation for a run: record a
-    /// `pending.json` seeded with whatever selections WERE provided, then raise
-    /// the picker for the first one still missing. The operator picks it in the
-    /// desktop; the answer writes onto `pending.json`, and the next
-    /// `darkrun_advance` raises the following picker or materializes the run.
+    /// Create the run in SETUP and raise the first selection's picker. The run
+    /// is written immediately (so it lists), seeded with any axes that WERE
+    /// provided; the operator's picks write onto its frontmatter `setup` block,
+    /// and the next `darkrun_advance` raises the following picker or starts it.
     fn begin_run_setup(
         &self,
         store: &StateStore,
         input: &RunStartInput,
     ) -> std::result::Result<CallToolResult, ErrorData> {
-        let mut pending = store.read_pending(&input.slug).unwrap_or_default();
-        pending.slug = input.slug.clone();
-        if pending.title.is_none() {
-            pending.title = input.title.clone();
+        let seed = |v: &str| (!v.trim().is_empty()).then(|| v.trim().to_string());
+        // Create the run NOW if it doesn't exist (seeded with any provided
+        // axes); else seed any newly-provided axes onto its existing block.
+        if store.read_run(&input.slug).is_err() {
+            let setup = darkrun_core::domain::RunSetup {
+                factory: seed(&input.factory),
+                mode: seed(&input.mode),
+                size: seed(&input.size),
+            };
+            if let Err(e) = run_create_pending(store, &input.slug, input.title.clone(), setup) {
+                return Ok(err_text(e));
+            }
+        } else {
+            for (k, v) in [
+                ("factory", &input.factory),
+                ("mode", &input.mode),
+                ("size", &input.size),
+            ] {
+                if !v.trim().is_empty() {
+                    let _ = store.set_run_setup_selection(&input.slug, k, v.trim());
+                }
+            }
         }
-        // Seed any explicitly-provided axes (don't overwrite an earlier pick).
-        if !input.factory.trim().is_empty() {
-            pending.factory.get_or_insert_with(|| input.factory.clone());
-        }
-        if !input.mode.trim().is_empty() {
-            pending.mode.get_or_insert_with(|| input.mode.clone());
-        }
-        if !input.size.trim().is_empty() {
-            pending.size.get_or_insert_with(|| input.size.clone());
-        }
-        if let Err(e) = store.write_pending(&pending) {
-            return Ok(err_text(e.to_string()));
-        }
-        match pending.first_unset() {
+        let setup = store.read_run_setup(&input.slug).unwrap_or_default();
+        match setup.first_unset() {
             Some(kind) => {
                 sessions::raise_setup_picker(
                     &self.sessions,
                     &input.slug,
-                    pending.title.as_deref(),
+                    input.title.as_deref(),
                     kind,
                 );
                 let desktop = self.surface_desktop(&input.slug);
@@ -1380,14 +1395,14 @@ impl DarkrunServer {
                     "selecting": kind,
                     "slug": input.slug,
                     "note": format!(
-                        "The operator is choosing the run's {kind} in the desktop. \
+                        "Run created. The operator is choosing the {kind} in the desktop. \
                          Drive darkrun_advance once they've picked — the engine elicits \
                          factory \u{2192} mode \u{2192} size, then starts the run."
                     ),
                     "desktop": desktop,
                 }))
             }
-            // All three were supplied after all — materialize now.
+            // All three were supplied — start the run now.
             None => match self.finalize_run_setup(store, &input.slug) {
                 Ok(run) => ok_json(&run),
                 Err(e) => Ok(err_text(e)),
@@ -1395,22 +1410,22 @@ impl DarkrunServer {
         }
     }
 
-    /// Materialize the real run from a completed `pending.json`: run the normal
-    /// `run_start`, then delete the pending record. Returns the started run.
+    /// Start the real run from a completed frontmatter `setup` block: run the
+    /// normal `run_start` (which overwrites the doc with the full config and so
+    /// drops the setup block). Returns the started run.
     fn finalize_run_setup(
         &self,
         store: &StateStore,
         slug: &str,
     ) -> std::result::Result<serde_json::Value, String> {
-        let pending = store
-            .read_pending(slug)
-            .ok_or_else(|| format!("no pending setup for run '{slug}'"))?;
-        let factory = pending.factory.clone().unwrap_or_default();
-        let mode = Mode::from_label(&pending.mode.clone().unwrap_or_default());
-        let size = pending.size.clone().unwrap_or_default();
-        let run = run_start(store, slug, &factory, pending.title.clone(), mode, &size)
-            .map_err(|e| e.to_string())?;
-        store.clear_pending(slug).map_err(|e| e.to_string())?;
+        let setup = store
+            .read_run_setup(slug)
+            .ok_or_else(|| format!("no setup in progress for run '{slug}'"))?;
+        let title = store.read_run(slug).ok().and_then(|r| r.frontmatter.title);
+        let factory = setup.factory.clone().unwrap_or_default();
+        let mode = Mode::from_label(&setup.mode.clone().unwrap_or_default());
+        let size = setup.size.clone().unwrap_or_default();
+        let run = run_start(store, slug, &factory, title, mode, &size).map_err(|e| e.to_string())?;
         serde_json::to_value(&run).map_err(|e| e.to_string())
     }
 
@@ -1438,13 +1453,14 @@ impl DarkrunServer {
         // Each tick raises the next unset selection's picker (idempotent), and
         // once all three are chosen, materializes the run and falls through to
         // the normal walk.
-        if let Some(pending) = store.read_pending(&input.slug) {
-            match pending.first_unset() {
+        if let Some(setup) = store.read_run_setup(&input.slug) {
+            match setup.first_unset() {
                 Some(kind) => {
+                    let title = store.read_run(&input.slug).ok().and_then(|r| r.frontmatter.title);
                     sessions::raise_setup_picker(
                         &self.sessions,
                         &input.slug,
-                        pending.title.as_deref(),
+                        title.as_deref(),
                         kind,
                     );
                     self.surface_desktop_once(&input.slug);
@@ -3206,7 +3222,10 @@ mod tests {
     }
 
     #[test]
-    fn empty_slug_is_rejected() {
+    fn empty_slug_returns_the_pre_elab_instruction() {
+        // Name first: an empty slug isn't an error — run_new returns the
+        // pre-elaboration cue so the agent produces a title + slug, then calls
+        // back. (The factory/mode/size passed here are ignored without a slug.)
         let dir = tempdir().unwrap();
         let server = DarkrunServer::new(dir.path());
         let res = server
@@ -3215,9 +3234,12 @@ mod tests {
                 factory: "software".into(),
                 title: None,
                 mode: "solo".into(),
-                size: "full".into(),            }))
+                size: "full".into(),
+            }))
             .unwrap();
-        assert_eq!(res.is_error, Some(true));
+        assert_eq!(res.is_error, Some(false));
+        let v = res.structured_content.expect("structured");
+        assert_eq!(v["status"], "needs_name");
     }
 
     fn started_server() -> (tempfile::TempDir, DarkrunServer) {

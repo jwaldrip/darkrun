@@ -41,8 +41,8 @@ pub use derive::{derive_station_phase, station_status, station_units_complete};
 pub use error::{CoreError, Result};
 pub use locks::{LockGuard, LockManager};
 pub use state::{
-    run_is_complete, PendingRun, RunState, StateStore, StationStatus, LEGACY_VERSION,
-    SCHEMA_VERSION, SCHEMA_VERSION_LEGACY,
+    run_is_complete, RunState, StateStore, StationStatus, LEGACY_VERSION, SCHEMA_VERSION,
+    SCHEMA_VERSION_LEGACY,
 };
 pub use witness::{hash_bytes, hash_file};
 

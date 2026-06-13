@@ -10,14 +10,15 @@
 //!   state.json                    derived station/run state snapshot
 //!   feedback/*.md                 feedback items (frontmatter + body)
 //!   proof.json                    attached objective-evidence proofs, if any
-//!   pending.json                  setup elicitation record (before the run starts)
 //!   interactive/<station>/*.json  raised operator sessions (question/direction/picker)
 //! ```
 //!
-//! Interactive sessions and the in-flight setup record are ALSO held in an
-//! in-memory registry shared by the in-process MCP + HTTP servers (for live
-//! WebSocket updates); the on-disk copies here are what let an open prompt and
-//! its answer survive an engine restart.
+//! A run being CONFIGURED carries a `setup` block in `run.md`'s frontmatter (its
+//! factory/mode/size, elicited via pickers); the block is dropped once the run
+//! starts. Interactive sessions are ALSO held in an in-memory registry shared by
+//! the in-process MCP + HTTP servers (for live WebSocket updates); the on-disk
+//! copies under `interactive/` let an open prompt and its answer survive a
+//! restart.
 //!
 //! [`StateStore`] reads and writes this layout. It does not interpret the
 //! manager's walk — it only persists and resolves the durable shapes.
@@ -87,51 +88,6 @@ pub struct RunState {
     /// [`SCHEMA_VERSION_LEGACY`] (the pre-versioning baseline).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_version: Option<u32>,
-}
-
-/// A run that's been created but not yet fully configured — its factory, review
-/// mode, and right-sizing are being elicited from the operator via pickers
-/// before the real run is materialized (the engine-driven setup flow, mirroring
-/// the predecessor's studio/mode elicitation). Persisted as `pending.json` so an
-/// interrupted setup survives a restart. Once every field is `Some`, the engine
-/// runs the normal run-start and deletes this record.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PendingRun {
-    /// The run slug being set up.
-    pub slug: String,
-    /// The human-readable title, captured at creation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    /// The chosen factory, once the operator picks it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub factory: Option<String>,
-    /// The chosen review mode, once picked.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
-    /// The chosen right-sizing, once picked.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<String>,
-}
-
-impl PendingRun {
-    /// The next setup selection still to elicit, in order (factory → mode →
-    /// size), or `None` when the run is fully configured.
-    pub fn first_unset(&self) -> Option<&'static str> {
-        if self.factory.is_none() {
-            Some("factory")
-        } else if self.mode.is_none() {
-            Some("mode")
-        } else if self.size.is_none() {
-            Some("size")
-        } else {
-            None
-        }
-    }
-
-    /// Whether every setup selection has been made.
-    pub fn is_complete(&self) -> bool {
-        self.first_unset().is_none()
-    }
 }
 
 /// The version stamped onto a run whose on-disk state predates the
@@ -361,57 +317,37 @@ impl StateStore {
             .unwrap_or_default()
     }
 
-    /// The `pending.json` path for a run being set up (see [`PendingRun`]).
-    pub fn pending_path(&self, slug: &str) -> PathBuf {
-        self.run_dir(slug).join("pending.json")
-    }
-
-    /// Read a run's pending-setup record, if it exists (a run mid-elicitation,
-    /// before its factory/mode/size are chosen and the real run materialized).
-    pub fn read_pending(&self, slug: &str) -> Option<PendingRun> {
-        let bytes = fs::read(self.pending_path(slug)).ok()?;
-        serde_json::from_slice(&bytes).ok()
-    }
-
-    /// Write (or replace) a run's pending-setup record.
-    pub fn write_pending(&self, pending: &PendingRun) -> Result<()> {
-        let dir = self.run_dir(&pending.slug);
-        io(&dir, fs::create_dir_all(&dir))?;
-        let path = self.pending_path(&pending.slug);
-        let json = serde_json::to_vec_pretty(pending)?;
-        io(&path, fs::write(&path, json))
+    /// Read a run's in-flight [`RunSetup`] block from its frontmatter, if the
+    /// run is still being configured (factory/mode/size not all chosen). `None`
+    /// once the run has started, or when the run doc doesn't exist / can't parse.
+    pub fn read_run_setup(&self, slug: &str) -> Option<crate::domain::RunSetup> {
+        self.read_run(slug).ok()?.frontmatter.setup
     }
 
     /// Record one setup selection (`factory` / `mode` / `size`) onto a run's
-    /// pending record. A no-op when the run isn't pending or the kind is
-    /// unknown. Returns the updated record (so a caller can check completeness).
-    pub fn set_pending_selection(
+    /// frontmatter setup block. A no-op when the run isn't in setup or the kind
+    /// is unknown. Returns the updated block (so a caller can check completeness).
+    pub fn set_run_setup_selection(
         &self,
         slug: &str,
         kind: &str,
         value: &str,
-    ) -> Result<Option<PendingRun>> {
-        let Some(mut pending) = self.read_pending(slug) else {
+    ) -> Result<Option<crate::domain::RunSetup>> {
+        let Ok(mut run) = self.read_run(slug) else {
+            return Ok(None);
+        };
+        let Some(setup) = run.frontmatter.setup.as_mut() else {
             return Ok(None);
         };
         match kind {
-            "factory" => pending.factory = Some(value.to_string()),
-            "mode" => pending.mode = Some(value.to_string()),
-            "size" => pending.size = Some(value.to_string()),
-            _ => return Ok(Some(pending)),
+            "factory" => setup.factory = Some(value.to_string()),
+            "mode" => setup.mode = Some(value.to_string()),
+            "size" => setup.size = Some(value.to_string()),
+            _ => return Ok(Some(setup.clone())),
         }
-        self.write_pending(&pending)?;
-        Ok(Some(pending))
-    }
-
-    /// Remove a run's pending-setup record (called once the real run is
-    /// materialized). Best-effort; a missing file is a no-op.
-    pub fn clear_pending(&self, slug: &str) -> Result<()> {
-        let path = self.pending_path(slug);
-        if path.exists() {
-            io(&path, fs::remove_file(&path))?;
-        }
-        Ok(())
+        let updated = setup.clone();
+        self.write_run(&run)?;
+        Ok(Some(updated))
     }
 
     /// The `feedback/` directory for a run.
@@ -1220,33 +1156,41 @@ mod tests {
     }
 
     #[test]
-    fn pending_run_round_trips_and_tracks_first_unset() {
+    fn run_setup_block_round_trips_and_tracks_first_unset() {
+        use crate::domain::{Run, RunFrontmatter, RunSetup};
         let dir = tempfile::tempdir().unwrap();
         let store = StateStore::new(dir.path());
 
-        assert!(store.read_pending("r").is_none());
+        // No run -> no setup block.
+        assert!(store.read_run_setup("r").is_none());
 
-        let mut p = PendingRun { slug: "r".into(), title: Some("R".into()), ..Default::default() };
-        store.write_pending(&p).unwrap();
-        assert_eq!(store.read_pending("r").unwrap().first_unset(), Some("factory"));
+        // A run created with an empty setup block lists immediately.
+        store
+            .write_run(&Run {
+                slug: "r".into(),
+                title: "R".into(),
+                body: String::new(),
+                frontmatter: RunFrontmatter {
+                    title: Some("R".into()),
+                    setup: Some(RunSetup::default()),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        assert_eq!(store.read_run_setup("r").unwrap().first_unset(), Some("factory"));
 
-        // Selections land in order; first_unset advances; complete when all set.
-        store.set_pending_selection("r", "factory", "software").unwrap();
-        assert_eq!(store.read_pending("r").unwrap().first_unset(), Some("mode"));
-        store.set_pending_selection("r", "mode", "solo").unwrap();
-        assert_eq!(store.read_pending("r").unwrap().first_unset(), Some("size"));
-        let full = store.set_pending_selection("r", "size", "full").unwrap().unwrap();
+        // Selections land in order on the frontmatter; first_unset advances.
+        store.set_run_setup_selection("r", "factory", "software").unwrap();
+        assert_eq!(store.read_run_setup("r").unwrap().first_unset(), Some("mode"));
+        store.set_run_setup_selection("r", "mode", "solo").unwrap();
+        assert_eq!(store.read_run_setup("r").unwrap().first_unset(), Some("size"));
+        let full = store.set_run_setup_selection("r", "size", "full").unwrap().unwrap();
         assert!(full.is_complete());
 
-        // An unknown kind is a no-op; clearing removes the record.
-        store.set_pending_selection("r", "bogus", "x").unwrap();
-        assert!(store.read_pending("r").unwrap().is_complete());
-        store.clear_pending("r").unwrap();
-        assert!(store.read_pending("r").is_none());
-
-        // set_pending_selection on a non-pending run is a no-op (None).
-        let _ = &mut p;
-        assert!(store.set_pending_selection("gone", "mode", "solo").unwrap().is_none());
+        // An unknown kind is a no-op; a run with no setup block returns None.
+        store.set_run_setup_selection("r", "bogus", "x").unwrap();
+        assert!(store.read_run_setup("r").unwrap().is_complete());
+        assert!(store.set_run_setup_selection("gone", "mode", "solo").unwrap().is_none());
     }
 
     #[test]

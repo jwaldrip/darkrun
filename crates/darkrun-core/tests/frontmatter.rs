@@ -727,6 +727,7 @@ fn roundtrip_run_full_frontmatter() {
         }),
         seal: None,
         external_refs: Default::default(),
+        setup: None,
         created_by: Some("jason@example.com".into()),
         composite: None,
         sync: vec![],

@@ -251,7 +251,8 @@ fn run_start_body_contains_title_heading() {
 }
 
 #[test]
-fn run_start_rejects_empty_slug() {
+fn run_new_empty_slug_asks_for_a_name() {
+    // Name first: an empty slug returns the pre-elab instruction, not an error.
     let (_d, server) = server();
     let res = server
         .darkrun_run_new(Parameters(RunStartInput {
@@ -259,13 +260,15 @@ fn run_start_rejects_empty_slug() {
             factory: "software".into(),
             title: None,
             mode: "continuous".into(),
-            size: "full".into(),        }))
+            size: "full".into(),
+        }))
         .unwrap();
-    assert!(is_err(&res));
+    assert!(is_ok(&res));
+    assert_eq!(body(&res)["status"], "needs_name");
 }
 
 #[test]
-fn run_start_rejects_whitespace_slug() {
+fn run_new_whitespace_slug_asks_for_a_name() {
     let (_d, server) = server();
     let res = server
         .darkrun_run_new(Parameters(RunStartInput {
@@ -273,10 +276,11 @@ fn run_start_rejects_whitespace_slug() {
             factory: "software".into(),
             title: None,
             mode: "continuous".into(),
-            size: "full".into(),        }))
+            size: "full".into(),
+        }))
         .unwrap();
-    assert!(is_err(&res));
-    assert!(err_message(&res).contains("slug"));
+    assert!(is_ok(&res));
+    assert_eq!(body(&res)["status"], "needs_name");
 }
 
 #[test]
@@ -6404,66 +6408,73 @@ fn an_interactive_run_allows_a_question() {
 
 // ── Engine-driven run setup: factory -> mode -> size pickers ─────────────────
 
+fn run_new(server: &DarkrunServer, slug: &str, factory: &str, mode: &str, size: &str) -> CallToolResult {
+    server
+        .darkrun_run_new(Parameters(RunStartInput {
+            slug: slug.into(),
+            factory: factory.into(),
+            title: Some("R".into()),
+            mode: mode.into(),
+            size: size.into(),
+        }))
+        .unwrap()
+}
+
 #[test]
-fn run_new_without_selections_elicits_factory_then_mode_then_size() {
+fn run_new_with_no_name_returns_the_pre_elab_instruction() {
+    let (_d, server) = server();
+    // Name first: an empty slug isn't an error — it's the cue to prelaborate.
+    let res = run_new(&server, "", "", "", "");
+    let v = body(&res);
+    assert_eq!(v["status"], "needs_name");
+    assert!(
+        v["note"].as_str().unwrap().to_lowercase().contains("slug"),
+        "instruction tells the agent to produce a slug: {v}"
+    );
+}
+
+#[test]
+fn run_new_with_a_name_creates_the_run_then_elicits_factory_mode_size() {
     let (d, server) = server();
     let store = darkrun_core::StateStore::new(d.path());
 
-    // Create with NO selections — the engine opens the setup elicitation.
-    let res = server
-        .darkrun_run_new(Parameters(RunStartInput {
-            slug: "r".into(),
-            factory: "".into(),
-            title: Some("R".into()),
-            mode: "".into(),
-            size: "".into(),
-        }))
-        .unwrap();
-    let v = body(&res);
+    // Name only -> the run is CREATED immediately (lists), in setup, and the
+    // factory picker is raised. (Branch + run dir key off the slug.)
+    let v = body(&run_new(&server, "r", "", "", ""));
     assert_eq!(v["status"], "awaiting_setup");
     assert_eq!(v["selecting"], "factory");
-    // The factory picker is raised (stable id) and there's no real run yet.
     assert!(server.sessions().get("setup-r-factory").is_some());
-    assert!(store.read_pending("r").is_some());
-    assert!(store.read_state("r").unwrap().is_none(), "no run materialized during setup");
+    assert!(store.read_run("r").is_ok(), "the run exists from creation");
+    assert!(store.read_run_setup("r").is_some(), "and carries a setup block");
+    assert!(store.read_state("r").unwrap().is_none(), "but isn't started yet");
 
-    // Operator picks the factory -> advance raises the MODE picker.
-    store.set_pending_selection("r", "factory", "software").unwrap();
+    // Operator picks factory -> advance raises the MODE picker.
+    store.set_run_setup_selection("r", "factory", "software").unwrap();
     assert_eq!(body(&next(&server, "r"))["selecting"], "mode");
 
-    // Operator picks the mode -> advance raises the SIZE picker.
-    store.set_pending_selection("r", "mode", "solo").unwrap();
+    // Mode -> SIZE picker.
+    store.set_run_setup_selection("r", "mode", "solo").unwrap();
     assert_eq!(body(&next(&server, "r"))["selecting"], "size");
 
-    // Operator picks the size -> the next advance MATERIALIZES the run and
-    // returns a real action (not awaiting_setup); pending is cleared.
-    store.set_pending_selection("r", "size", "full").unwrap();
+    // Size -> the next advance STARTS the run; the setup block is gone.
+    store.set_run_setup_selection("r", "size", "full").unwrap();
     let done = body(&next(&server, "r"));
     assert_ne!(
         done.get("status").and_then(|s| s.as_str()),
         Some("awaiting_setup"),
-        "the run is started once all three are chosen: {done}"
+        "the run starts once all three are chosen: {done}"
     );
-    assert!(store.read_pending("r").is_none(), "pending cleared after start");
-    assert!(store.read_state("r").unwrap().is_some(), "the real run now exists");
+    assert!(store.read_run_setup("r").is_none(), "setup block dropped on start");
+    assert!(store.read_state("r").unwrap().is_some(), "the run is now walking");
 }
 
 #[test]
 fn run_new_with_all_selections_skips_elicitation() {
-    // A fully-specified call (e.g. a script or a mode-specific command) starts
-    // the run directly, no pickers.
+    // A fully-specified call (a script, a mode-specific command) starts the run
+    // directly — no pickers, no setup block.
     let (d, server) = server();
     let store = darkrun_core::StateStore::new(d.path());
-    let res = server
-        .darkrun_run_new(Parameters(RunStartInput {
-            slug: "r".into(),
-            factory: "software".into(),
-            title: Some("R".into()),
-            mode: "solo".into(),
-            size: "full".into(),
-        }))
-        .unwrap();
-    assert!(is_ok(&res));
-    assert!(store.read_pending("r").is_none(), "no setup record");
-    assert!(store.read_state("r").unwrap().is_some(), "run materialized immediately");
+    assert!(is_ok(&run_new(&server, "r", "software", "solo", "full")));
+    assert!(store.read_run_setup("r").is_none(), "no setup block");
+    assert!(store.read_state("r").unwrap().is_some(), "run started immediately");
 }

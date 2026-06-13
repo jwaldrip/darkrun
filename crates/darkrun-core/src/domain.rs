@@ -476,6 +476,52 @@ pub struct RunFrontmatter {
     /// another (G2). Empty by default.
     #[serde(default, skip_serializing_if = "ExternalRefs::is_empty")]
     pub external_refs: ExternalRefs,
+    /// In-flight SETUP elicitation: present only while the run is being
+    /// configured (its factory / mode / size chosen via desktop pickers). The
+    /// run exists and lists from creation; the cursor elicits the missing
+    /// selections until this is complete, then starts the run and clears it.
+    /// `None` on a fully-configured run (the common case).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<RunSetup>,
+}
+
+/// The setup selections elicited from the operator before a run begins — held in
+/// the run's frontmatter while it's being configured (mirroring the
+/// predecessor, which asked studio/mode until the intent was ready to begin).
+/// Each is `None` until the operator picks it; when all three are `Some` the
+/// run starts and this block is dropped.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunSetup {
+    /// The chosen factory, once picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory: Option<String>,
+    /// The chosen review mode, once picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// The chosen right-sizing, once picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
+}
+
+impl RunSetup {
+    /// The next selection still to elicit, in order (factory → mode → size), or
+    /// `None` when fully configured.
+    pub fn first_unset(&self) -> Option<&'static str> {
+        if self.factory.is_none() {
+            Some("factory")
+        } else if self.mode.is_none() {
+            Some("mode")
+        } else if self.size.is_none() {
+            Some("size")
+        } else {
+            None
+        }
+    }
+
+    /// Whether every setup selection has been made.
+    pub fn is_complete(&self) -> bool {
+        self.first_unset().is_none()
+    }
 }
 
 /// One part of a composite run: a factory and the stations of it this part walks.

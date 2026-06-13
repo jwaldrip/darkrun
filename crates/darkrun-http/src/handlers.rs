@@ -331,7 +331,7 @@ pub async fn picker_select(
         _ => None,
     };
     if let (Some(kind), Some(run)) = (setup_kind, run.as_deref()) {
-        let _ = state.store.set_pending_selection(run, kind, &req.id);
+        let _ = state.store.set_run_setup_selection(run, kind, &req.id);
     }
     picker.selection = Some(darkrun_api::PickerSelection { id: req.id.clone() });
     picker.status = SessionStatus::Decided;

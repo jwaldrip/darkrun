@@ -909,6 +909,7 @@ fn run_frontmatter_full_roundtrip_json() {
         composite: None,
         sync: vec![],
         composite_state: Default::default(),
+        setup: None,
     };
     let back = json_round(&fm);
     assert_eq!(back.created_by.as_deref(), Some("jason@example.com"));
@@ -940,6 +941,7 @@ fn run_frontmatter_full_roundtrip_yaml() {
         git: Some(RunGit::default()),
         seal: None,
         external_refs: Default::default(),
+        setup: None,
         created_by: None,
         composite: None,
         sync: vec![],
@@ -2645,6 +2647,7 @@ fn run_with_full_git_policy_yaml_roundtrips() {
             }),
             seal: None,
             external_refs: Default::default(),
+            setup: None,
             created_by: None,
             composite: None,
             sync: vec![],

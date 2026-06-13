@@ -116,14 +116,11 @@ pub async fn serve_stdio_on(
             // promptly surface the NEXT selection. (Once all are chosen, the
             // desktop stays on the last pick until the agent's next advance
             // materializes the run.)
-            if let Some(pending) = res_store.read_pending(run) {
-                if let Some(kind) = pending.first_unset() {
-                    crate::sessions::raise_setup_picker(
-                        &sessions,
-                        run,
-                        pending.title.as_deref(),
-                        kind,
-                    );
+            if let Some(setup) = res_store.read_run_setup(run) {
+                if let Some(kind) = setup.first_unset() {
+                    let title =
+                        res_store.read_run(run).ok().and_then(|r| r.frontmatter.title);
+                    crate::sessions::raise_setup_picker(&sessions, run, title.as_deref(), kind);
                 }
                 return;
             }
