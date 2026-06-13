@@ -6299,3 +6299,47 @@ fn a_raised_gate_counts_as_the_surfacing() {
         .unwrap();
     assert!(server.desktop_surfaced(), "a gate surfaces the desktop too");
 }
+
+// ── A raised question reaches the desktop where it's looking ──────────────────
+
+#[test]
+fn a_raised_question_surfaces_on_the_run_channel() {
+    let (_d, server) = started("r");
+    server
+        .darkrun_question(Parameters(QuestionInput {
+            slug: "r".into(),
+            title: None,
+            prompt: "pick".into(),
+            context: None,
+            options: vec![q_opt("a", "A"), q_opt("b", "B")],
+            multi_select: false,
+            image_urls: vec![],
+        }))
+        .unwrap();
+    let reg = server.sessions();
+
+    // The canonical session — what `darkrun_question_result` and the answer
+    // POST resolve.
+    let canon = reg.get("q-01").expect("canonical question session");
+    assert_eq!(canon.session_type(), "question");
+
+    // Mirrored onto the RUN channel a desktop viewing the run is subscribed to,
+    // so the question shows without any navigation — but it keeps the canonical
+    // id, so the operator's answer still routes to `q-01`.
+    let mirror = reg.get("r").expect("run-channel mirror of the question");
+    assert_eq!(mirror.session_type(), "question");
+    assert_eq!(
+        mirror.session_id(),
+        "q-01",
+        "the mirror keeps the canonical id so answers route correctly"
+    );
+
+    // The focus pointer names the run (a review) so the home navigates there.
+    let focus = reg.get("current").expect("current focus pointer");
+    assert_eq!(focus.session_type(), "review");
+    assert_eq!(
+        focus.interactive().is_none(),
+        true,
+        "the focus pointer is a review, not the interactive payload"
+    );
+}

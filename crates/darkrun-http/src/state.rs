@@ -114,7 +114,16 @@ pub struct SessionRegistry {
     inner: Arc<Mutex<HashMap<String, SessionEntry>>>,
     ws_session_count: Arc<AtomicU64>,
     presence: Arc<PresenceTracker>,
+    /// Optional durability hook the engine installs: invoked on every upsert
+    /// (raise AND answer) with the payload, so interactive sessions persist to
+    /// disk without the HTTP answer handlers needing to know how. Shared across
+    /// clones (the engine installs it once, after construction).
+    persist: Arc<Mutex<Option<PersistHook>>>,
 }
+
+/// A durability callback: persist a session payload (e.g. to the run's
+/// `interactive/` dir). See [`SessionRegistry::on_persist`].
+pub type PersistHook = Arc<dyn Fn(&SessionPayload) + Send + Sync>;
 
 impl SessionRegistry {
     /// Create an empty registry.
@@ -122,13 +131,47 @@ impl SessionRegistry {
         Self::default()
     }
 
+    /// Install the durability hook (see [`PersistHook`]). Shared across every
+    /// clone of this registry, so handlers that hold a clone persist too.
+    pub fn on_persist(&self, hook: PersistHook) {
+        *self.persist.lock().expect("session registry poisoned") = Some(hook);
+    }
+
+    /// Run the persist hook for `payload`, if one is installed.
+    fn persist(&self, payload: &SessionPayload) {
+        let hook = self
+            .persist
+            .lock()
+            .expect("session registry poisoned")
+            .clone();
+        if let Some(hook) = hook {
+            hook(payload);
+        }
+    }
+
     /// Insert or replace a session. Any subscribed WebSocket receives the new
     /// payload as a JSON frame immediately.
     pub fn upsert(&self, payload: SessionPayload) {
         let id = payload.session_id().to_string();
+        self.upsert_under(&id, payload);
+    }
+
+    /// Insert or replace a session under an EXPLICIT id, regardless of the
+    /// payload's own `session_id`. The mirror mechanism: a question raised under
+    /// `q-NN` is also written under the run slug so a desktop subscribed to the
+    /// run's channel renders it live — while the payload still names `q-NN`, so
+    /// the operator's answer routes back to the canonical session. The persist
+    /// hook fires once, for the payload (not per-mirror), so disk isn't written
+    /// twice for one logical session.
+    pub fn upsert_under(&self, id: &str, payload: SessionPayload) {
         let frame = serde_json::to_string(&payload).ok();
+        // Persist only when storing under the payload's own id (the canonical
+        // write) — mirrors are view-only and share the same on-disk record.
+        if id == payload.session_id() {
+            self.persist(&payload);
+        }
         let mut guard = self.inner.lock().expect("session registry poisoned");
-        let entry = guard.entry(id).or_insert_with(|| SessionEntry {
+        let entry = guard.entry(id.to_string()).or_insert_with(|| SessionEntry {
             payload: payload.clone(),
             tx: broadcast::channel(WS_CHANNEL_CAPACITY).0,
         });

@@ -494,6 +494,11 @@ pub struct QuestionSessionPayload {
     pub session_id: String,
     /// Session lifecycle status.
     pub status: SessionStatus,
+    /// The run this question belongs to — lets the engine persist it under the
+    /// run and surface it on the run's desktop channel (mirrors Direction /
+    /// Picker, which already carry this).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_slug: Option<String>,
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -922,4 +927,35 @@ impl SessionPayload {
             SessionPayload::Proof(p) => &p.session_id,
         }
     }
+
+    /// An INTERACTIVE operator session that the engine persists per-run and
+    /// surfaces on the run's desktop channel: a Question, Direction, or Picker.
+    /// Returns the run it belongs to (when known) and whether it is still OPEN
+    /// (awaiting the operator) vs already answered/decided. Other variants
+    /// (review/view/proof/visual_review) return `None` — they are derived from
+    /// run state, not persisted as standalone operator prompts.
+    pub fn interactive(&self) -> Option<InteractiveSession<'_>> {
+        let (run, open) = match self {
+            SessionPayload::Question(p) => {
+                (p.run_slug.as_deref(), p.status == SessionStatus::Pending)
+            }
+            SessionPayload::Direction(p) => {
+                (p.run_slug.as_deref(), p.status == SessionStatus::Pending)
+            }
+            SessionPayload::Picker(p) => {
+                (p.run_slug.as_deref(), p.status == SessionStatus::Pending)
+            }
+            _ => return None,
+        };
+        Some(InteractiveSession { run, open })
+    }
+}
+
+/// The run + open-state of an [`SessionPayload::interactive`] session.
+#[derive(Debug, Clone, Copy)]
+pub struct InteractiveSession<'a> {
+    /// The run the session belongs to, when the payload records one.
+    pub run: Option<&'a str>,
+    /// Whether the session is still awaiting the operator.
+    pub open: bool,
 }

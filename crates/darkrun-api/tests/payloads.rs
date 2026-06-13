@@ -1722,6 +1722,7 @@ fn question_payload_full_roundtrips() {
     let p = SessionPayload::Question(QuestionSessionPayload {
         session_id: "q".into(),
         status: SessionStatus::Answered,
+        run_slug: None,
         title: Some("Onboarding".into()),
         prompt: "Which mockup feels right?".into(),
         context: Some("## context".into()),

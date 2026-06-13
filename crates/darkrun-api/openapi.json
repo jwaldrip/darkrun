@@ -3524,6 +3524,13 @@
             "description": "The question prompt rendered above the options.",
             "type": "string"
           },
+          "run_slug": {
+            "description": "The run this question belongs to — lets the engine persist it under the\nrun and surface it on the run's desktop channel (mirrors Direction /\nPicker, which already carry this).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "session_id": {
             "description": "The session id.",
             "type": "string"
@@ -6484,6 +6491,13 @@
               "prompt": {
                 "description": "The question prompt rendered above the options.",
                 "type": "string"
+              },
+              "run_slug": {
+                "description": "The run this question belongs to — lets the engine persist it under the\nrun and surface it on the run's desktop channel (mirrors Direction /\nPicker, which already carry this).",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "session_id": {
                 "description": "The session id.",

@@ -1812,6 +1812,11 @@ fn SubmitStatus(state: Submit) -> Element {
 
 /// Extract the question payload's `PartialEq` data and render the session.
 fn question_session(cfg: ConnConfig, q: QuestionSessionPayload) -> Element {
+    // Answer the payload's OWN session, not the channel we're subscribed to:
+    // a question raised under `q-NN` is mirrored onto the run channel, so the
+    // desktop renders it while subscribed to the run slug — but the answer must
+    // POST to `/question/q-NN/answer` for the engine to record + read it back.
+    let cfg = cfg.with_session(q.session_id.clone());
     let answered = matches!(
         q.status,
         darkrun_api::common::SessionStatus::Answered
@@ -1905,6 +1910,8 @@ fn QuestionSession(
 
 /// Extract the direction payload's `PartialEq` data and render the session.
 fn direction_session(cfg: ConnConfig, d: DirectionSessionPayload) -> Element {
+    // Decide against the payload's own session (see `question_session`).
+    let cfg = cfg.with_session(d.session_id.clone());
     let decided = matches!(
         d.status,
         darkrun_api::common::SessionStatus::Decided
@@ -2034,6 +2041,8 @@ fn DirectionSession(
 
 /// Extract the picker payload's `PartialEq` data and render the session.
 fn picker_session(cfg: ConnConfig, p: PickerSessionPayload) -> Element {
+    // Select against the payload's own session (see `question_session`).
+    let cfg = cfg.with_session(p.session_id.clone());
     let decided = p.selection.is_some()
         || matches!(
             p.status,

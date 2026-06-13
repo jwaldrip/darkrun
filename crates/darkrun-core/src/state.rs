@@ -303,6 +303,63 @@ impl StateStore {
         self.run_dir(slug).join("feedback")
     }
 
+    /// The `interactive/` directory for a run — where raised operator sessions
+    /// (questions, directions, pickers) persist as `<session_id>.json` so they
+    /// survive an engine restart and reappear when the desktop reconnects.
+    pub fn interactive_dir(&self, slug: &str) -> PathBuf {
+        self.run_dir(slug).join("interactive")
+    }
+
+    /// Persist an interactive operator session: a [`SessionPayload`] that is a
+    /// Question / Direction / Picker carrying a `run_slug`. Both the raise and
+    /// the answer flow through here, so the on-disk copy always reflects the
+    /// latest state (including the recorded answer). A non-interactive payload,
+    /// or one with no run, is a silent no-op. Writes the full JSON to
+    /// `<run>/interactive/<session_id>.json`.
+    pub fn write_interactive_session(&self, payload: &darkrun_api::SessionPayload) -> Result<()> {
+        let Some(meta) = payload.interactive() else {
+            return Ok(());
+        };
+        let Some(run) = meta.run else { return Ok(()) };
+        let dir = self.interactive_dir(run);
+        io(&dir, fs::create_dir_all(&dir))?;
+        let path = dir.join(format!("{}.json", payload.session_id()));
+        let json = serde_json::to_vec_pretty(payload)?;
+        io(&path, fs::write(&path, json))?;
+        Ok(())
+    }
+
+    /// Read every persisted interactive session for a run, newest id first
+    /// (ids are monotonic `q-NN`/`d-NN`/`p-NN`, so a reverse lexical sort puts
+    /// the most recent first). Unparseable files are skipped. Empty when the
+    /// run has none.
+    pub fn list_interactive_sessions(&self, slug: &str) -> Vec<darkrun_api::SessionPayload> {
+        let dir = self.interactive_dir(slug);
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let mut files: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect();
+        files.sort();
+        files.reverse();
+        files
+            .iter()
+            .filter_map(|p| fs::read(p).ok())
+            .filter_map(|b| serde_json::from_slice(&b).ok())
+            .collect()
+    }
+
+    /// The most recent OPEN (still-awaiting) interactive session for a run, if
+    /// any — the one the desktop should surface when it opens the run.
+    pub fn latest_open_interactive(&self, slug: &str) -> Option<darkrun_api::SessionPayload> {
+        self.list_interactive_sessions(slug)
+            .into_iter()
+            .find(|p| p.interactive().is_some_and(|m| m.open))
+    }
+
     /// List the slugs of every run on disk (sorted).
     pub fn list_runs(&self) -> Result<Vec<String>> {
         if !self.root.exists() {
@@ -956,5 +1013,57 @@ mod tests {
         let err = io::<()>(Path::new("/some/where"), Err(std::io::Error::other("boom"))).unwrap_err();
         assert!(matches!(err, CoreError::Io { .. }));
         assert_eq!(io(Path::new("/x"), Ok(42)).unwrap(), 42);
+    }
+
+    #[test]
+    fn interactive_sessions_round_trip_and_track_open_state() {
+        use darkrun_api::{QuestionSessionPayload, SessionPayload};
+        use darkrun_api::common::SessionStatus;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path());
+
+        let q = |id: &str, status| {
+            SessionPayload::Question(QuestionSessionPayload {
+                session_id: id.into(),
+                status,
+                run_slug: Some("r".into()),
+                prompt: "pick".into(),
+                ..Default::default()
+            })
+        };
+
+        // No run, no sessions.
+        assert!(store.list_interactive_sessions("r").is_empty());
+        assert!(store.latest_open_interactive("r").is_none());
+
+        // Two raised, q-02 the newer; both open.
+        store.write_interactive_session(&q("q-01", SessionStatus::Pending)).unwrap();
+        store.write_interactive_session(&q("q-02", SessionStatus::Pending)).unwrap();
+        assert_eq!(store.list_interactive_sessions("r").len(), 2);
+        // Newest open first.
+        assert_eq!(
+            store.latest_open_interactive("r").unwrap().session_id(),
+            "q-02"
+        );
+
+        // Answering q-02 (re-write same id) leaves q-01 as the open one.
+        store.write_interactive_session(&q("q-02", SessionStatus::Answered)).unwrap();
+        assert_eq!(
+            store.latest_open_interactive("r").unwrap().session_id(),
+            "q-01",
+            "an answered session is no longer the open surface"
+        );
+        // Both still on disk (answer persisted, history retained).
+        assert_eq!(store.list_interactive_sessions("r").len(), 2);
+
+        // A run-less or non-interactive payload is a no-op.
+        let no_run = SessionPayload::Question(QuestionSessionPayload {
+            session_id: "q-09".into(),
+            run_slug: None,
+            ..Default::default()
+        });
+        store.write_interactive_session(&no_run).unwrap();
+        assert_eq!(store.list_interactive_sessions("r").len(), 2);
     }
 }

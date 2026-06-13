@@ -290,6 +290,7 @@ pub fn sample_question() -> QuestionSessionPayload {
     QuestionSessionPayload {
         session_id: "preview-question".to_string(),
         status: darkrun_api::common::SessionStatus::Pending,
+        run_slug: None,
         title: Some("dashboard hero treatment".to_string()),
         prompt: "Which hero layout reads best for the operator dashboard?".to_string(),
         context: Some(

@@ -230,7 +230,33 @@ pub fn create_show_with_focus(
     if focus {
         registry.upsert(build(CURRENT_SESSION));
     }
+
+    // Re-attach any operator sessions persisted for this run (questions /
+    // directions / pickers), so they survive an engine restart: load each
+    // back into the registry under its canonical id (so the operator's answer
+    // and `..._result` still resolve), and if one is still OPEN, surface it
+    // onto the run channel — the desktop opens the run straight onto the
+    // pending question instead of the review.
+    hydrate_interactive(registry, store, slug);
+
     Ok(slug.to_string())
+}
+
+/// Load a run's persisted interactive sessions into the registry (only those
+/// not already in memory, so a fresher live answer is never clobbered by a
+/// staler disk copy), then mirror the most recent OPEN one onto the run
+/// channel so the desktop surfaces it. Idempotent; safe to call every tick.
+fn hydrate_interactive(registry: &SessionRegistry, store: &StateStore, slug: &str) {
+    for payload in store.list_interactive_sessions(slug) {
+        if !registry.contains(payload.session_id()) {
+            registry.upsert(payload);
+        }
+    }
+    if let Some(open) = store.latest_open_interactive(slug) {
+        // Mirror under the run slug only — keep `current` pointing at the run
+        // (a review focus) so the home still navigates correctly.
+        registry.upsert_under(slug, open);
+    }
 }
 
 /// Serialize a snake_case-tagged unit enum to its wire token (the `Option<String>`
@@ -357,6 +383,7 @@ pub fn create_question(
     let payload = QuestionSessionPayload {
         session_id: session_id.clone(),
         status: SessionStatus::Pending,
+        run_slug: Some(run.to_string()),
         title,
         prompt: prompt.trim().to_string(),
         context,
@@ -368,9 +395,39 @@ pub fn create_question(
             .filter(|u| !u.trim().is_empty())
             .collect(),
     };
-    registry.upsert(SessionPayload::Question(payload));
+    surface_interactive(registry, run, SessionPayload::Question(payload));
 
     Ok(awaiting(run, &session_id, "question"))
+}
+
+/// Raise an interactive operator session (question / direction / picker) so the
+/// desktop shows it RIGHT NOW, wherever it is:
+///   - the CANONICAL upsert (under the payload's own `q-NN`/`d-NN`/`p-NN` id)
+///     is what `..._result` reads back and what the operator's answer targets —
+///     and it fires the persist hook, writing the session to the run's
+///     `interactive/` dir so it survives a restart;
+///   - a MIRROR under the run slug pushes it onto the channel a desktop viewing
+///     the run is already subscribed to, so the question appears without a
+///     navigation; the mirror keeps the canonical `session_id`, so the answer
+///     still routes to `q-NN`;
+///   - the `current` focus pointer (a minimal review naming the run) makes the
+///     home screen NAVIGATE to the run if the desktop isn't already on it.
+fn surface_interactive(registry: &SessionRegistry, run: &str, payload: SessionPayload) {
+    registry.upsert(payload.clone());
+    registry.upsert_under(run, payload);
+    registry.upsert_under(CURRENT_SESSION, focus_pointer(run));
+}
+
+/// A minimal Review payload under [`CURRENT_SESSION`] that names `run` — just
+/// enough for the desktop home poller (which reads `run_slug` off a `review`
+/// focus session) to navigate to the run.
+fn focus_pointer(run: &str) -> SessionPayload {
+    SessionPayload::Review(ReviewSessionPayload {
+        session_id: CURRENT_SESSION.to_string(),
+        status: SessionStatus::Pending,
+        run_slug: Some(run.to_string()),
+        ..Default::default()
+    })
 }
 
 /// Read back the answer to a question session, if the operator has submitted
@@ -485,7 +542,7 @@ pub fn create_direction(
         chosen_archetype: None,
         annotations: None,
     };
-    registry.upsert(SessionPayload::Direction(payload));
+    surface_interactive(registry, run, SessionPayload::Direction(payload));
 
     Ok(awaiting(run, &session_id, "direction"))
 }
@@ -596,7 +653,7 @@ pub fn create_picker(
         options: built,
         selection: None,
     };
-    registry.upsert(SessionPayload::Picker(payload));
+    surface_interactive(registry, run, SessionPayload::Picker(payload));
 
     Ok(awaiting(run, &session_id, "picker"))
 }

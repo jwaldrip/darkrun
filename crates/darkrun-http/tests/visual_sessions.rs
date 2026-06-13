@@ -40,6 +40,7 @@ fn question(id: &str) -> SessionPayload {
     SessionPayload::Question(QuestionSessionPayload {
         session_id: id.into(),
         status: SessionStatus::Pending,
+        run_slug: None,
         title: Some("Pick a mockup".into()),
         prompt: "Which option feels right?".into(),
         context: Some("Generated three options".into()),

@@ -1282,6 +1282,7 @@ fn question_payload_roundtrip() {
     let p = QuestionSessionPayload {
         session_id: "q".into(),
         status: SessionStatus::Answered,
+        run_slug: None,
         title: Some("Pick".into()),
         prompt: "which?".into(),
         context: Some("ctx".into()),

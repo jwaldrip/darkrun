@@ -104,6 +104,16 @@ pub async fn serve_stdio_on(
             crate::sessions::create_show_with_focus(&sessions, &mat_store, id, false).is_ok()
         })
     };
+    // Durability: every interactive session (question / direction / picker) the
+    // registry upserts — on raise AND on answer — is written to the run's
+    // `interactive/` dir, so an open question and its eventual answer survive an
+    // engine restart and reappear when the desktop reconnects.
+    {
+        let persist_store = state.store.clone();
+        state.sessions.on_persist(std::sync::Arc::new(move |payload| {
+            let _ = persist_store.write_interactive_session(payload);
+        }));
+    }
 
     // Bind the listener up front so we can read the REAL port back (the
     // requested addr may carry port 0 for an ephemeral bind) before advertising

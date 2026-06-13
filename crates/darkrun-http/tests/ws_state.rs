@@ -59,6 +59,7 @@ fn question(session_id: &str) -> SessionPayload {
     SessionPayload::Question(QuestionSessionPayload {
         session_id: session_id.into(),
         status: SessionStatus::Pending,
+        run_slug: None,
         title: Some("Pick a path".into()),
         prompt: "Which station?".into(),
         context: Some("some context".into()),
