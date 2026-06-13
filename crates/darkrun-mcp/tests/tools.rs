@@ -6401,3 +6401,69 @@ fn an_interactive_run_allows_a_question() {
         .unwrap();
     assert!(server.sessions().get("q-01").is_some(), "solo run raises the question");
 }
+
+// ── Engine-driven run setup: factory -> mode -> size pickers ─────────────────
+
+#[test]
+fn run_new_without_selections_elicits_factory_then_mode_then_size() {
+    let (d, server) = server();
+    let store = darkrun_core::StateStore::new(d.path());
+
+    // Create with NO selections — the engine opens the setup elicitation.
+    let res = server
+        .darkrun_run_new(Parameters(RunStartInput {
+            slug: "r".into(),
+            factory: "".into(),
+            title: Some("R".into()),
+            mode: "".into(),
+            size: "".into(),
+        }))
+        .unwrap();
+    let v = body(&res);
+    assert_eq!(v["status"], "awaiting_setup");
+    assert_eq!(v["selecting"], "factory");
+    // The factory picker is raised (stable id) and there's no real run yet.
+    assert!(server.sessions().get("setup-r-factory").is_some());
+    assert!(store.read_pending("r").is_some());
+    assert!(store.read_state("r").unwrap().is_none(), "no run materialized during setup");
+
+    // Operator picks the factory -> advance raises the MODE picker.
+    store.set_pending_selection("r", "factory", "software").unwrap();
+    assert_eq!(body(&next(&server, "r"))["selecting"], "mode");
+
+    // Operator picks the mode -> advance raises the SIZE picker.
+    store.set_pending_selection("r", "mode", "solo").unwrap();
+    assert_eq!(body(&next(&server, "r"))["selecting"], "size");
+
+    // Operator picks the size -> the next advance MATERIALIZES the run and
+    // returns a real action (not awaiting_setup); pending is cleared.
+    store.set_pending_selection("r", "size", "full").unwrap();
+    let done = body(&next(&server, "r"));
+    assert_ne!(
+        done.get("status").and_then(|s| s.as_str()),
+        Some("awaiting_setup"),
+        "the run is started once all three are chosen: {done}"
+    );
+    assert!(store.read_pending("r").is_none(), "pending cleared after start");
+    assert!(store.read_state("r").unwrap().is_some(), "the real run now exists");
+}
+
+#[test]
+fn run_new_with_all_selections_skips_elicitation() {
+    // A fully-specified call (e.g. a script or a mode-specific command) starts
+    // the run directly, no pickers.
+    let (d, server) = server();
+    let store = darkrun_core::StateStore::new(d.path());
+    let res = server
+        .darkrun_run_new(Parameters(RunStartInput {
+            slug: "r".into(),
+            factory: "software".into(),
+            title: Some("R".into()),
+            mode: "solo".into(),
+            size: "full".into(),
+        }))
+        .unwrap();
+    assert!(is_ok(&res));
+    assert!(store.read_pending("r").is_none(), "no setup record");
+    assert!(store.read_state("r").unwrap().is_some(), "run materialized immediately");
+}

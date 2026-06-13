@@ -112,6 +112,21 @@ pub async fn serve_stdio_on(
         let sessions = state.sessions.clone();
         let res_store = state.store.clone();
         state.with_surface_resolver(move |run| {
+            // A run still in SETUP: answering a factory/mode/size picker should
+            // promptly surface the NEXT selection. (Once all are chosen, the
+            // desktop stays on the last pick until the agent's next advance
+            // materializes the run.)
+            if let Some(pending) = res_store.read_pending(run) {
+                if let Some(kind) = pending.first_unset() {
+                    crate::sessions::raise_setup_picker(
+                        &sessions,
+                        run,
+                        pending.title.as_deref(),
+                        kind,
+                    );
+                }
+                return;
+            }
             let _ = crate::sessions::create_show_with_focus(&sessions, &res_store, run, false);
         })
     };

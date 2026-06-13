@@ -304,14 +304,19 @@ pub struct RunStartInput {
     pub size: String,
 }
 
+// The setup selections default to EMPTY, not a concrete value: an omitted
+// factory/mode/size means "not chosen — elicit it from the operator via a
+// visual picker" (the engine-driven setup flow), rather than silently
+// defaulting. A caller that DOES pass a value (a script, a mode-specific
+// command like darkrun-dark, the test suite) skips elicitation for that axis.
 fn default_factory() -> String {
-    "software".to_string()
+    String::new()
 }
 fn default_mode() -> String {
-    "solo".to_string()
+    String::new()
 }
 fn default_size() -> String {
-    "full".to_string()
+    String::new()
 }
 
 /// Input for tools that operate on an existing run.
@@ -1310,6 +1315,16 @@ impl DarkrunServer {
             return Ok(err_text("slug must not be empty"));
         }
         let store = self.store();
+        // Any unset selection (factory / mode / size) is ELICITED from the
+        // operator via a visual picker — the engine drives the chain, so the
+        // skill stays thin. A fully-specified call (all three given) skips
+        // straight to materializing the run.
+        if input.factory.trim().is_empty()
+            || input.mode.trim().is_empty()
+            || input.size.trim().is_empty()
+        {
+            return self.begin_run_setup(&store, &input);
+        }
         match run_start(
             &store,
             &input.slug,
@@ -1321,6 +1336,82 @@ impl DarkrunServer {
             Ok(run) => ok_json(&run),
             Err(e) => Ok(err_text(e)),
         }
+    }
+
+    /// Open (or resume) the engine-driven setup elicitation for a run: record a
+    /// `pending.json` seeded with whatever selections WERE provided, then raise
+    /// the picker for the first one still missing. The operator picks it in the
+    /// desktop; the answer writes onto `pending.json`, and the next
+    /// `darkrun_advance` raises the following picker or materializes the run.
+    fn begin_run_setup(
+        &self,
+        store: &StateStore,
+        input: &RunStartInput,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let mut pending = store.read_pending(&input.slug).unwrap_or_default();
+        pending.slug = input.slug.clone();
+        if pending.title.is_none() {
+            pending.title = input.title.clone();
+        }
+        // Seed any explicitly-provided axes (don't overwrite an earlier pick).
+        if !input.factory.trim().is_empty() {
+            pending.factory.get_or_insert_with(|| input.factory.clone());
+        }
+        if !input.mode.trim().is_empty() {
+            pending.mode.get_or_insert_with(|| input.mode.clone());
+        }
+        if !input.size.trim().is_empty() {
+            pending.size.get_or_insert_with(|| input.size.clone());
+        }
+        if let Err(e) = store.write_pending(&pending) {
+            return Ok(err_text(e.to_string()));
+        }
+        match pending.first_unset() {
+            Some(kind) => {
+                sessions::raise_setup_picker(
+                    &self.sessions,
+                    &input.slug,
+                    pending.title.as_deref(),
+                    kind,
+                );
+                let desktop = self.surface_desktop(&input.slug);
+                ok_json(&serde_json::json!({
+                    "status": "awaiting_setup",
+                    "selecting": kind,
+                    "slug": input.slug,
+                    "note": format!(
+                        "The operator is choosing the run's {kind} in the desktop. \
+                         Drive darkrun_advance once they've picked — the engine elicits \
+                         factory \u{2192} mode \u{2192} size, then starts the run."
+                    ),
+                    "desktop": desktop,
+                }))
+            }
+            // All three were supplied after all — materialize now.
+            None => match self.finalize_run_setup(store, &input.slug) {
+                Ok(run) => ok_json(&run),
+                Err(e) => Ok(err_text(e)),
+            },
+        }
+    }
+
+    /// Materialize the real run from a completed `pending.json`: run the normal
+    /// `run_start`, then delete the pending record. Returns the started run.
+    fn finalize_run_setup(
+        &self,
+        store: &StateStore,
+        slug: &str,
+    ) -> std::result::Result<serde_json::Value, String> {
+        let pending = store
+            .read_pending(slug)
+            .ok_or_else(|| format!("no pending setup for run '{slug}'"))?;
+        let factory = pending.factory.clone().unwrap_or_default();
+        let mode = Mode::from_label(&pending.mode.clone().unwrap_or_default());
+        let size = pending.size.clone().unwrap_or_default();
+        let run = run_start(store, slug, &factory, pending.title.clone(), mode, &size)
+            .map_err(|e| e.to_string())?;
+        store.clear_pending(slug).map_err(|e| e.to_string())?;
+        serde_json::to_value(&run).map_err(|e| e.to_string())
     }
 
     /// Deprecated alias of `darkrun_run_new` — kept for one release.
@@ -1343,6 +1434,38 @@ impl DarkrunServer {
         Parameters(input): Parameters<RunRef>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         let store = self.store();
+        // Run still in SETUP: drive the factory -> mode -> size picker chain.
+        // Each tick raises the next unset selection's picker (idempotent), and
+        // once all three are chosen, materializes the run and falls through to
+        // the normal walk.
+        if let Some(pending) = store.read_pending(&input.slug) {
+            match pending.first_unset() {
+                Some(kind) => {
+                    sessions::raise_setup_picker(
+                        &self.sessions,
+                        &input.slug,
+                        pending.title.as_deref(),
+                        kind,
+                    );
+                    self.surface_desktop_once(&input.slug);
+                    return ok_json(&serde_json::json!({
+                        "status": "awaiting_setup",
+                        "selecting": kind,
+                        "slug": input.slug,
+                        "note": format!(
+                            "Waiting on the operator to choose the run's {kind} in the \
+                             desktop. Re-run darkrun_advance once they have."
+                        ),
+                    }));
+                }
+                None => {
+                    if let Err(e) = self.finalize_run_setup(&store, &input.slug) {
+                        return Ok(err_text(e));
+                    }
+                    // Fall through to the first real tick of the started run.
+                }
+            }
+        }
         match run_tick(&store, &input.slug) {
             Ok(tick) => {
                 // The desktop comes up with the work, not at the first gate:

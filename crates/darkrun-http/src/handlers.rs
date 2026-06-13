@@ -321,6 +321,18 @@ pub async fn picker_select(
     }
 
     let run = picker.run_slug.clone();
+    // A run-SETUP picker (factory / mode / size) writes its choice onto the
+    // run's pending.json, so the next darkrun_advance raises the following
+    // selection or materializes the run.
+    let setup_kind = match picker.kind {
+        darkrun_api::session::PickerKind::Factory => Some("factory"),
+        darkrun_api::session::PickerKind::Mode => Some("mode"),
+        darkrun_api::session::PickerKind::Size => Some("size"),
+        _ => None,
+    };
+    if let (Some(kind), Some(run)) = (setup_kind, run.as_deref()) {
+        let _ = state.store.set_pending_selection(run, kind, &req.id);
+    }
     picker.selection = Some(darkrun_api::PickerSelection { id: req.id.clone() });
     picker.status = SessionStatus::Decided;
     state.sessions.upsert(SessionPayload::Picker(picker));
