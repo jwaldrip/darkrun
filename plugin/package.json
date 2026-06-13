@@ -1,6 +1,6 @@
 {
   "name": "darkrun",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "darkrun — a dark factory harness for Claude Code: an agentic assembly line for any structured work. Ships a native, per-arch Rust binary (no JS runtime).",
   "homepage": "https://darkrun.ai",
   "repository": {
