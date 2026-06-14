@@ -59,7 +59,7 @@ serde_json = { workspace = true }
 
 # CORS-enabled browser fetch for /browse (GitHub Trees API + raw.githubusercontent).
 # `http` is the only feature we use; default features pull in websocket/eventsource.
-gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
 
 # Concurrency for the per-run fan-out fetches in /browse (join_all). `std` only.
 futures = { version = "0.3", default-features = false, features = ["std"] }
